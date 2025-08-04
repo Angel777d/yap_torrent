@@ -1,9 +1,6 @@
-import hashlib
-
 import requests
 
-from torrent.parser import decode, encode
-from torrent.structures import TrackerAnnounceResponse, TorrentInfo
+from torrent.structures import TrackerAnnounceResponse
 
 
 def make_announce(
@@ -18,7 +15,7 @@ def make_announce(
         compact=1,
         event="",
         tracker_id: str = ""
-) -> TrackerAnnounceResponse:
+) -> TrackerAnnounceResponse | None:
     # peer_id = '-PC0100-123469398945'
     # peer_id = '-qB4230-414563428945'
 
@@ -55,17 +52,7 @@ def make_announce(
         headers=headers,
     )
 
+    if response.status_code != 200:
+        return None
+
     return TrackerAnnounceResponse(response.content, compact=compact)
-
-
-def load_torrent_file(path) -> TorrentInfo:
-    try:
-        with open(path, "rb") as f:
-            data = decode(f.read())
-    except Exception as ex:
-        print(f"wrong file format. exception: {ex}")
-        return TorrentInfo(bytes(), dict())
-
-    encoded_info = encode(data.get("info"))
-    info_hash = hashlib.sha1(encoded_info).digest()
-    return TorrentInfo(info_hash, data)

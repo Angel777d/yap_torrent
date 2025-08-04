@@ -4,8 +4,8 @@ import asyncio
 import struct
 import time
 from asyncio import StreamReader, StreamWriter
-from enum import Enum
-from typing import Optional
+from enum import Enum, unique, auto
+from typing import Tuple
 
 from torrent.structures import PeerInfo
 
@@ -30,7 +30,7 @@ class Message:
 
     def __init__(self):
         self.__message_id: MessageId = MessageId.KEEP_ALIVE
-        self.__payload: bytes = bytearray()
+        self.__payload: bytes = bytes()
 
     @classmethod
     def from_bytes(cls, buffer: bytes):
@@ -78,6 +78,27 @@ class Message:
         else:
             print("unknown message_id")
             return None
+
+    @property
+    def index(self) -> int:
+        if self.__message_id == MessageId.HAVE:
+            return int.from_bytes(self.__payload)
+        raise RuntimeError("wrong message type for index property")
+
+    @property
+    def bitfield(self) -> bytes:
+        if self.__message_id == MessageId.BITFIELD:
+            return self.__payload
+        raise RuntimeError("wrong message type for bitfield property")
+
+    @property
+    def piece(self) -> Tuple[int, int, bytes]:
+        if self.__message_id == MessageId.PIECE:
+            index = int.from_bytes(self.__payload[:4])
+            begin = int.from_bytes(self.__payload[4:8])
+            block = self.__payload[8:]
+            return index, begin, block
+        raise RuntimeError("wrong message type for piece property")
 
     def __repr__(self):
         return self.__str__()
@@ -143,20 +164,20 @@ class Message:
         return struct.unpack_from(cls.HANDSHAKE_FORMAT, buffer)
 
 
-class PeerState:
-    def __init__(self):
-        self.peer_id = None
-        self.unchoked = False
-        self.interested = False
+@unique
+class ConnectionState(Enum):
+    Created = auto()
+    Handshake = auto()
+    Connected = auto()
+    Disconnected = auto()
 
 
 class Connection:
 
-    def __init__(self, timeout:int=60*3):
+    def __init__(self, timeout: int = 60 * 3):
         self.timeout = timeout
 
-        self.remote_state = PeerState()
-        self.local_state = PeerState()
+        self.remote_peer_id = None
 
         self.connection_time = time.time()
         self.last_message_time = time.time()
@@ -164,10 +185,14 @@ class Connection:
         self.reader: StreamReader = None
         self.writer: StreamWriter = None
 
+        self.state = ConnectionState.Created
 
-    async def connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes) -> bool:
+    def connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes) -> asyncio.Task:
+        self.state = ConnectionState.Handshake
+        return asyncio.create_task(self._connect(peer_info, info_hash, peer_id))
+
+    async def _connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes) -> None:
         self.connection_time = time.time()
-        self.local_state.peer_id = peer_id
 
         self.reader, self.writer = await asyncio.open_connection(peer_info.host, peer_info.port)
 
@@ -178,21 +203,24 @@ class Connection:
         _, _, _, remote_info_hash, remote_peer_id = Message.parse_handshake_message(handshake_response)
         print(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
 
-        self.remote_state.peer_id = remote_peer_id
+        self.remote_peer_id = remote_peer_id
         self.last_message_time = time.time()
 
-        return remote_info_hash == info_hash
+        if remote_info_hash == info_hash:
+            self.state = ConnectionState.Connected
+        else:
+            self.state = ConnectionState.Disconnected
 
-    def is_alive(self):
-        return time.time() - self.last_message_time < self.timeout
+    def is_dead(self) -> bool:
+        return self.state == ConnectionState.Disconnected or (time.time() - self.last_message_time > self.timeout)
 
-    def close(self):
+    def close(self) -> None:
         self.last_message_time = .0
         self.writer.close()
         self.writer = None
         self.reader = None
 
-    async def read(self) -> Optional[Message]:
+    async def read(self) -> Message:
         length = await self.reader.read(4)
         length = int.from_bytes(length)
         if length == 0:
@@ -207,51 +235,37 @@ class Connection:
 
         return self.__on_message(message)
 
-    def choke(self):
-        self.remote_state.unchoked = False
+    def choke(self) -> None:
         self.__send(Message.create(MessageId.CHOKE))
 
-    def unchoke(self):
-        self.remote_state.unchoked = True
+    def unchoke(self) -> None:
         self.__send(Message.create(MessageId.UNCHOKE))
 
-    def interested(self):
-        self.local_state.interested = True
+    def interested(self) -> None:
         self.__send(Message.create(MessageId.INTERESTED))
 
-    def not_interested(self):
-        self.local_state.interested = False
+    def not_interested(self) -> None:
         self.__send(Message.create(MessageId.NOT_INTERESTED))
 
-    def have(self, piece_index):
+    def have(self, piece_index) -> None:
         self.__send(Message.create(MessageId.HAVE, (piece_index,)))
 
-    def bitfield(self, bitfield):
+    def bitfield(self, bitfield) -> None:
         self.__send(Message.create(MessageId.BITFIELD, (bitfield,)))
 
-    def request(self, piece_index, begin, length):
+    def request(self, piece_index, begin, length) -> None:
         self.__send(Message.create(MessageId.REQUEST, (piece_index, begin, length)))
 
-    def piece(self, piece_index, begin, block):
+    def piece(self, piece_index, begin, block) -> None:
         self.__send(Message.create(MessageId.PIECE, (piece_index, begin, block)))
 
-    def cancel(self, piece_index, begin, length):
+    def cancel(self, piece_index, begin, length) -> None:
         self.__send(Message.create(MessageId.CANCEL, (piece_index, begin, length)))
 
-    def __send(self, message: bytes):
+    def __send(self, message: bytes) -> None:
         print("send message:", Message.from_bytes(message[4:]))
         self.writer.write(message)
 
     def __on_message(self, message: Message):
         self.last_message_time = time.time()
-
-        if message.message_id == MessageId.CHOKE:
-            self.local_state.unchoked = False
-        elif message.message_id == MessageId.UNCHOKE:
-            self.local_state.unchoked = True
-        elif message.message_id == MessageId.INTERESTED:
-            self.remote_state.interested = True
-        elif message.message_id == MessageId.NOT_INTERESTED:
-            self.remote_state.interested = False
-
         return message

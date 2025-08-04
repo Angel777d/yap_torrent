@@ -1,3 +1,5 @@
+from typing import Dict, Any
+
 ROOT = b'root'
 DICT = b'd'
 LIST = b'l'
@@ -6,7 +8,7 @@ INT = b'i'
 EMPTY = b''
 
 
-class TBlock:
+class _Block:
 
     def __init__(self):
         self.parts = []
@@ -16,7 +18,7 @@ class TBlock:
         position += 1
         current_byte = data[position].to_bytes(1)
         while current_byte != END:
-            child = {DICT: TDict, LIST: TArray, INT: TInt}.get(current_byte, TString)()
+            child = {DICT: _Dict, LIST: _Array, INT: _Int}.get(current_byte, _String)()
             self.parts.append(child)
             position = child.read(data, position)
             current_byte = data[position].to_bytes(1)
@@ -27,7 +29,7 @@ class TBlock:
         return self.value
 
 
-class TString(TBlock):
+class _String(_Block):
     def read(self, data: bytes, position):
         size_len = 0
         current_byte = data[position].to_bytes(1)
@@ -53,7 +55,7 @@ class TString(TBlock):
         return str(len(value)).encode("utf-8") + b":" + value
 
 
-class TInt(TBlock):
+class _Int(_Block):
     def read(self, data: bytes, position):
         value = EMPTY
         position += 1
@@ -68,11 +70,11 @@ class TInt(TBlock):
         return position + 1
 
     @staticmethod
-    def encode(value: int):
+    def encode(value: int) -> bytes:
         return INT + str(value).encode("utf-8") + END
 
 
-class TArray(TBlock):
+class _Array(_Block):
     def build(self):
         return [part.build() for part in self.parts]
 
@@ -84,7 +86,7 @@ class TArray(TBlock):
         return LIST + result + END
 
 
-class TDict(TBlock):
+class _Dict(_Block):
     def build(self):
         return {self.parts[i].build(): self.parts[i + 1].build() for i in range(0, len(self.parts), 2)}
 
@@ -97,23 +99,23 @@ class TDict(TBlock):
         return DICT + result + END
 
 
-def decode(data: bytes):
+def decode(data: bytes) -> Dict[str, Any]:
     position = 0
-    result = TDict()
+    result = _Dict()
     result.read(data, position)
     return result.build()
 
 
 def encode(value):
     if isinstance(value, dict):
-        return TDict.encode(value)
+        return _Dict.encode(value)
     elif isinstance(value, list):
-        return TArray.encode(value)
+        return _Array.encode(value)
     elif isinstance(value, str):
-        return TString.encode(value)
+        return _String.encode(value)
     elif isinstance(value, bytes):
-        return TString.encode(value)
+        return _String.encode(value)
     elif isinstance(value, int):
-        return TInt.encode(value)
+        return _Int.encode(value)
     else:
         raise Exception("unknown type " + str(type(object)))

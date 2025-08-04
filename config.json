@@ -1,4 +1,5 @@
 {
+  "data_folder": "data",
   "download_folder": "data/download",
   "watch_folder": "data/watch",
   "trash_folder": "data/trash"

@@ -3,9 +3,11 @@ import time
 from typing import List
 
 import upnp
-from system import Config, Storage, System
-from system.torrents import Torrents
-from system.watcher import Watcher
+from app import Env, System
+from app.announce_system import AnnounceSystem
+from app.config import Config
+from app.peer_system import PeerSystem
+from app.watch_system import WatcherSystem
 
 GLOBAL_TICK_TIME = 1
 
@@ -18,17 +20,20 @@ def network_setup(port: int) -> tuple[str, str]:
         print(f"open port: {open_res}")
     return ip, upnp.get_my_ext_ip()
 
+
 def create_peer_id():
     return b'-PY0001-111111111111'
+
 
 async def main():
     config = Config()
     _, external_ip = network_setup(config.port)
-    storage = Storage(create_peer_id(), external_ip)
+    env = Env(create_peer_id(), external_ip, config)
 
     systems: List[System] = [
-        await Watcher(config, storage).start(),
-        await Torrents(config, storage).start()
+        await WatcherSystem(env).start(),
+        await AnnounceSystem(env).start(),
+        await PeerSystem(env).start(),
     ]
 
     last_time = time.time()

@@ -1,51 +1,46 @@
 import math
-from importlib.metadata import files
-from typing import List
+from typing import List, Dict
+from warnings import deprecated
 
 from torrent.parser import decode
 
 
 class PeerInfo:
-    def __init__(self, data):
+    def __init__(self, data: bytes):
         self.host = f"{data[0]}.{data[1]}.{data[2]}.{data[3]}"
         self.port = int.from_bytes(data[4:], "big")
-        self.hash = f'{self.host}:{self.port}'
-
-    @staticmethod
-    def from_binary_peers(peers):
-        return [PeerInfo(peers[i: i + 6]) for i in range(0, len(peers), 6)]
 
     def __repr__(self):
-        return self.hash
-
-    def __hash__(self):
-        return self.hash
+        return f'PeerInfo: {self.host}:{self.port}'
 
 
 class TrackerAnnounceResponse:
     def __init__(self, response, compact: int = 1):
-        self.__compact = compact
-        self.__data = decode(response)
+        self.__compact: int = compact
+        self.__data: dict = decode(response)
 
     @property
-    def interval(self):
+    def interval(self) -> int:
         return self.__data.get('interval', -1)
 
     @property
-    def min_interval(self):
+    def min_interval(self) -> int:
         return self.__data.get('min interval', -1)
 
     @property
-    def complete(self):
+    def complete(self) -> int:
         return self.__data.get('complete', 0)
 
     @property
-    def incomplete(self):
+    def incomplete(self) -> int:
         return self.__data.get('incomplete', 0)
 
     @property
-    def peers(self) -> List[PeerInfo]:
-        return PeerInfo.from_binary_peers(self.__data.get("peers", b''))
+    def peers(self) -> tuple[PeerInfo, ...]:
+        peers: bytes = self.__data.get("peers", b'')
+        if self.__compact:
+            return tuple(PeerInfo(peers[i: i + 6]) for i in range(0, len(peers), 6))
+        raise NotImplementedError()
 
     @property
     def tracker_id(self) -> str:
@@ -122,17 +117,18 @@ class TorrentInfo:
             return (FileInfo([self.name], self.info.get("length", 0), self.info.get("md5sum", '')),)
 
     @property
+    @deprecated("use announce_list instead")
     def announce(self) -> str:
         return self.__data.get("announce", "WTF")
 
     @property
-    def announce_list(self) -> List[str]:
-        return self.__data.get('announce-list', [self.__data.get("announce", "WTF")])
+    def announce_list(self) -> List[List[str]]:
+        return self.__data.get('announce-list', [[self.__data.get("announce", "WTF")]])
 
     @property
     def size(self) -> int:
         if self.files:
-            size = sum(f.get('length') for f in self.files)
+            size = sum(f.length for f in self.files)
         else:
             size = self.info.get('length', 0)
         return size
@@ -142,40 +138,31 @@ class TorrentInfo:
         return Pieces(self.info.get('piece length', 1), self.info.get('pieces', b""))
 
 
-class BitField:
-    def __init__(self, length: int):
-        self._length: int = length
-        self._bitfield = bytearray(math.ceil(length / 8))
 
-    @staticmethod
-    def __index_to_position(index: int) -> tuple[int, int]:
-        byte_index = index // 8
-        byte_shift = 7 - index % 8
-        return byte_index, byte_shift
 
-    def update(self, bitfield: bytearray):
-        self._bitfield = bitfield
+class PieceData:
+    __BLOCK_SIZE = 2 ** 14  # (16kb)
 
-    def set_at(self, index: int):
-        byte_index, byte_shift = self.__index_to_position(index)
-        byte_value = self._bitfield[byte_index]
-        self._bitfield[byte_index] = byte_value | 1 << byte_shift
+    def __init__(self, index: int, length: int):
+        self.index = index
+        self.__length = length
+        self.__data: Dict[int, bytes] = {}
+        self.__begin = 0  # block_index * block_size
 
-    # def reset_at(self, index: int):
-    #     byte_index, byte_shift = self.__index_to_position(index)
-    #     byte_value = self._bitfield[byte_index]
-    #     self._bitfield[byte_index] = byte_value & ~(1 << byte_shift)
+    def append(self, begin: int, block: bytes):
+        block_index = begin // self.block_size
+        self.__data[block_index] = block
 
-    def get_at(self, index) -> bool:
-        byte_index, byte_shift = self.__index_to_position(index)
-        byte_value = self._bitfield[byte_index]
-        return byte_value & 1 << byte_shift != 0
+    def get_next_begin(self):
+        result = self.__begin
+        self.__begin += self.block_size
+        return result
 
-    def get_next_index(self, owned: 'BitField') -> int:
-        for i in range(0, len(self._bitfield)):
-            byte_value = self._bitfield[i] & ~owned._bitfield[i]
-            if byte_value != 0:
-                for byte_shift in range(0, 8):
-                    if byte_value & 1 << byte_shift:
-                        return i * 8 + byte_shift
-        return -1
+    @property
+    def completed(self):
+        blocks_num = math.ceil(self.__length / self.block_size)
+        return len(self.__data) == blocks_num
+
+    @property
+    def block_size(self):
+        return self.__BLOCK_SIZE

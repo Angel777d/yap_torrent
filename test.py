@@ -1,16 +1,14 @@
 import asyncio
 
 import math
-from typing import Dict
 
 import upnp
 
 from pathlib import Path
 
-from system import PieceData
-from torrent.connection import Connection, MessageId
-from torrent.structures import TorrentInfo, BitField, FileInfo
-from torrent.tracker import make_announce, load_torrent_file
+from torrent.structures import FileInfo, PieceData
+from torrent.tracker import make_announce
+from torrent import load_torrent_file
 
 port = 6889
 
@@ -45,7 +43,7 @@ async def load_torrent():
 
 async def main():
     peer_id = b'-PY0001-111111111111'
-    file_path = Path("data/active/ubuntu-24.10-desktop-amd64.iso.torrent")
+    file_path = Path("data/watch/ubuntu-24.10-desktop-amd64.iso.torrent")
     print(file_path.exists(), file_path.absolute())
     torrent_info = load_torrent_file(file_path)
 
