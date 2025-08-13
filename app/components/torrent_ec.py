@@ -5,16 +5,16 @@ from torrent import TorrentInfo
 
 
 class TorrentInfoEC(EntityComponent):
-    def __init__(self, torrent_info: TorrentInfo):
-        super().__init__()
-        self.info: TorrentInfo = torrent_info
+	def __init__(self, torrent_info: TorrentInfo):
+		super().__init__()
+		self.info: TorrentInfo = torrent_info
 
-    @classmethod
-    def is_hashable(cls) -> bool:
-        return True
+	@classmethod
+	def is_hashable(cls) -> bool:
+		return True
 
-    def get_hash(self) -> Hashable:
-        return self.info.info_hash
+	def get_hash(self) -> Hashable:
+		return self.info.info_hash
 
 # def __choose_rarest(pieces: Tuple[PieceToPeers, ...]):
 #     result: List[PieceToPeers] = []
