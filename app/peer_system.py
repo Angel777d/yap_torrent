@@ -3,49 +3,11 @@ import asyncio
 from app import System, Env
 from app.components.bitfield_ec import BitfieldEC
 from app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC, PeerHandshakeEC, PeerActiveEC, \
-	PeerUpdateBitfieldEC
+	PeerUpdateBitfieldEC, PeerUpdateHaveEC
+from app.components.piece_ec import PieceEC
 from app.components.torrent_ec import TorrentInfoEC
 from core.DataStorage import Entity
 from torrent.connection import Connection, ConnectionState, MessageId
-
-
-# async def load_torrent(self, torrent_entity: Entity, connection: Connection):
-#     info = torrent_entity.get_component(TorrentInfoEC).info
-#     active_ec = torrent_entity.get_component(ActiveTorrentEC)
-#     remote_bitfield = BitField(info.pieces.num)
-#     connection.interested()
-#     connection.unchoke()
-#
-#     piece = None
-#
-#     while True:
-#         message = await connection.read()
-#         if message.message_id == MessageId.BITFIELD:
-#             remote_bitfield.update(message.payload)
-#         if message.message_id == MessageId.HAVE:
-#             print(f"remote have piece {message.payload}")
-#             remote_bitfield.set_at(message.payload)
-#         if message.message_id == MessageId.UNCHOKE:
-#             pass
-#         if message.message_id == MessageId.PIECE:
-#             index, begin, block = message.payload
-#             piece.append(begin, block)
-#
-#             if piece.completed:
-#                 print(f"piece {piece.index} completed")
-#                 connection.have(piece.index)
-#                 self.storage.loaded_pieces.setdefault(info.info_hash, []).append(piece)
-#                 piece = None
-#             else:
-#                 # continue download
-#                 connection.request(piece.index, piece.get_next_begin(), piece.block_size)
-#
-#         if not piece:
-#             index = remote_bitfield.get_next_index(active_ec.bitfield)
-#             if index > -1:
-#                 print(f"piece {index} download started")
-#                 piece = PieceData(index, info.pieces.piece_length)
-#                 connection.request(piece.index, piece.get_next_begin(), piece.block_size)
 
 
 class PeerSystem(System):
@@ -55,7 +17,7 @@ class PeerSystem(System):
 
 	async def update(self, delta_time: float):
 		await self.remove_outdated()
-		await self.update_peers()
+		await self.connect_to_new_peers()
 		await self.process_handshake_peers()
 		await self.process_active_peers()
 
@@ -66,13 +28,11 @@ class PeerSystem(System):
 			if entity.get_component(PeerConnectionEC).connection.is_dead():
 				ds.remove_entity(entity)
 
-	async def update_peers(self):
+	async def connect_to_new_peers(self):
 		ds = self.env.data_storage
-		my_peer_id = self.env.peer_id
 
-		active_collection = ds.get_collection(PeerConnectionEC)
 		# check capacity
-		if len(active_collection) >= self.env.config.max_connections:
+		if len(ds.get_collection(PeerConnectionEC)) >= self.env.config.max_connections:
 			return
 
 		# sort and filter pending peers
@@ -81,6 +41,8 @@ class PeerSystem(System):
 		pass
 
 		# connect to new peers
+		my_peer_id = self.env.peer_id
+		active_collection = ds.get_collection(PeerConnectionEC)
 		while len(active_collection) < self.env.config.max_connections and pending_peers:
 			peer_entity = pending_peers.pop(0)
 			peer_entity.remove_component(PeerPendingEC)
@@ -119,6 +81,21 @@ class PeerSystem(System):
 
 	async def process_active_peers(self):
 		ds = self.env.data_storage
+		collection = ds.get_collection(PeerUpdateBitfieldEC).entities
+		for peer_entity in collection:
+			peer_entity.remove_component(PeerUpdateBitfieldEC)
+			await self._choose_piece(peer_entity)
+
+		collection = ds.get_collection(PeerUpdateHaveEC).entities
+		for peer_entity in collection:
+			index = peer_entity.get_component(PeerUpdateHaveEC).index
+
+			info_hash = peer_entity.get_component(PeerInfoEC).info_hash
+			torrent_entity = ds.get_collection(TorrentInfoEC).find(info_hash)
+			local_bitfield = torrent_entity.get_component(BitfieldEC)
+
+			if local_bitfield.have(index):
+				pass
 
 		# wait for bitfield or have. mark bitfield update
 		# mark peer as have parts
@@ -135,10 +112,30 @@ class PeerSystem(System):
 		# PeerHandshakeEC - tmp. handshake in progress
 		# PeerActiveEC - connection and handshake done
 		# PeerUpdateBitfieldEC
+		pass
 
-		updated_bits = ds.get_collection(PeerUpdateBitfieldEC).entities
-		for entity in updated_bits:
-			remote = entity.get_component(BitfieldEC)
+	async def _choose_piece(self, peer_entity: Entity):
+		if peer_entity.get_component(PieceEC):
+			return
+
+		ds = self.env.data_storage
+		remote_bitfield = peer_entity.get_component(BitfieldEC)
+		info_hash = peer_entity.get_component(PeerInfoEC).info_hash
+		torrent_entity = ds.get_collection(TorrentInfoEC).find(info_hash)
+		local_bitfield = torrent_entity.get_component(BitfieldEC)
+
+		connection = peer_entity.get_component(PeerConnectionEC)
+
+		if local_bitfield.is_interested_in(remote_bitfield):
+			connection.interested()
+			exclude = set(e.get_component(PieceEC).data.index for e in ds.get_collection(PieceEC).entities if
+						  e.get_component(PieceEC).info_hash == info_hash)
+
+			bitfields = (e.get_component(BitfieldEC) for e in ds.get_collection(PeerActiveEC).entities if
+						 e.get_component(PeerInfoEC).info_hash == info_hash)
+
+		else:
+			connection.not_interested()
 
 	async def _listen(self, peer_entity: Entity):
 		ds = self.env.data_storage
@@ -152,26 +149,22 @@ class PeerSystem(System):
 		peer_id = connection.remote_peer_id
 		torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 
-		# connection.interested()
-		# connection.unchoke()
-
 		while True:
 			message = await connection.read()
 
 			if message.message_id == MessageId.PIECE:
 				index, begin, block = message.piece
 
-				# must be created at first piece request
-				# piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(peer_ec.info_hash, index))
-				# piece_ec = piece_entity.get_component(PieceEC)
-				# piece_ec.data.append(begin, block)
-				# if piece_ec.data.completed:
-				#     piece_ec.add_marker(CompletedPieceEC)
+			# must be created at first piece request
+			# piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(peer_ec.info_hash, index))
+			# piece_ec = piece_entity.get_component(PieceEC)
+			# piece_ec.data.append(begin, block)
+			# if piece_ec.data.completed:
+			#     piece_ec.add_marker(CompletedPieceEC)
 
 			elif message.message_id == MessageId.HAVE:
 				bitfield_ec.set(message.index)
-				bitfield_ec.add_marker(PeerUpdateBitfieldEC)
-				pass
+				peer_entity.add_component(PeerUpdateHaveEC(message.index))
 			elif message.message_id == MessageId.CHOKE:
 				pass
 			elif message.message_id == MessageId.UNCHOKE:
@@ -183,5 +176,3 @@ class PeerSystem(System):
 			elif message.message_id == MessageId.BITFIELD:
 				bitfield_ec.update(message.bitfield)
 				bitfield_ec.add_marker(PeerUpdateBitfieldEC)
-				# mark peer to update bitfield
-				pass

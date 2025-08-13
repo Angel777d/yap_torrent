@@ -35,7 +35,7 @@ class PeerConnectionEC(EntityComponent):
 		self.connection: Connection = connection
 
 		self.local_unchoked = False
-		self.local_interested = False
+		self.__local_interested = False
 
 		self.remote_unchoked = False
 		self.remove_interested = False
@@ -43,6 +43,18 @@ class PeerConnectionEC(EntityComponent):
 	def _reset(self):
 		self.connection.close()
 		super()._reset()
+
+	def interested(self) -> None:
+		if self.__local_interested:
+			return
+		self.connection.interested()
+		self.__local_interested = True
+
+	def not_interested(self) -> None:
+		if not self.__local_interested:
+			return
+		self.connection.not_interested()
+		self.__local_interested = False
 
 
 class PeerHandshakeEC(EntityComponent):
@@ -69,3 +81,9 @@ class PeerActiveEC(EntityComponent):
 
 class PeerUpdateBitfieldEC(EntityComponent):
 	pass
+
+
+class PeerUpdateHaveEC(EntityComponent):
+	def __init__(self, index: int):
+		super().__init__()
+		self.index = index
