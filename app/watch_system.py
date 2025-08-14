@@ -51,7 +51,7 @@ class WatcherSystem(System):
 					continue
 
 				print("new torrent added from path:", file_path)
-				entity = await self._add_torrent(torrent_info, BitfieldEC.create_empty(torrent_info))
+				entity = await self._add_torrent(torrent_info)
 				await self._save_local(entity)
 
 				files_list.append((file_path, file_name))
@@ -68,15 +68,15 @@ class WatcherSystem(System):
 
 	async def _save_local(self, entity: Entity):
 		info = entity.get_component(TorrentInfoEC).info
-		bitfield = entity.get_component(BitfieldEC)._bitfield
+		bitfield = entity.get_component(BitfieldEC).dump()
 		path = self.active_path.joinpath(str(info.info_hash))
 		with open(path, 'wb') as f:
 			pickle.dump((info, bitfield), f, pickle.HIGHEST_PROTOCOL)
 
-	async def _add_torrent(self, torrent_info: TorrentInfo, bitfield: bytearray) -> Entity:
+	async def _add_torrent(self, torrent_info: TorrentInfo, bitfield: bytes = bytes()) -> Entity:
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentInfoEC(torrent_info))
-		entity.add_component(BitfieldEC(bitfield))
+		entity.add_component(BitfieldEC(torrent_info.pieces.num).update(bitfield))
 		entity.add_component(TorrentTrackerDataEC(torrent_info.info_hash, torrent_info.announce_list))
 
 		return entity

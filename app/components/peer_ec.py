@@ -1,7 +1,7 @@
 import asyncio
 from typing import Hashable
 
-from core.DataStorage import EntityComponent
+from core.DataStorage import EntityComponent, Entity
 from torrent.connection import Connection
 from torrent.structures import PeerInfo
 
@@ -35,7 +35,7 @@ class PeerConnectionEC(EntityComponent):
 		self.connection: Connection = connection
 
 		self.local_unchoked = False
-		self.__local_interested = False
+		self.local_interested = False
 
 		self.remote_unchoked = False
 		self.remove_interested = False
@@ -45,16 +45,28 @@ class PeerConnectionEC(EntityComponent):
 		super()._reset()
 
 	def interested(self) -> None:
-		if self.__local_interested:
+		if self.local_interested:
 			return
 		self.connection.interested()
-		self.__local_interested = True
+		self.local_interested = True
 
 	def not_interested(self) -> None:
-		if not self.__local_interested:
+		if not self.local_interested:
 			return
 		self.connection.not_interested()
-		self.__local_interested = False
+		self.local_interested = False
+
+	def choke(self) -> None:
+		if not self.remote_unchoked:
+			return
+		self.connection.interested()
+		self.remote_unchoked = False
+
+	def unchoke(self) -> None:
+		if self.remote_unchoked:
+			return
+		self.connection.not_interested()
+		self.remote_unchoked = True
 
 
 class PeerHandshakeEC(EntityComponent):
@@ -79,11 +91,10 @@ class PeerActiveEC(EntityComponent):
 		super()._reset()
 
 
-class PeerUpdateBitfieldEC(EntityComponent):
-	pass
-
-
-class PeerUpdateHaveEC(EntityComponent):
-	def __init__(self, index: int):
+class PeerDownloadEC(EntityComponent):
+	def __init__(self, piece_entity_id: int) -> None:
 		super().__init__()
-		self.index = index
+		self.piece_entity_id: int = piece_entity_id
+
+	def get_entity(self) -> Entity:
+		return self._ds().get_entity(self.piece_entity_id)

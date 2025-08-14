@@ -23,6 +23,9 @@ class EntityComponent:
 	def add_marker(self, marker_type: Type["EntityComponent"]) -> None:
 		self.__entity_ref.add_component(marker_type())
 
+	def _ds(self) -> "DataStorage":
+		self.__entity_ref._get_ds()
+
 
 class Entity:
 	def __init__(self, ds: "DataStorage"):
@@ -67,6 +70,9 @@ class Entity:
 
 	def __repr__(self):
 		return f"Entity {self.__entity_id} ({', '.join(c.__name__ for c in self.__components.keys())})"
+
+	def _get_ds(self) -> "DataStorage":
+		return self.__ds
 
 
 class _Collection:
@@ -140,7 +146,7 @@ class DataStorage:
 	def remove_entity(self, entity: Entity) -> None:
 		del self.__entities[entity._reset()]
 
-	def get_entity(self, eid: int) -> Entity:
+	def get_entity(self, eid: int) -> Optional[Entity]:
 		return self.__entities.get(eid, None)
 
 	def get_collection[T: EntityComponent](self, component_type: Type[T]) -> _Collection:
