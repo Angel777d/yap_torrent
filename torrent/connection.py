@@ -109,7 +109,7 @@ class Message:
 	@classmethod
 	def create(cls, message_id: MessageId, payload: tuple = None) -> bytes:
 		if message_id in (MessageId.CHOKE, MessageId.UNCHOKE, MessageId.INTERESTED,
-						  MessageId.NOT_INTERESTED):  # <len=0005><id=4><piece index>
+		                  MessageId.NOT_INTERESTED):  # <len=0005><id=4><piece index>
 			message_length = 1
 			format_message = '!IB'
 			return struct.pack(format_message, message_length, message_id.value)
@@ -187,11 +187,11 @@ class Connection:
 
 		self.state = ConnectionState.Created
 
-	def connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes) -> asyncio.Task:
+	def connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes, bitfield: bytes) -> asyncio.Task:
 		self.state = ConnectionState.Handshake
-		return asyncio.create_task(self._connect(peer_info, info_hash, peer_id))
+		return asyncio.create_task(self._connect(peer_info, info_hash, peer_id, bitfield))
 
-	async def _connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes) -> None:
+	async def _connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes, bitfield: bytes) -> None:
 		self.connection_time = time.time()
 
 		self.reader, self.writer = await asyncio.open_connection(peer_info.host, peer_info.port)
@@ -205,6 +205,10 @@ class Connection:
 
 		self.remote_peer_id = remote_peer_id
 		self.last_message_time = time.time()
+
+		# send bitfield just after the handshake if any
+		if bitfield:
+			self.bitfield(bitfield)
 
 		if remote_info_hash == info_hash:
 			self.state = ConnectionState.Connected

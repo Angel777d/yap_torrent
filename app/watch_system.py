@@ -5,7 +5,7 @@ from shutil import move
 
 from app import System, Env
 from app.components.bitfield_ec import BitfieldEC
-from app.components.torrent_ec import TorrentInfoEC
+from app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
 from app.components.tracker_ec import TorrentTrackerDataEC
 from core.DataStorage import Entity
 from torrent import load_torrent_file, TorrentInfo
@@ -37,6 +37,12 @@ class WatcherSystem(System):
 		for file_path, file_name in files_to_move:
 			move(file_path, self.trash_path.joinpath(file_name))
 
+		# save local torrent data
+		to_save = self.env.data_storage.get_collection(TorrentSaveEC).entities
+		for entity in to_save:
+			entity.remove_component(TorrentSaveEC)
+			await self._save_local(entity)
+
 	async def _load_from_path(self, path: Path):
 		files_list = []
 		for root, dirs, files in os.walk(path):
@@ -52,7 +58,7 @@ class WatcherSystem(System):
 
 				print("new torrent added from path:", file_path)
 				entity = await self._add_torrent(torrent_info)
-				await self._save_local(entity)
+				entity.add_component(TorrentSaveEC())
 
 				files_list.append((file_path, file_name))
 		return files_list

@@ -44,6 +44,7 @@ class PeerConnectionEC(EntityComponent):
 
 	def _reset(self):
 		self.connection.close()
+		self.connection = None
 		super()._reset()
 
 	def interested(self) -> None:

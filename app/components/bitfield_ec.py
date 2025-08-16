@@ -12,10 +12,6 @@ class BitfieldEC(EntityComponent):
 
 		self._have: Set[int] = set()
 
-	# @staticmethod
-	# def create_empty(info: TorrentInfo):
-	# 	return bytearray(math.ceil(info.pieces.num / 8))
-	#
 	@staticmethod
 	def index_to_position(index: int) -> tuple[int, int]:
 		return index // 8, 7 - index % 8
@@ -26,7 +22,7 @@ class BitfieldEC(EntityComponent):
 
 	def update(self, bitfield: bytes):
 		self._have = set(self.position_to_index(i, offset) for i, byte in enumerate(bitfield) for offset in range(8) if
-						 byte & (1 << offset))
+		                 byte & (1 << offset))
 		return self
 
 	def set_index(self, index: int):
@@ -47,6 +43,3 @@ class BitfieldEC(EntityComponent):
 			int(sum((1 if self.position_to_index(i, offset) in self._have else 0) << offset for offset in range(8)))
 			for i in
 			range(math.ceil(self._length / 8)))
-
-# def is_interested_in(self, remote_bitfield: "BitfieldEC") -> bool:
-# 	return bool(remote_bitfield._have.difference(self._have))

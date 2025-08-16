@@ -1,8 +1,9 @@
 from pathlib import Path
 
 from app import System, Env
+from app.components.bitfield_ec import BitfieldEC
 from app.components.piece_ec import PieceToSaveEC, PieceEC
-from app.components.torrent_ec import TorrentInfoEC
+from app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
 
 
 class PieceSystem(System):
@@ -23,7 +24,6 @@ class PieceSystem(System):
 		self.__time_left += self.__timeout
 
 		ds = self.env.data_storage
-		saved_pieces = {}
 		for entity in ds.get_collection(PieceToSaveEC).entities:
 			entity.remove_component(PieceToSaveEC)
 
@@ -56,6 +56,6 @@ class PieceSystem(System):
 					f.seek(offset)
 					f.write(buffer)
 
-			saved_pieces.setdefault(piece.info_hash, []).append(piece.index)
-
-		print(saved_pieces)
+			torrent_entity.get_component(BitfieldEC).set_index(piece.index)
+			if not torrent_entity.has_component(TorrentSaveEC):
+				torrent_entity.add_component(TorrentSaveEC())

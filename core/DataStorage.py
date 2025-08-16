@@ -37,7 +37,13 @@ class Entity:
 	def entity_id(self) -> int:
 		return self.__entity_id
 
+	def has_component[T:EntityComponent](self, component_type: Type[T]) -> bool:
+		return component_type in self.__components
+
 	def add_component(self, component: EntityComponent) -> "Entity":
+		if type(component) in self.__components:
+			print(f"Warning! Component {type(component)} already added")
+			return self
 		self.__components[type(component)] = component
 		component._set_entity_ref(self)
 		self.__ds._add_component(self, component)

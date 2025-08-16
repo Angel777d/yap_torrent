@@ -27,7 +27,10 @@ class PeerSystem(System):
 			peer_connection_ec = entity.get_component(PeerConnectionEC)
 			if peer_connection_ec.connection.is_dead():
 				self._clear_download(entity.get_component(PeerInfoEC).info_hash, peer_connection_ec)
-				ds.remove_entity(entity)
+				try:
+					ds.remove_entity(entity)
+				except Exception as e:
+					print(e)
 
 	async def connect_to_new_peers(self):
 		ds = self.env.data_storage
@@ -57,8 +60,14 @@ class PeerSystem(System):
 
 			peer_entity.add_component(BitfieldEC(torrent_info.pieces.num))
 			peer_entity.add_component(PeerConnectionEC(connection))
-			peer_entity.add_component(
-				PeerHandshakeEC(connection.connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id)))
+
+			# calculate bitfield
+			torrent_entity = ds.get_collection(TorrentInfoEC).find(peer_ec.info_hash)
+			bitfield = torrent_entity.get_component(BitfieldEC)
+			dump = bitfield.dump() if bitfield.have_num else bytes()
+
+			handshake_task = connection.connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id, dump)
+			peer_entity.add_component(PeerHandshakeEC(handshake_task))
 
 	async def process_handshake_peers(self):
 		ds = self.env.data_storage
@@ -176,7 +185,6 @@ class PeerSystem(System):
 				peer_connection_ec.download_block = None
 				if piece_ec.completed:
 					piece_ec.add_marker(PieceToSaveEC)
-					torrent_entity.get_component(BitfieldEC).set_index(index)
 					await self._update_interested(peer_entity, torrent_entity)
 					await self._send_have_to_peers(peer_ec.info_hash, index)
 				else:
