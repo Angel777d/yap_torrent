@@ -29,12 +29,12 @@ class PieceSystem(System):
 
 			piece = entity.get_component(PieceEC)
 			torrent_entity = ds.get_collection(TorrentInfoEC).find(piece.info_hash)
-			torrent_info = torrent_entity.get_component(TorrentInfoEC)
-			piece_length = torrent_info.info.pieces.piece_length
+			info = torrent_entity.get_component(TorrentInfoEC).info
+			piece_length = info.pieces.piece_length
 
 			piece_start = piece.index * piece_length
 			piece_end = piece_start + piece_length
-			for file in torrent_info.info.files:
+			for file in info.files:
 				file_end = file.start + file.length
 				if piece_start >= file_end:
 					continue
@@ -42,6 +42,9 @@ class PieceSystem(System):
 					continue
 
 				path = self.download_path
+				# add folder for multifile torrent
+				if info.is_multifile:
+					path = path.joinpath(info.name)
 				for file_path in file.path:
 					path = path.joinpath(file_path)
 				path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,3 +62,7 @@ class PieceSystem(System):
 			torrent_entity.get_component(BitfieldEC).set_index(piece.index)
 			if not torrent_entity.has_component(TorrentSaveEC):
 				torrent_entity.add_component(TorrentSaveEC())
+
+				# logs
+				downloaded = torrent_entity.get_component(BitfieldEC).have_num * info.pieces.piece_length
+				print(f"{downloaded / info.size * 100}% progress {info.name}")

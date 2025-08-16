@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List
 from warnings import deprecated
 
 from torrent.parser import decode
@@ -123,6 +123,10 @@ class TorrentInfo:
 			return *(self.__files_generator(files_field)),
 		else:
 			return (FileInfo([self.name], self.info.get("length", 0), self.info.get("md5sum", '')),)
+
+	@property
+	def is_multifile(self) -> bool:
+		return 'files' in self.info
 
 	@property
 	@deprecated("use announce_list instead")
