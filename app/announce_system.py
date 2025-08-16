@@ -47,7 +47,7 @@ class AnnounceSystem(System):
 		downloaded = bitfield_ec.have_num * info.pieces.piece_length
 		left = max(info.size - downloaded, 0)
 
-		# TODO: support uploaded
+		# TODO: track uploaded data size
 		uploaded = 0
 
 		# TODO: support announce-list format

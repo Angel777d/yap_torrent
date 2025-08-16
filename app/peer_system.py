@@ -38,7 +38,7 @@ class PeerSystem(System):
 
 		# sort and filter pending peers
 		pending_peers = ds.get_collection(PeerPendingEC).entities
-		# TODO: implement
+		# TODO: select peers to connect
 		pass
 
 		# connect to new peers
@@ -91,8 +91,6 @@ class PeerSystem(System):
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
 		connection = peer_entity.get_component(PeerConnectionEC)
 
-		# exclude = set(e.get_component(PieceEC).index for e in ds.get_collection(PieceEC).entities if
-		# 			  e.get_component(PieceEC).info_hash == info_hash)
 		if local_bitfield.interested_in(remote_bitfield, exclude=set()):
 			connection.interested()
 			self._update_download(peer_entity, torrent_entity)
@@ -186,7 +184,12 @@ class PeerSystem(System):
 					await self._send_have_to_peers(peer_ec.info_hash, index)
 				else:
 					self._try_load_next(peer_connection_ec, piece_ec)
-
+			elif message.message_id == MessageId.REQUEST:
+				index, begin, length = message.request
+				# check index
+				# get piece / load from disc
+				# TODO: implement upload
+				pass
 			elif message.message_id == MessageId.HAVE:
 				bitfield_ec.set_index(message.index)
 				await self._update_interested(peer_entity, torrent_entity)

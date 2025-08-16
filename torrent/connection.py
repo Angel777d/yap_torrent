@@ -100,6 +100,15 @@ class Message:
 			return index, begin, block
 		raise RuntimeError("wrong message type for piece property")
 
+	@property
+	def request(self) -> Tuple[int, int, int]:
+		if self.__message_id == MessageId.REQUEST:
+			index = int.from_bytes(self.__payload[:4])
+			begin = int.from_bytes(self.__payload[4:8])
+			length = int.from_bytes(self.__payload[8:])
+			return index, begin, length
+		raise RuntimeError("wrong message type for request property")
+
 	def __repr__(self):
 		return self.__str__()
 
