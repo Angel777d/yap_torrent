@@ -1,43 +1,55 @@
-﻿import math
-from typing import Hashable, Dict, List
+﻿import hashlib
+from typing import Hashable, List
 
 from core.DataStorage import EntityComponent
+from torrent.structures import PieceInfo
 
 
 class PieceEC(EntityComponent):
 	__BLOCK_SIZE = 2 ** 14  # (16kb)
 
-	def __init__(self, info_hash: bytes, index: int, length: int):
+	def __init__(self, info_hash: bytes, piece_info: PieceInfo):
 		super().__init__()
-		self.__info_hash: bytes = info_hash
-		self.__index: int = index
-		self.__length = length
-		self.__data: Dict[int, bytes] = {}
+		self.data: bytearray = bytearray()
+
+		self.info_hash: bytes = info_hash
+		self.__piece_info: PieceInfo = piece_info
 		self.__begin = 0  # block_index * block_size
 
 		self.__canceled: List[int] = []
+		self.__downloaded: int = 0
+
+	@property
+	def index(self) -> int:
+		return self.__piece_info.index
 
 	def has_next(self) -> bool:
-		return self.__canceled or self.__begin < self.__length
+		return bool(self.__canceled or self.__begin < self.__piece_info.piece_length)
 
 	def get_next(self):
 		if self.__canceled:
-			return self.__index, self.__canceled.pop(), self.__block_size
-		result = self.__begin
+			return self.index, self.__canceled.pop(), self.__block_size
+		begin = self.__begin
 		self.__begin += self.__block_size
-		return result
+		return self.index, begin, self.__block_size
 
 	def cancel(self, begin: int):
 		self.__canceled.append(begin)
 
-	def append(self, begin: int, block: bytes):
-		block_index = begin // self.__block_size
-		self.__data[block_index] = block
+	async def append(self, begin: int, block: bytes):
+		self.data[begin:begin + self.__block_size] = block
+		self.__downloaded += self.__block_size
+
+		# check piece is corrupted and reset piece
+		if self.completed and not self.__piece_info.piece_hash == hashlib.sha1(self.data).digest():
+			print("piece is corrupted. reset", self.index)
+			self.__downloaded = 0
+			self.__begin = 0
+			self.__canceled = []
 
 	@property
 	def completed(self):
-		blocks_num = math.ceil(self.__length / self.__block_size)
-		return len(self.__data) == blocks_num
+		return self.__downloaded >= self.__piece_info.piece_length
 
 	@property
 	def __block_size(self):
@@ -48,12 +60,12 @@ class PieceEC(EntityComponent):
 		return True
 
 	def get_hash(self) -> Hashable:
-		return self.make_hash(self.__info_hash, self.__index)
+		return self.make_hash(self.info_hash, self.index)
 
 	@staticmethod
 	def make_hash(info_hash: bytes, index: int) -> Hashable:
 		return info_hash, index
 
 
-class CompletedPieceEC(EntityComponent):
+class PieceToSaveEC(EntityComponent):
 	pass

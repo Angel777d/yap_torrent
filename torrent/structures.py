@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 from warnings import deprecated
 
 from torrent.parser import decode
@@ -80,14 +80,15 @@ class Pieces:
 
 
 class FileInfo:
-	def __init__(self, path: List[str], length: int, md5sum: str):
+	def __init__(self, path: List[str], length: int, md5sum: str, start: int = 0):
 		self.path: List[str] = path
 		self.length: int = length
 		self.md5sum: str = md5sum
+		self.start: int = start
 
 	@classmethod
-	def from_dict(cls, data: dict):
-		return FileInfo(data.get("path", []), data.get("length", 0), data.get("md5sum", ''))
+	def from_dict(cls, data: dict, start: int):
+		return FileInfo(data.get("path", []), data.get("length", 0), data.get("md5sum", ''), start)
 
 
 class TorrentInfo:
@@ -107,11 +108,19 @@ class TorrentInfo:
 		info = self.info
 		return info.get('name.utf-8', info.get("name", ""))
 
+	@staticmethod
+	def __files_generator(files_field: List[dict]):
+		start = 0
+		for file_dict in files_field:
+			info = FileInfo.from_dict(file_dict, start)
+			yield info
+			start += info.length
+
 	@property
 	def files(self) -> tuple[FileInfo]:
-		files_field = self.info.get('files', [])
+		files_field: List[dict] = self.info.get('files', [])
 		if files_field:
-			return *(FileInfo.from_dict(file_dict) for file_dict in files_field),
+			return *(self.__files_generator(files_field)),
 		else:
 			return (FileInfo([self.name], self.info.get("length", 0), self.info.get("md5sum", '')),)
 
@@ -126,14 +135,8 @@ class TorrentInfo:
 
 	@property
 	def size(self) -> int:
-		if self.files:
-			size = sum(f.length for f in self.files)
-		else:
-			size = self.info.get('length', 0)
-		return size
+		return sum(f.length for f in self.files)
 
 	@property
 	def pieces(self) -> Pieces:
 		return Pieces(self.info.get('piece length', 1), self.info.get('pieces', b""))
-
-

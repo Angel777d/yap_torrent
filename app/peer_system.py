@@ -4,7 +4,7 @@ import random
 from app import System, Env
 from app.components.bitfield_ec import BitfieldEC
 from app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC, PeerHandshakeEC, PeerActiveEC
-from app.components.piece_ec import PieceEC, CompletedPieceEC
+from app.components.piece_ec import PieceEC, PieceToSaveEC
 from app.components.torrent_ec import TorrentInfoEC
 from core.DataStorage import Entity
 from torrent.connection import Connection, ConnectionState, MessageId
@@ -127,12 +127,15 @@ class PeerSystem(System):
 		remote_bitfield = peer_entity.get_component(BitfieldEC)
 		pieces = local_bitfield.interested_in(remote_bitfield, exclude=set())
 		index = random.choice(list(pieces))
+		print("selected piece for download:", index, torrent_entity.get_component(TorrentInfoEC).info.name)
 
 		# find or create piece
 		ds = self.env.data_storage
 		piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
 		if not piece_entity:
-			piece_entity = ds.create_entity().add_component(PieceEC(info_hash, index, info_ec.info.pieces.piece_length))
+			piece_info = info_ec.info.pieces.get_piece(index)
+
+			piece_entity = ds.create_entity().add_component(PieceEC(info_hash, piece_info))
 
 		self._try_load_next(peer_connection_ec, piece_entity.get_component(PieceEC))
 
@@ -142,6 +145,12 @@ class PeerSystem(System):
 			return
 		index, begin, length = piece_ec.get_next()
 		peer_connection_ec.request(index, begin, length)
+
+	async def _send_have_to_peers(self, info_hash: bytes, index: int):
+		ds = self.env.data_storage
+		for e in ds.get_collection(PeerConnectionEC).entities:
+			if e.get_component(PeerInfoEC).info_hash == info_hash:
+				e.get_component(PeerConnectionEC).connection.have(index)
 
 	async def _listen(self, peer_entity: Entity):
 		ds = self.env.data_storage
@@ -163,12 +172,13 @@ class PeerSystem(System):
 				# must be created at first piece request
 				piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(peer_ec.info_hash, index))
 				piece_ec = piece_entity.get_component(PieceEC)
-				piece_ec.append(begin, block)
+				await piece_ec.append(begin, block)
 				peer_connection_ec.download_block = None
 				if piece_ec.completed:
-					piece_ec.add_marker(CompletedPieceEC)
+					piece_ec.add_marker(PieceToSaveEC)
 					torrent_entity.get_component(BitfieldEC).set_index(index)
 					await self._update_interested(peer_entity, torrent_entity)
+					await self._send_have_to_peers(peer_ec.info_hash, index)
 				else:
 					self._try_load_next(peer_connection_ec, piece_ec)
 

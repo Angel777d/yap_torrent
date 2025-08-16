@@ -7,6 +7,7 @@ from app import Env, System
 from app.announce_system import AnnounceSystem
 from app.config import Config
 from app.peer_system import PeerSystem
+from app.piece_system import PieceSystem
 from app.watch_system import WatcherSystem
 
 GLOBAL_TICK_TIME = 1
@@ -34,6 +35,7 @@ async def main():
 		await WatcherSystem(env).start(),
 		await AnnounceSystem(env).start(),
 		await PeerSystem(env).start(),
+		await PieceSystem(env).start(),
 	]
 
 	last_time = time.time()
