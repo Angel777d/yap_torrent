@@ -220,7 +220,9 @@ class Connection:
 
 	def close(self) -> None:
 		self.last_message_time = .0
-		self.writer.close()
+		# in case connection was not created at all
+		if self.writer:
+			self.writer.close()
 		self.writer = None
 		self.reader = None
 

@@ -27,10 +27,7 @@ class PeerSystem(System):
 			peer_connection_ec = entity.get_component(PeerConnectionEC)
 			if peer_connection_ec.connection.is_dead():
 				self._clear_download(entity.get_component(PeerInfoEC).info_hash, peer_connection_ec)
-				try:
-					ds.remove_entity(entity)
-				except Exception as e:
-					print(e)
+				ds.remove_entity(entity)
 
 	async def connect_to_new_peers(self):
 		ds = self.env.data_storage
