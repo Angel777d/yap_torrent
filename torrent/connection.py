@@ -35,6 +35,11 @@ class Message:
 	@classmethod
 	def from_bytes(cls, buffer: bytes):
 		message = cls()
+
+		# KEEP_ALIVE case
+		if not buffer:
+			return message
+
 		try:
 			message.__message_id = MessageId(buffer[0])
 		except ValueError:
@@ -117,8 +122,10 @@ class Message:
 
 	@classmethod
 	def create(cls, message_id: MessageId, payload: tuple = None) -> bytes:
-		if message_id in (MessageId.CHOKE, MessageId.UNCHOKE, MessageId.INTERESTED,
-		                  MessageId.NOT_INTERESTED):  # <len=0005><id=4><piece index>
+		if message_id == MessageId.KEEP_ALIVE:  # <len=0000>
+			return b'0000'
+		elif message_id in (MessageId.CHOKE, MessageId.UNCHOKE, MessageId.INTERESTED,
+		                    MessageId.NOT_INTERESTED):  # <len=0005><id=4><piece index>
 			message_length = 1
 			format_message = '!IB'
 			return struct.pack(format_message, message_length, message_id.value)
@@ -183,10 +190,11 @@ class ConnectionState(Enum):
 
 class Connection:
 
-	def __init__(self, timeout: int = 60 * 3):
+	def __init__(self, timeout: int = 30):
 		self.timeout = timeout
 
 		self.remote_peer_id = None
+		self.host = ""
 
 		self.connection_time = time.time()
 		self.last_message_time = time.time()
@@ -196,14 +204,18 @@ class Connection:
 
 		self.state = ConnectionState.Created
 
-	def connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes, bitfield: bytes) -> asyncio.Task:
-		self.state = ConnectionState.Handshake
-		return asyncio.create_task(self._connect(peer_info, info_hash, peer_id, bitfield))
+		self.__read_buffer: bytes = bytes()
 
-	async def _connect(self, peer_info: PeerInfo, info_hash: bytes, peer_id: bytes, bitfield: bytes) -> None:
+	def connect(self, peer_info: PeerInfo, attempt: int, info_hash: bytes, peer_id: bytes,
+	            bitfield: bytes) -> asyncio.Task:
+		self.state = ConnectionState.Handshake
+		return asyncio.create_task(self._connect(peer_info, attempt, info_hash, peer_id, bitfield))
+
+	async def _connect(self, peer_info: PeerInfo, attempt: int, info_hash: bytes, peer_id: bytes,
+	                   bitfield: bytes) -> None:
 		self.connection_time = time.time()
 
-		self.reader, self.writer = await asyncio.open_connection(peer_info.host, peer_info.port)
+		self.reader, self.writer = await asyncio.open_connection(peer_info.host, peer_info.port + attempt)
 
 		message = Message.create_handshake_message(info_hash, peer_id)
 		print(f"Send handshake to: {peer_info}, message: {message}")
@@ -211,6 +223,7 @@ class Connection:
 		handshake_response = await self.reader.readexactly(len(message))
 		_, _, _, remote_info_hash, remote_peer_id = Message.parse_handshake_message(handshake_response)
 		print(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
+		self.host = peer_info.host
 
 		self.remote_peer_id = remote_peer_id
 		self.last_message_time = time.time()
@@ -236,19 +249,41 @@ class Connection:
 		self.reader = None
 
 	async def read(self) -> Message:
-		length = await self.reader.read(4)
-		length = int.from_bytes(length)
+		buffer: bytes = await self.reader.read(4)
+
+		# Looks like it is over. got EOF
+		if len(buffer) == 0:
+			print(f"WTF connection broken {self.host}")
+			self.state = ConnectionState.Disconnected
+			await asyncio.sleep(10)
+			return Message()
+
+		buffer = self.__read_buffer + buffer
+
+		while len(buffer) < 4:
+			buffer += await self.reader.read(4)
+
+		length = int.from_bytes(buffer[:4])
+		buffer = buffer[4:]
+
+		# KEEP ALIVE message
 		if length == 0:
 			return self.__on_message(Message())
 
-		buffer = bytes()
 		while len(buffer) < length:
 			buffer += await self.reader.read(length)
 
-		message = Message.from_bytes(buffer)
-		print("got message:", message)
+		message = Message.from_bytes(buffer[:length])
+		print(f"got message {message} from {self.host}", )
+
+		self.__read_buffer = buffer[length:]
 
 		return self.__on_message(message)
+
+	def keep_alive(self) -> None:
+		if time.time() - self.last_out_time < 10:
+			return
+		self.__send(Message.create(MessageId.KEEP_ALIVE))
 
 	def choke(self) -> None:
 		self.__send(Message.create(MessageId.CHOKE))
@@ -278,7 +313,8 @@ class Connection:
 		self.__send(Message.create(MessageId.CANCEL, (piece_index, begin, length)))
 
 	def __send(self, message: bytes) -> None:
-		print("send message:", Message.from_bytes(message[4:]))
+		print(f"send {Message.from_bytes(message[4:])} message to {self.host}")
+		self.last_out_time = time.time()
 		self.writer.write(message)
 
 	def __on_message(self, message: Message):

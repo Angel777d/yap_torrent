@@ -17,7 +17,6 @@ class PieceSystem(System):
 		self.__time_left: float = self.__timeout
 
 	async def update(self, delta_time: float):
-
 		self.__time_left -= delta_time
 		if self.__time_left > 0:
 			return

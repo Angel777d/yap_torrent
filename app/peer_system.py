@@ -14,22 +14,52 @@ class PeerSystem(System):
 
 	def __init__(self, env: Env):
 		super().__init__(env)
+		self.__keep_alive_timeout = 10
 
 	async def update(self, delta_time: float):
-		await self.remove_outdated()
-		await self.connect_to_new_peers()
-		await self.process_handshake_peers()
+		self.remove_outdated()
+		self.connect_to_new_peers()
+		self.process_handshake_peers()
+		self.keep_alive()
 
-	async def remove_outdated(self):
+	def keep_alive(self):
+		active = self.env.data_storage.get_collection(PeerActiveEC).entities
+		for peer in active:
+			connection = peer.get_component(PeerConnectionEC).connection
+			connection.keep_alive()
+
+	def remove_outdated(self):
 		ds = self.env.data_storage
 		peer_connections = ds.get_collection(PeerConnectionEC).entities
 		for entity in peer_connections:
 			peer_connection_ec = entity.get_component(PeerConnectionEC)
 			if peer_connection_ec.connection.is_dead():
-				self._clear_download(entity.get_component(PeerInfoEC).info_hash, peer_connection_ec)
-				ds.remove_entity(entity)
+				info = entity.get_component(PeerInfoEC)
+				self._clear_download(info.info_hash, peer_connection_ec)
 
-	async def connect_to_new_peers(self):
+				if peer_connection_ec.connection.state == ConnectionState.Handshake:
+					if info.attempt < 20:
+						info.attempt += 1
+						entity.remove_component(PeerHandshakeEC)
+						entity.remove_component(BitfieldEC)
+						entity.remove_component(PeerConnectionEC)
+						entity.add_component(PeerPendingEC())
+						print(f"close for new attempt {info.attempt} for {info.peer_info.host}")
+					else:
+						print(f"close {info.peer_info.host} after all attempts")
+				else:
+					print(f"reconnect to {info.peer_info.host}")
+					info_hash = entity.get_component(PeerInfoEC).info_hash
+					peer_info = entity.get_component(PeerInfoEC).peer_info
+					attempt = entity.get_component(PeerInfoEC).attempt
+					ds.remove_entity(entity)
+
+					ds.create_entity().add_component(PeerInfoEC(info_hash, peer_info, attempt)).add_component(
+						PeerPendingEC())
+
+		print(f"{len(ds.get_collection(PeerActiveEC))} active peers")
+
+	def connect_to_new_peers(self):
 		ds = self.env.data_storage
 
 		# check capacity
@@ -50,7 +80,8 @@ class PeerSystem(System):
 
 			peer_ec = peer_entity.get_component(PeerInfoEC)
 
-			connection = Connection()
+			timeout = 60
+			connection = Connection(timeout)
 
 			torrent_entity = ds.get_collection(TorrentInfoEC).find(peer_ec.info_hash)
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
@@ -63,10 +94,10 @@ class PeerSystem(System):
 			bitfield = torrent_entity.get_component(BitfieldEC)
 			dump = bitfield.dump() if bitfield.have_num else bytes()
 
-			handshake_task = connection.connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id, dump)
+			handshake_task = connection.connect(peer_ec.peer_info, peer_ec.attempt, peer_ec.info_hash, my_peer_id, dump)
 			peer_entity.add_component(PeerHandshakeEC(handshake_task))
 
-	async def process_handshake_peers(self):
+	def process_handshake_peers(self):
 		ds = self.env.data_storage
 		handshake_peers = ds.get_collection(PeerHandshakeEC).entities
 
@@ -86,7 +117,7 @@ class PeerSystem(System):
 				entity.remove_component(PeerHandshakeEC)
 				entity.add_component(PeerActiveEC(asyncio.create_task(self._listen(entity))))
 
-	async def _update_interested(self, peer_entity: Entity, torrent_entity: Entity):
+	def _update_interested(self, peer_entity: Entity, torrent_entity: Entity):
 		remote_bitfield = peer_entity.get_component(BitfieldEC)
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
 		connection = peer_entity.get_component(PeerConnectionEC)
@@ -144,13 +175,14 @@ class PeerSystem(System):
 		self._try_load_next(peer_connection_ec, piece_entity.get_component(PieceEC))
 
 	@staticmethod
-	def _try_load_next(peer_connection_ec: PeerConnectionEC, piece_ec: PieceEC):
+	def _try_load_next(peer_connection_ec: PeerConnectionEC, piece_ec: PieceEC) -> bool:
 		if not piece_ec.has_next():
-			return
+			return False
 		index, begin, length = piece_ec.get_next()
 		peer_connection_ec.request(index, begin, length)
+		return True
 
-	async def _send_have_to_peers(self, info_hash: bytes, index: int):
+	def _send_have_to_peers(self, info_hash: bytes, index: int):
 		ds = self.env.data_storage
 		for e in ds.get_collection(PeerConnectionEC).entities:
 			if e.get_component(PeerInfoEC).info_hash == info_hash:
@@ -176,14 +208,16 @@ class PeerSystem(System):
 				# must be created at first piece request
 				piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(peer_ec.info_hash, index))
 				piece_ec = piece_entity.get_component(PieceEC)
-				await piece_ec.append(begin, block)
+				piece_ec.append(begin, block)
 				peer_connection_ec.download_block = None
 				if piece_ec.completed:
 					piece_ec.add_marker(PieceToSaveEC)
-					await self._update_interested(peer_entity, torrent_entity)
-					await self._send_have_to_peers(peer_ec.info_hash, index)
+					self._update_interested(peer_entity, torrent_entity)
+					self._send_have_to_peers(peer_ec.info_hash, index)
 				else:
-					self._try_load_next(peer_connection_ec, piece_ec)
+					if not self._try_load_next(peer_connection_ec, piece_ec):
+						self._update_download(peer_entity, torrent_entity)
+
 			elif message.message_id == MessageId.REQUEST:
 				index, begin, length = message.request
 				# check index
@@ -192,13 +226,15 @@ class PeerSystem(System):
 				pass
 			elif message.message_id == MessageId.HAVE:
 				bitfield_ec.set_index(message.index)
-				await self._update_interested(peer_entity, torrent_entity)
+				self._update_interested(peer_entity, torrent_entity)
 			elif message.message_id == MessageId.CHOKE:
 				peer_connection_ec.local_choked = True
 				self._clear_download(peer_ec.info_hash, peer_connection_ec)
 			elif message.message_id == MessageId.UNCHOKE:
 				peer_connection_ec.local_choked = False
 				self._update_download(peer_entity, torrent_entity)
+				# TODO: fix choke algorythm
+				peer_connection_ec.unchoke()
 			elif message.message_id == MessageId.INTERESTED:
 				# TODO: fix choke algorythm
 				peer_connection_ec.remote_interested = True
@@ -209,4 +245,4 @@ class PeerSystem(System):
 				peer_connection_ec.choke()
 			elif message.message_id == MessageId.BITFIELD:
 				bitfield_ec.update(message.bitfield)
-				await self._update_interested(peer_entity, torrent_entity)
+				self._update_interested(peer_entity, torrent_entity)

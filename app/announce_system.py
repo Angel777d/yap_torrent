@@ -1,6 +1,6 @@
 import time
 
-from app import System, Env
+from app import System
 from app.components.bitfield_ec import BitfieldEC
 from app.components.peer_ec import PeerInfoEC, PeerPendingEC
 from app.components.torrent_ec import TorrentInfoEC
@@ -9,9 +9,6 @@ from torrent.tracker import make_announce
 
 
 class AnnounceSystem(System):
-
-	def __init__(self, env: Env):
-		super().__init__(env)
 
 	async def update(self, delta_time: float):
 		event = "started"  # "started", "completed", "stopped"
@@ -22,12 +19,14 @@ class AnnounceSystem(System):
 		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
 		for entity in trackers_collection:
 			tracker_ec = entity.get_component(TorrentTrackerDataEC)
-			if tracker_ec.last_update_time + tracker_ec.interval <= current_time:
+			interval = min(tracker_ec.interval, tracker_ec.min_interval)
+			if tracker_ec.last_update_time + interval <= current_time:
 				await self.__tracker_announce(tracker_ec, event)
 
 		# create new peers
 		updates_collection = ds.get_collection(TorrentTrackerUpdatedEC).entities
 		for entity in updates_collection:
+			entity.remove_component(TorrentTrackerUpdatedEC)
 			tracker_ec = entity.get_component(TorrentTrackerDataEC)
 			peers = tracker_ec.peers
 			for peer in peers:

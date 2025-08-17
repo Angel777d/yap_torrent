@@ -36,7 +36,7 @@ class PieceEC(EntityComponent):
 	def cancel(self, begin: int):
 		self.__canceled.append(begin)
 
-	async def append(self, begin: int, block: bytes):
+	def append(self, begin: int, block: bytes):
 		self.data[begin:begin + self.__block_size] = block
 		self.__downloaded += self.__block_size
 

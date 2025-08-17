@@ -14,12 +14,14 @@ class TorrentTrackerDataEC(EntityComponent):
 
 		self.last_update_time: float = 0
 		self.interval: float = 0
+		self.min_interval: float = 0
 		self.tracker_id: str = ""
 		self.peers: tuple[PeerInfo] = tuple()
 
 	def save_announce(self, response: TrackerAnnounceResponse):
 		self.last_update_time = time.time()
 		self.interval = response.interval
+		self.min_interval = response.min_interval
 		self.tracker_id = response.tracker_id
 
 		self.peers = response.peers

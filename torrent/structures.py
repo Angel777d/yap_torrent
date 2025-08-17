@@ -24,7 +24,7 @@ class TrackerAnnounceResponse:
 
 	@property
 	def min_interval(self) -> int:
-		return self.__data.get('min interval', -1)
+		return self.__data.get('min interval', 60*30)
 
 	@property
 	def complete(self) -> int:
