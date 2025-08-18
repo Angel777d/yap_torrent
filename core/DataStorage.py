@@ -168,7 +168,7 @@ class DataStorage:
 
 	#
 	def clear_collection[T: EntityComponent](self, component_type: Type[T]) -> None:
-		entities = self.__collections.get(component_type).entities
+		entities = self.get_collection(component_type).entities
 		for entity in entities:
 			self.remove_entity(entity)
 

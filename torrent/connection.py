@@ -237,7 +237,12 @@ class Connection:
 			self.state = ConnectionState.Disconnected
 			logger.debug(f"Handshake to {peer_info} failed")
 			return
+		except Exception as ex:
+			self.state = ConnectionState.Disconnected
+			logger.debug(f"Handshake to {peer_info} failed by {ex}")
+			return
 
+		self.state = ConnectionState.Disconnected
 		_, _, _, remote_info_hash, remote_peer_id = Message.parse_handshake_message(handshake_response)
 		logger.debug(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
 
@@ -258,6 +263,8 @@ class Connection:
 		return self.state == ConnectionState.Disconnected or (time.time() - self.last_message_time > self.timeout)
 
 	def close(self) -> None:
+		logger.debug(f"Close connection {self.host}")
+
 		self.last_message_time = .0
 		# in case connection was not created at all
 		if self.writer:

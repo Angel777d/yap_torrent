@@ -53,6 +53,10 @@ class PeerSystem(System):
 			peer_entity.add_component(BitfieldEC(torrent_info.pieces.num))
 			peer_entity.add_component(PeerConnectionEC(connection, task))
 
+	def close(self):
+		ds = self.env.data_storage
+		ds.clear_collection(PeerConnectionEC)
+
 	async def _update_interested(self, peer_entity: Entity, torrent_entity: Entity):
 		remote_bitfield = peer_entity.get_component(BitfieldEC)
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
@@ -160,12 +164,12 @@ class PeerSystem(System):
 			return
 
 		# keep alive loop
-		async def keep_alive():
-			while True:
-				await asyncio.sleep(3)
-				await connection.keep_alive()
-
-		keep_alive_task = asyncio.create_task(keep_alive())
+		# async def keep_alive():
+		# 	while True:
+		# 		await asyncio.sleep(3)
+		# 		await connection.keep_alive()
+		#
+		# keep_alive_task = asyncio.create_task(keep_alive())
 
 		# main peer loop
 		try:
@@ -226,8 +230,8 @@ class PeerSystem(System):
 		except Exception as ex:
 			logger.error(f"got error on peer loop: {ex}")
 
-		keep_alive_task.cancel()
-		keep_alive_task = None
+		# keep_alive_task.cancel()
+		# keep_alive_task = None
 		logger.info(f"close connection to {peer_ec.peer_info.host}")
 		# ds.remove_entity(peer_entity)
 		peer_entity.remove_component(BitfieldEC)

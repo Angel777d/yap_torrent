@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(handler)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class Env:
@@ -26,4 +26,7 @@ class System:
 		return self
 
 	async def update(self, delta_time: float):
+		pass
+
+	def close(self):
 		pass
