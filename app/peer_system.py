@@ -19,8 +19,8 @@ class PeerSystem(System):
 		super().__init__(env)
 
 	async def update(self, delta_time: float):
-		tasks = asyncio.all_tasks()
-		connections = self.env.data_storage.get_collection(PeerConnectionEC).entities
+		# tasks = asyncio.all_tasks()
+		# connections = self.env.data_storage.get_collection(PeerConnectionEC).entities
 		await self.connect_to_new_peers()
 
 	async def connect_to_new_peers(self):

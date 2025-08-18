@@ -72,4 +72,4 @@ class PieceSystem(System):
 
 				# logs
 				downloaded = torrent_entity.get_component(BitfieldEC).have_num * info.pieces.piece_length
-				logger.info(f"{downloaded / info.size * 100}% progress {info.name}")
+				logger.info(f"{downloaded / info.size * 100:.2d}% progress {info.name}")
