@@ -1,6 +1,8 @@
 import asyncio
 
 progress = True
+
+
 async def main():
 	print("start")
 
@@ -9,6 +11,7 @@ async def main():
 		print("tick")
 
 	print("end")
+
 
 try:
 	asyncio.run(main())

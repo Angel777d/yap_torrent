@@ -233,4 +233,3 @@ class PeerSystem(System):
 		peer_entity.remove_component(BitfieldEC)
 		peer_entity.remove_component(PeerConnectionEC)
 		peer_entity.add_component(PeerPendingEC())
-
