@@ -1,5 +1,9 @@
+import logging
+
 import uuid
 from typing import List, Dict, Optional, Type, Hashable
+
+logger = logging.getLogger(__name__)
 
 
 class EntityComponent:
@@ -42,7 +46,8 @@ class Entity:
 
 	def add_component(self, component: EntityComponent) -> "Entity":
 		if type(component) in self.__components:
-			print(f"Warning! Component {type(component)} already added")
+			logger.warning(f"Component {type(component)} already added")
+
 			return self
 		self.__components[type(component)] = component
 		component._set_entity_ref(self)

@@ -16,4 +16,4 @@ class Config:
 
 			self.port: int = int(data.get("port", 6889))
 
-			self.max_connections = int(data.get("max_connections", 30))
+			self.max_connections = int(data.get("max_connections", 15))

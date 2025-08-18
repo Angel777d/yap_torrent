@@ -1,8 +1,11 @@
 ﻿import hashlib
+import logging
 from typing import Hashable, List
 
 from core.DataStorage import EntityComponent
 from torrent.structures import PieceInfo
+
+logger = logging.getLogger(__name__)
 
 
 class PieceEC(EntityComponent):
@@ -42,7 +45,8 @@ class PieceEC(EntityComponent):
 
 		# check piece is corrupted and reset piece
 		if self.completed and not self.__piece_info.piece_hash == hashlib.sha1(self.data).digest():
-			print("piece is corrupted. reset", self.index)
+			logger.warning(f"piece {self.index} is corrupted. reset")
+
 			self.__downloaded = 0
 			self.__begin = 0
 			self.__canceled = []

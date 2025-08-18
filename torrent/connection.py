@@ -1,13 +1,16 @@
 # this spec used: https://wiki.theory.org/BitTorrentSpecification
 
 import asyncio
+import logging
 import struct
 import time
-from asyncio import StreamReader, StreamWriter
+from asyncio import StreamReader, StreamWriter, IncompleteReadError
 from enum import Enum, unique, auto
 from typing import Tuple
 
 from torrent.structures import PeerInfo
+
+logger = logging.getLogger(__name__)
 
 
 class MessageId(Enum):
@@ -28,8 +31,8 @@ class MessageId(Enum):
 class Message:
 	HANDSHAKE_FORMAT = '!B19s8s20s20s'
 
-	def __init__(self):
-		self.__message_id: MessageId = MessageId.KEEP_ALIVE
+	def __init__(self, message_id: MessageId = MessageId.KEEP_ALIVE):
+		self.__message_id: MessageId = message_id
 		self.__payload: bytes = bytes()
 
 	@classmethod
@@ -81,7 +84,7 @@ class Message:
 			length = int.from_bytes(self.__payload[8:])
 			return index, begin, length
 		else:
-			print("unknown message_id")
+			logger.warning("unknown message_id")
 			return None
 
 	@property
@@ -198,42 +201,56 @@ class Connection:
 
 		self.connection_time = time.time()
 		self.last_message_time = time.time()
+		self.last_out_time = time.time()
 
 		self.reader: StreamReader = None
 		self.writer: StreamWriter = None
 
 		self.state = ConnectionState.Created
 
-		self.__read_buffer: bytes = bytes()
+	async def connect(self, peer_info: PeerInfo, attempt: int, info_hash: bytes, peer_id: bytes,
+	                  bitfield: bytes) -> None:
 
-	def connect(self, peer_info: PeerInfo, attempt: int, info_hash: bytes, peer_id: bytes,
-	            bitfield: bytes) -> asyncio.Task:
+		self.host = peer_info.host
 		self.state = ConnectionState.Handshake
-		return asyncio.create_task(self._connect(peer_info, attempt, info_hash, peer_id, bitfield))
-
-	async def _connect(self, peer_info: PeerInfo, attempt: int, info_hash: bytes, peer_id: bytes,
-	                   bitfield: bytes) -> None:
 		self.connection_time = time.time()
 
-		self.reader, self.writer = await asyncio.open_connection(peer_info.host, peer_info.port + attempt)
+		logger.debug(f"try connect to {peer_info} attempt {attempt}")
+
+		try:
+			async with asyncio.timeout(1):
+				self.reader, self.writer = await asyncio.open_connection(peer_info.host, peer_info.port + attempt)
+		except TimeoutError:
+			self.state = ConnectionState.Disconnected
+			logger.debug(f"Connection to {peer_info} attempt {attempt} failed")
+			return
 
 		message = Message.create_handshake_message(info_hash, peer_id)
-		print(f"Send handshake to: {peer_info}, message: {message}")
+		logger.debug(f"Send handshake to: {peer_info}, message: {message}")
+
 		self.writer.write(message)
-		handshake_response = await self.reader.readexactly(len(message))
+		await self.writer.drain()
+		try:
+			async with asyncio.timeout(1):
+				handshake_response = await self.reader.readexactly(len(message))
+		except TimeoutError:
+			self.state = ConnectionState.Disconnected
+			logger.debug(f"Handshake to {peer_info} failed")
+			return
+
 		_, _, _, remote_info_hash, remote_peer_id = Message.parse_handshake_message(handshake_response)
-		print(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
-		self.host = peer_info.host
+		logger.debug(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
 
 		self.remote_peer_id = remote_peer_id
 		self.last_message_time = time.time()
 
 		# send bitfield just after the handshake if any
 		if bitfield:
-			self.bitfield(bitfield)
+			await self.bitfield(bitfield)
 
 		if remote_info_hash == info_hash:
 			self.state = ConnectionState.Connected
+			logger.info(f"Connected to peer: {peer_info}. Peer id: {remote_peer_id}")
 		else:
 			self.state = ConnectionState.Disconnected
 
@@ -249,73 +266,66 @@ class Connection:
 		self.reader = None
 
 	async def read(self) -> Message:
-		buffer: bytes = await self.reader.read(4)
+		try:
+			buffer = await self.reader.readexactly(4)
+			length = int.from_bytes(buffer[:4])
 
-		# Looks like it is over. got EOF
-		if len(buffer) == 0:
-			print(f"WTF connection broken {self.host}")
-			self.state = ConnectionState.Disconnected
-			await asyncio.sleep(10)
-			return Message()
+			if length:
+				buffer = await self.reader.readexactly(length)
+				message = Message.from_bytes(buffer[:length])
+			else:
+				message = Message(MessageId.KEEP_ALIVE)
 
-		buffer = self.__read_buffer + buffer
+		except IncompleteReadError as ex:
+			message = Message(MessageId.ERROR)
+			logger.info(f"IncompleteReadError on {self.remote_peer_id} {self.host}. Exception {ex}")
+		except ConnectionResetError as ex:
+			message = Message(MessageId.ERROR)
+			logger.info(f"ConnectionResetError on {self.remote_peer_id} {self.host}. Exception {ex}")
 
-		while len(buffer) < 4:
-			buffer += await self.reader.read(4)
-
-		length = int.from_bytes(buffer[:4])
-		buffer = buffer[4:]
-
-		# KEEP ALIVE message
-		if length == 0:
-			return self.__on_message(Message())
-
-		while len(buffer) < length:
-			buffer += await self.reader.read(length)
-
-		message = Message.from_bytes(buffer[:length])
-		print(f"got message {message} from {self.host}", )
-
-		self.__read_buffer = buffer[length:]
-
+		logger.debug(f"got message {message} from {self.host}")
 		return self.__on_message(message)
 
-	def keep_alive(self) -> None:
+	async def keep_alive(self) -> None:
 		if time.time() - self.last_out_time < 10:
 			return
-		self.__send(Message.create(MessageId.KEEP_ALIVE))
+		await self.__send(Message.create(MessageId.KEEP_ALIVE))
 
-	def choke(self) -> None:
-		self.__send(Message.create(MessageId.CHOKE))
+	async def choke(self) -> None:
+		await self.__send(Message.create(MessageId.CHOKE))
 
-	def unchoke(self) -> None:
-		self.__send(Message.create(MessageId.UNCHOKE))
+	async def unchoke(self) -> None:
+		await self.__send(Message.create(MessageId.UNCHOKE))
 
-	def interested(self) -> None:
-		self.__send(Message.create(MessageId.INTERESTED))
+	async def interested(self) -> None:
+		await self.__send(Message.create(MessageId.INTERESTED))
 
-	def not_interested(self) -> None:
-		self.__send(Message.create(MessageId.NOT_INTERESTED))
+	async def not_interested(self) -> None:
+		await self.__send(Message.create(MessageId.NOT_INTERESTED))
 
-	def have(self, piece_index) -> None:
-		self.__send(Message.create(MessageId.HAVE, (piece_index,)))
+	async def have(self, piece_index) -> None:
+		await self.__send(Message.create(MessageId.HAVE, (piece_index,)))
 
-	def bitfield(self, bitfield) -> None:
-		self.__send(Message.create(MessageId.BITFIELD, (bitfield,)))
+	async def bitfield(self, bitfield) -> None:
+		await self.__send(Message.create(MessageId.BITFIELD, (bitfield,)))
 
-	def request(self, piece_index, begin, length) -> None:
-		self.__send(Message.create(MessageId.REQUEST, (piece_index, begin, length)))
+	async def request(self, piece_index, begin, length) -> None:
+		await self.__send(Message.create(MessageId.REQUEST, (piece_index, begin, length)))
 
-	def piece(self, piece_index, begin, block) -> None:
-		self.__send(Message.create(MessageId.PIECE, (piece_index, begin, block)))
+	async def piece(self, piece_index, begin, block) -> None:
+		await self.__send(Message.create(MessageId.PIECE, (piece_index, begin, block)))
 
-	def cancel(self, piece_index, begin, length) -> None:
-		self.__send(Message.create(MessageId.CANCEL, (piece_index, begin, length)))
+	async def cancel(self, piece_index, begin, length) -> None:
+		await self.__send(Message.create(MessageId.CANCEL, (piece_index, begin, length)))
 
-	def __send(self, message: bytes) -> None:
-		print(f"send {Message.from_bytes(message[4:])} message to {self.host}")
-		self.last_out_time = time.time()
-		self.writer.write(message)
+	async def __send(self, message: bytes) -> None:
+		logger.debug(f"send {Message.from_bytes(message[4:])} message to {self.remote_peer_id} {self.host}")
+		try:
+			self.last_out_time = time.time()
+			self.writer.write(message)
+			await self.writer.drain()
+		except Exception as ex:
+			logger.warning(f"got send error on {self.remote_peer_id} {self.host}: {ex}")
 
 	def __on_message(self, message: Message):
 		self.last_message_time = time.time()

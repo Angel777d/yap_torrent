@@ -1,15 +1,17 @@
-with open("tmp.bin", "r+b") as f:
-	f.seek(10)
-	buffer = b'\xff\xff\xff\xff'
-	f.write(buffer)
+import asyncio
 
-with open("tmp.bin", "rb") as f:
-	print(f.read())
+progress = True
+async def main():
+	print("start")
 
-with open("tmp.bin", "r+b") as f:
-	f.seek(1)
-	buffer = b'\xff\xff\xff\xff'
-	f.write(buffer)
+	while progress:
+		await asyncio.sleep(1)
+		print("tick")
 
-with open("tmp.bin", "rb") as f:
-	print(f.read())
+	print("end")
+
+try:
+	asyncio.run(main())
+except KeyboardInterrupt as e:
+	print("Caught keyboard interrupt. Canceling tasks...")
+	progress = False

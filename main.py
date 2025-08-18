@@ -10,7 +10,7 @@ from app.peer_system import PeerSystem
 from app.piece_system import PieceSystem
 from app.watch_system import WatcherSystem
 
-GLOBAL_TICK_TIME = 10
+GLOBAL_TICK_TIME = 1
 
 
 def network_setup(port: int) -> tuple[str, str]:
@@ -27,6 +27,11 @@ def create_peer_id():
 
 
 async def main():
+	# loop = asyncio.get_event_loop()
+	# loop.set_debug(True)
+
+	print("start")
+
 	config = Config()
 	_, external_ip = network_setup(config.port)
 	env = Env(create_peer_id(), external_ip, config)
@@ -51,4 +56,5 @@ async def main():
 			await system.update(dt)
 
 
-asyncio.run(main())
+if __name__ == '__main__':
+	asyncio.run(main())

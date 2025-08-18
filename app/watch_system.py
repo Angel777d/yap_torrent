@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 import pickle
 from pathlib import Path
@@ -9,6 +11,8 @@ from app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
 from app.components.tracker_ec import TorrentTrackerDataEC
 from core.DataStorage import Entity
 from torrent import load_torrent_file, TorrentInfo
+
+logger = logging.getLogger(__name__)
 
 
 class WatcherSystem(System):
@@ -53,10 +57,10 @@ class WatcherSystem(System):
 
 				torrent_info = load_torrent_file(file_path)
 				if not torrent_info.is_valid():
-					print("can't read torrent file:", file_path)
+					logger.info(f"Torrent file {file_path} is invalid")
 					continue
 
-				print("new torrent added from path:", file_path)
+				logger.info(f"New torrent file {file_path} added")
 				entity = await self._add_torrent(torrent_info)
 				entity.add_component(TorrentSaveEC())
 
@@ -69,15 +73,20 @@ class WatcherSystem(System):
 				file_path = Path(root).joinpath(file_name)
 				with open(file_path, 'rb') as f:
 					info, bitfield = pickle.load(f)
-					print(f"{info.name} loaded from locals")
+					logger.info(f"{info.name} loaded from save")
 					await self._add_torrent(info, bitfield)
 
 	async def _save_local(self, entity: Entity):
 		info = entity.get_component(TorrentInfoEC).info
 		bitfield = entity.get_component(BitfieldEC).dump()
-		path = self.active_path.joinpath(str(info.info_hash))
-		with open(path, 'wb') as f:
-			pickle.dump((info, bitfield), f, pickle.HIGHEST_PROTOCOL)
+		path = self.active_path.joinpath(str(info.name))
+
+		def save():
+			with open(path, 'wb') as f:
+				pickle.dump((info, bitfield), f, pickle.HIGHEST_PROTOCOL)
+
+		loop = asyncio.get_running_loop()
+		await loop.run_in_executor(None, save)
 
 	async def _add_torrent(self, torrent_info: TorrentInfo, bitfield: bytes = bytes()) -> Entity:
 		entity = self.env.data_storage.create_entity()

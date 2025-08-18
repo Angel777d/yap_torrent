@@ -1,3 +1,4 @@
+import logging
 import time
 
 from app import System
@@ -6,6 +7,8 @@ from app.components.peer_ec import PeerInfoEC, PeerPendingEC
 from app.components.torrent_ec import TorrentInfoEC
 from app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerUpdatedEC
 from torrent.tracker import make_announce
+
+logger = logging.getLogger(__name__)
 
 
 class AnnounceSystem(System):
@@ -54,20 +57,11 @@ class AnnounceSystem(System):
 		for announce_group in tracker_ec.announce_list:
 			for announce in announce_group:
 
-				print(f"make announce to: {announce}")
-				result = make_announce(
-					announce,
-					tracker_ec.info_hash,
-					peer_id=peer_id,
-					downloaded=downloaded,
-					uploaded=uploaded,
-					left=left,
-					port=port,
-					ip=external_ip,
-					event=event,
-					compact=1,
-					tracker_id=tracker_ec.tracker_id
-				)
+				logger.info(f"make announce to: {announce}")
+
+				result = make_announce(announce, tracker_ec.info_hash, peer_id=peer_id, downloaded=downloaded,
+				                       uploaded=uploaded, left=left, port=port, ip=external_ip, event=event, compact=1,
+				                       tracker_id=tracker_ec.tracker_id)
 
 				if result and not result.failure_reason:
 					tracker_ec.save_announce(result)
@@ -75,6 +69,7 @@ class AnnounceSystem(System):
 					return
 
 		# TODO: make it better
-		print("WTF: no announce results")
+		logger.warning("WTF: no announce results")
+
 		tracker_ec.last_update_time = time.time()
 		tracker_ec.interval = 60 * 5  # retry in 5 min
