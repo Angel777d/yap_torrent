@@ -48,7 +48,10 @@ class PeerSystem(System):
 
 			connection_timeout = 15  # TODO: move to config
 			connection = Connection(connection_timeout)
-			task = asyncio.create_task(self._listen(peer_entity, torrent_entity))
+			# task = asyncio.create_task(self._listen(peer_entity, torrent_entity))
+
+			loop = asyncio.get_running_loop()
+			task = asyncio.create_task(await loop.run_in_executor(None, self._listen, peer_entity, torrent_entity))
 
 			peer_entity.add_component(BitfieldEC(torrent_info.pieces.num))
 			peer_entity.add_component(PeerConnectionEC(connection, task))
@@ -174,7 +177,7 @@ class PeerSystem(System):
 		# main peer loop
 		try:
 			while not connection.is_dead():
-				await asyncio.sleep(0.2)  # for other peers
+				await asyncio.sleep(0.1)  # for other peers
 				message = await connection.read()
 
 				if message.message_id == MessageId.PIECE:
