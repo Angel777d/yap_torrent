@@ -55,10 +55,11 @@ class TrackerAnnounceResponse:
 
 
 class PieceInfo:
-	def __init__(self, index: int, piece_length: int, piece_hash: bytes):
+	def __init__(self, index: int, piece_length: int, piece_hash: bytes, full_size: int):
 		self.index: int = index
 		self.piece_length: int = piece_length
 		self.piece_hash: bytes = piece_hash
+		self.full_size: int = full_size
 
 
 class Pieces:
@@ -66,8 +67,8 @@ class Pieces:
 		self.__piece_length: int = piece_length
 		self.__pieces: bytes = pieces
 
-	def get_piece(self, index: int) -> PieceInfo:
-		return PieceInfo(index, self.__piece_length, self.__pieces[index * 20:(index + 1) * 20])
+	def get_piece(self, index: int, full_size:int) -> PieceInfo:
+		return PieceInfo(index, self.__piece_length, self.__pieces[index * 20:(index + 1) * 20], full_size)
 
 	@property
 	def num(self) -> int:

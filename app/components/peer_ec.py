@@ -1,5 +1,5 @@
 from asyncio import Task
-from typing import Hashable, Optional, Tuple
+from typing import Hashable, Set, Tuple
 
 from core.DataStorage import EntityComponent
 from torrent.connection import Connection
@@ -30,7 +30,7 @@ class PeerPendingEC(EntityComponent):
 
 
 class PeerConnectionEC(EntityComponent):
-	def __init__(self, connection: Connection, task: Task) -> None:
+	def __init__(self, connection: Connection, task: Task, queue_size: int = 10) -> None:
 		super().__init__()
 
 		self.connection: Connection = connection
@@ -42,7 +42,9 @@ class PeerConnectionEC(EntityComponent):
 		self.remote_choked = True
 		self.remote_interested = False
 
-		self.download_block: Optional[Tuple[int, int, int]] = None
+		self.__in_progress: Set[Tuple[int, int]] = set()
+		# TODO: move queue size to config
+		self.__queue_size: int = queue_size
 
 	def _reset(self):
 		self.connection.close()
@@ -78,5 +80,19 @@ class PeerConnectionEC(EntityComponent):
 		self.remote_choked = False
 
 	async def request(self, index: int, begin: int, length: int) -> None:
-		self.download_block = index, begin, length
+		self.__in_progress.add((index, begin))
 		await self.connection.request(index, begin, length)
+
+	def can_request(self) -> bool:
+		return len(self.__in_progress) < self.__queue_size
+
+	def reset_block(self, index, begin) -> None:
+		self.__in_progress.remove((index, begin))
+
+	def reset_progress(self) -> Set[int]:
+		result = set(index for index, begin in self.__in_progress)
+		self.__in_progress.clear()
+		return result
+
+	def is_free_to_download(self) -> bool:
+		return not self.__in_progress

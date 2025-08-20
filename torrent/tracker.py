@@ -1,6 +1,10 @@
+import logging
+
 import requests
 
 from torrent.structures import TrackerAnnounceResponse
+
+logger = logging.getLogger(__name__)
 
 
 def make_announce(
@@ -46,11 +50,15 @@ def make_announce(
 	if tracker_id:
 		params["trackerid"] = tracker_id
 
-	response = requests.get(
-		url=announce,
-		params=params,
-		headers=headers,
-	)
+	try:
+		response = requests.get(
+			url=announce,
+			params=params,
+			headers=headers,
+		)
+	except ConnectionError as ex:
+		logger.warning(f"got error on announce: {ex}")
+		return None
 
 	if response.status_code != 200:
 		return None

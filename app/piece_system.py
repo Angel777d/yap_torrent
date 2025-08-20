@@ -2,7 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from app import System, Env
+from app import Env, TimeSystem
 from app.components.bitfield_ec import BitfieldEC
 from app.components.piece_ec import PieceToSaveEC, PieceEC
 from app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
@@ -10,30 +10,20 @@ from app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
 logger = logging.getLogger(__name__)
 
 
-class PieceSystem(System):
+class PieceSystem(TimeSystem):
 
 	def __init__(self, env: Env):
-		super().__init__(env)
+		super().__init__(env, 10)
 		self.download_path = Path(env.config.download_folder)
 		self.download_path.mkdir(parents=True, exist_ok=True)
 
-		self.__timeout = 20  #
-		self.__time_left: float = self.__timeout
-
-	async def update(self, delta_time: float):
-		self.__time_left -= delta_time
-		if self.__time_left > 0:
-			return
-		self.__time_left += self.__timeout
-
+	async def _update(self, delta_time: float):
 		loop = asyncio.get_running_loop()
 		await loop.run_in_executor(None, self.save_pieces)
 
 	def save_pieces(self):
 		ds = self.env.data_storage
 		for entity in ds.get_collection(PieceToSaveEC).entities:
-			entity.remove_component(PieceToSaveEC)
-
 			piece = entity.get_component(PieceEC)
 			torrent_entity = ds.get_collection(TorrentInfoEC).find(piece.info_hash)
 			info = torrent_entity.get_component(TorrentInfoEC).info
@@ -73,3 +63,6 @@ class PieceSystem(System):
 				# logs
 				downloaded = torrent_entity.get_component(BitfieldEC).have_num * info.pieces.piece_length
 				logger.info(f"{downloaded / info.size * 100:.2f}% progress {info.name}")
+
+		# cleanup
+		ds.clear_collection(PieceToSaveEC)

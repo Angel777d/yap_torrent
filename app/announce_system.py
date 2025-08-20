@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class AnnounceSystem(System):
 
-	async def update(self, delta_time: float):
+	async def _update(self, delta_time: float):
 		event = "started"  # "started", "completed", "stopped"
 		current_time = time.time()
 		ds = self.env.data_storage

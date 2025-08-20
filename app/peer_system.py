@@ -18,9 +18,7 @@ class PeerSystem(System):
 	def __init__(self, env: Env):
 		super().__init__(env)
 
-	async def update(self, delta_time: float):
-		# tasks = asyncio.all_tasks()
-		# connections = self.env.data_storage.get_collection(PeerConnectionEC).entities
+	async def _update(self, delta_time: float):
 		await self.connect_to_new_peers()
 
 	async def connect_to_new_peers(self):
@@ -60,29 +58,24 @@ class PeerSystem(System):
 		ds = self.env.data_storage
 		ds.clear_collection(PeerConnectionEC)
 
-	async def _update_interested(self, peer_entity: Entity, torrent_entity: Entity):
+	@staticmethod
+	async def _update_interested(peer_entity: Entity, torrent_entity: Entity):
 		remote_bitfield = peer_entity.get_component(BitfieldEC)
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
 		connection = peer_entity.get_component(PeerConnectionEC)
 
 		if local_bitfield.interested_in(remote_bitfield, exclude=set()):
 			await connection.interested()
-			await self._update_download(peer_entity, torrent_entity)
 		else:
 			await connection.not_interested()
 
 	async def _clear_download(self, info_hash: bytes, peer_connection_ec: PeerConnectionEC):
-		if not peer_connection_ec.download_block:
-			return
-
 		ds = self.env.data_storage
-		index, begin, length = peer_connection_ec.download_block
-
-		logger.warning(f"clear download block {index, begin}")
-
-		peer_connection_ec.download_block = None
-		piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
-		piece_entity.get_component(PieceEC).cancel(begin)
+		pieces = peer_connection_ec.reset_progress()
+		for index in pieces:
+			logger.warning(f"clear download block {index, peer_connection_ec.connection.remote_peer_id}")
+			piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
+			piece_entity.get_component(PieceEC).cancel(peer_connection_ec.connection.remote_peer_id)
 
 	async def _update_download(self, peer_entity: Entity, torrent_entity: Entity):
 		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
@@ -99,8 +92,8 @@ class PeerSystem(System):
 			# stop wait if choked
 			return
 
-		# check download in progress
-		if peer_connection_ec.download_block:
+		if not peer_connection_ec.is_free_to_download():
+			logger.warning("peer is in download already")
 			return
 
 		# TODO: implement strategies
@@ -115,19 +108,17 @@ class PeerSystem(System):
 		ds = self.env.data_storage
 		piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
 		if not piece_entity:
-			piece_info = info_ec.info.pieces.get_piece(index)
+			piece_info = info_ec.info.pieces.get_piece(index, info_ec.info.size)
 
 			piece_entity = ds.create_entity().add_component(PieceEC(info_hash, piece_info))
 
-		await self._try_load_next(peer_connection_ec, piece_entity.get_component(PieceEC))
+		await self._request_pieces(peer_connection_ec, piece_entity.get_component(PieceEC))
 
 	@staticmethod
-	async def _try_load_next(peer_connection_ec: PeerConnectionEC, piece_ec: PieceEC) -> bool:
-		if not piece_ec.has_next():
-			return False
-		index, begin, length = piece_ec.get_next()
-		await peer_connection_ec.request(index, begin, length)
-		return True
+	async def _request_pieces(peer_connection_ec: PeerConnectionEC, piece_ec: PieceEC) -> None:
+		while peer_connection_ec.can_request() and piece_ec.has_next():
+			index, begin, length = piece_ec.get_next(peer_connection_ec.connection.remote_peer_id)
+			await peer_connection_ec.request(index, begin, length)
 
 	async def _send_have_to_peers(self, info_hash: bytes, index: int):
 		ds = self.env.data_storage
@@ -186,18 +177,25 @@ class PeerSystem(System):
 					piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(peer_ec.info_hash, index))
 					piece_ec = piece_entity.get_component(PieceEC)
 					piece_ec.append(begin, block)
-					peer_connection_ec.download_block = None
+
+					# remove block from download queue
+					peer_connection_ec.reset_block(index, begin)
+
+					# whole piece was downloaded
 					if piece_ec.completed:
 						piece_ec.add_marker(PieceToSaveEC)
-						await self._update_interested(peer_entity, torrent_entity)
 						await self._send_have_to_peers(peer_ec.info_hash, index)
 						logger.info(f"piece {index} completed")
 
+						await self._update_interested(peer_entity, torrent_entity)
+
+					# request for next pieces
 					else:
-						result = await self._try_load_next(peer_connection_ec, piece_ec)
-						if not result:
-							logger.warning(f"WTF can't download full piece {index} by {peer_ec.peer_info}")
-							await self._update_download(peer_entity, torrent_entity)
+						await self._request_pieces(peer_connection_ec, piece_ec)
+
+					# go to next piece
+					if peer_connection_ec.is_free_to_download():
+						await self._update_download(peer_entity, torrent_entity)
 
 				elif message.message_id == MessageId.REQUEST:
 					index, begin, length = message.request
@@ -208,14 +206,16 @@ class PeerSystem(System):
 				elif message.message_id == MessageId.HAVE:
 					bitfield_ec.set_index(message.index)
 					await self._update_interested(peer_entity, torrent_entity)
+					if peer_connection_ec.is_free_to_download():
+						await self._update_download(peer_entity, torrent_entity)
 				elif message.message_id == MessageId.CHOKE:
 					peer_connection_ec.local_choked = True
 					await self._clear_download(peer_ec.info_hash, peer_connection_ec)
 				elif message.message_id == MessageId.UNCHOKE:
 					peer_connection_ec.local_choked = False
 					await self._update_download(peer_entity, torrent_entity)
-					# TODO: fix choke algorythm
-					await peer_connection_ec.unchoke()
+				# TODO: fix choke algorythm
+				# await peer_connection_ec.unchoke()
 				elif message.message_id == MessageId.INTERESTED:
 					# TODO: fix choke algorythm
 					peer_connection_ec.remote_interested = True
@@ -227,6 +227,7 @@ class PeerSystem(System):
 				elif message.message_id == MessageId.BITFIELD:
 					bitfield_ec.update(message.bitfield)
 					await self._update_interested(peer_entity, torrent_entity)
+					await self._update_download(peer_entity, torrent_entity)
 				elif message.message_id == MessageId.ERROR:
 					logger.info(f"got message error on peer {peer_ec.peer_info.host}")
 					break
