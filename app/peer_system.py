@@ -25,7 +25,7 @@ class PeerSystem(System):
 		host = self.env.ip
 		await asyncio.start_server(self._server_callback, host, port)
 
-		return super().start()
+		return await super().start()
 
 	async def _server_callback(self, reader: StreamReader, writer: StreamWriter):
 		logger.debug('some peer connected to us')

@@ -54,6 +54,12 @@ class PieceEC(EntityComponent):
 
 	def append(self, begin: int, block: bytes):
 		self.data[begin:begin + len(block)] = block
+		new_progress = [p for p in self.__in_progress if p[3] != begin]
+		if len(self.__in_progress) == len(new_progress):
+			logger.debug(f"Did not wait for block {begin}")
+			return
+
+		self.__in_progress = new_progress
 		self.__downloaded += len(block)
 
 		# check piece is corrupted and reset piece
