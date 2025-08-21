@@ -6,12 +6,16 @@ from torrent.parser import decode
 
 
 class PeerInfo:
-	def __init__(self, data: bytes):
-		self.host = f"{data[0]}.{data[1]}.{data[2]}.{data[3]}"
-		self.port = int.from_bytes(data[4:], "big")
+	def __init__(self, host: str, port: int) -> None:
+		self.host: str = host
+		self.port: int = port
 
 	def __repr__(self):
 		return f'PeerInfo: {self.host}:{self.port}'
+
+	@classmethod
+	def from_bytes(cls, data: bytes) -> "PeerInfo":
+		return PeerInfo(f"{data[0]}.{data[1]}.{data[2]}.{data[3]}", int.from_bytes(data[4:], "big"))
 
 
 class TrackerAnnounceResponse:
@@ -39,7 +43,7 @@ class TrackerAnnounceResponse:
 	def peers(self) -> tuple[PeerInfo, ...]:
 		peers: bytes = self.__data.get("peers", b'')
 		if self.__compact:
-			return tuple(PeerInfo(peers[i: i + 6]) for i in range(0, len(peers), 6))
+			return tuple(PeerInfo.from_bytes(peers[i: i + 6]) for i in range(0, len(peers), 6))
 		raise NotImplementedError()
 
 	@property

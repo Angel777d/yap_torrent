@@ -224,7 +224,7 @@ async def on_connect(local_peer_id: bytes, reader: StreamReader, writer: StreamW
 		writer.close()
 		return None
 
-	return info_hash, remote_peer_id
+	return pstrlen, pstr, reserved, info_hash, remote_peer_id
 
 
 async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, timeout: float = 1.0) -> Optional[
@@ -264,7 +264,7 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 
 class Connection:
 
-	def __init__(self, remote_peer_id: bytes, reader: StreamReader, writer: StreamWriter, timeout: int = 30):
+	def __init__(self, remote_peer_id: bytes, reader: StreamReader, writer: StreamWriter, timeout: int = 60 * 5):
 		self.timeout = timeout
 
 		self.remote_peer_id = remote_peer_id
@@ -302,13 +302,15 @@ class Connection:
 
 		except IncompleteReadError as ex:
 			message = Message(MessageId.ERROR)
-			logger.info(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
+			logger.debug(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
 		except ConnectionResetError as ex:
 			message = Message(MessageId.ERROR)
-			logger.info(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
+			logger.debug(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
 
 		logger.debug(f"got message {message} from {self.remote_peer_id}")
-		return self.__on_message(message)
+		self.last_message_time = time.time()
+
+		return message
 
 	async def keep_alive(self) -> None:
 		if time.time() - self.last_out_time < 10:
@@ -350,7 +352,3 @@ class Connection:
 			await self.writer.drain()
 		except Exception as ex:
 			logger.warning(f"got send error on {self.remote_peer_id}: {ex}")
-
-	def __on_message(self, message: Message):
-		self.last_message_time = time.time()
-		return message

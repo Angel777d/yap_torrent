@@ -24,7 +24,7 @@ class Application:
 			await AnnounceSystem(env).start(),
 			await PeerSystem(env).start(),
 			await PieceSystem(env).start(),
-			await ProfileSystem(env).start(),
+			# await ProfileSystem(env).start(),
 		]
 
 		last_time = time.time()

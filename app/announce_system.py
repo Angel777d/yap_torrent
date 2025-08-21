@@ -18,15 +18,7 @@ class AnnounceSystem(System):
 		current_time = time.time()
 		ds = self.env.data_storage
 
-		# initiate tracker updates
-		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
-		for entity in trackers_collection:
-			tracker_ec = entity.get_component(TorrentTrackerDataEC)
-			interval = min(tracker_ec.interval, tracker_ec.min_interval)
-			if tracker_ec.last_update_time + interval <= current_time:
-				await self.__tracker_announce(tracker_ec, event)
-
-		# create new peers
+		# process updated trackers
 		updates_collection = ds.get_collection(TorrentTrackerUpdatedEC).entities
 		for entity in updates_collection:
 			entity.remove_component(TorrentTrackerUpdatedEC)
@@ -36,6 +28,14 @@ class AnnounceSystem(System):
 				if not ds.get_collection(PeerInfoEC).find(PeerInfoEC.make_hash(tracker_ec.info_hash, peer)):
 					ds.create_entity().add_component(PeerInfoEC(tracker_ec.info_hash, peer)).add_component(
 						PeerPendingEC())
+
+		# make announces
+		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
+		for entity in trackers_collection:
+			tracker_ec = entity.get_component(TorrentTrackerDataEC)
+			interval = min(tracker_ec.interval, tracker_ec.min_interval)
+			if tracker_ec.last_update_time + interval <= current_time:
+				await self.__tracker_announce(tracker_ec, event)
 
 	async def __tracker_announce(self, tracker_ec: TorrentTrackerDataEC, event: str = "started"):
 		peer_id = self.env.peer_id
@@ -56,12 +56,21 @@ class AnnounceSystem(System):
 		# https://bittorrent.org/beps/bep_0012.html
 		for announce_group in tracker_ec.announce_list:
 			for announce in announce_group:
-
 				logger.info(f"make announce to: {announce}")
 
-				result = make_announce(announce, tracker_ec.info_hash, peer_id=peer_id, downloaded=downloaded,
-				                       uploaded=uploaded, left=left, port=port, ip=external_ip, event=event, compact=1,
-				                       tracker_id=tracker_ec.tracker_id)
+				result = make_announce(
+					announce,
+					tracker_ec.info_hash,
+					peer_id=peer_id,
+					downloaded=downloaded,
+					uploaded=uploaded,
+					left=left,
+					port=port,
+					ip=external_ip,
+					event=event,
+					compact=1,
+					tracker_id=tracker_ec.tracker_id
+				)
 
 				if result and not result.failure_reason:
 					tracker_ec.save_announce(result)

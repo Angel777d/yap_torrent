@@ -63,15 +63,16 @@ class PieceEC(EntityComponent):
 		self.__downloaded += len(block)
 
 		# check piece is corrupted and reset piece
-		if self.completed and not self.__hash == hashlib.sha1(self.data).digest():
+		if self.completed and not self.check_hash(bytes(self.data), self.__hash):
 			logger.warning(f"piece {self.index} is corrupted. reset")
-
 			self.__downloaded = 0
 			self.__begin = 0
 			self.__canceled = []
+			self.__in_progress = []
 
-	def check_hash(self) -> bool:
-		return self.__hash == hashlib.sha1(self.data).digest()
+	@staticmethod
+	def check_hash(data: bytes, data_hash: bytes) -> bool:
+		return data_hash == hashlib.sha1(data).digest()
 
 	@property
 	def completed(self):
