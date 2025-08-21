@@ -1,4 +1,5 @@
-from typing import List
+from pathlib import Path
+from typing import List, Generator, Tuple
 from warnings import deprecated
 
 from torrent.parser import decode
@@ -54,21 +55,13 @@ class TrackerAnnounceResponse:
 		return self.__data.get("warning message", "")
 
 
-class PieceInfo:
-	def __init__(self, index: int, piece_length: int, piece_hash: bytes, full_size: int):
-		self.index: int = index
-		self.piece_length: int = piece_length
-		self.piece_hash: bytes = piece_hash
-		self.full_size: int = full_size
-
-
 class Pieces:
 	def __init__(self, piece_length: int, pieces: bytes):
 		self.__piece_length: int = piece_length
 		self.__pieces: bytes = pieces
 
-	def get_piece(self, index: int, full_size:int) -> PieceInfo:
-		return PieceInfo(index, self.__piece_length, self.__pieces[index * 20:(index + 1) * 20], full_size)
+	def get_piece_hash(self, index: int) -> bytes:
+		return self.__pieces[index * 20:(index + 1) * 20]
 
 	@property
 	def num(self) -> int:
@@ -125,9 +118,12 @@ class TorrentInfo:
 		else:
 			return (FileInfo([self.name], self.info.get("length", 0), self.info.get("md5sum", '')),)
 
-	@property
-	def is_multifile(self) -> bool:
-		return 'files' in self.info
+	def _get_file_path(self, root: Path, file: FileInfo) -> Path:
+		# add folder for multifile torrent
+		path = root.joinpath(self.name) if 'files' in self.info else root
+		for file_path in file.path:
+			path = path.joinpath(file_path)
+		return path
 
 	@property
 	@deprecated("use announce_list instead")
@@ -145,3 +141,30 @@ class TorrentInfo:
 	@property
 	def pieces(self) -> Pieces:
 		return Pieces(self.info.get('piece length', 1), self.info.get('pieces', b""))
+
+	def calculate_piece_size(self, index: int) -> int:
+		piece_length = self.pieces.piece_length
+		torrent_full_size = self.size
+		if (index + 1) * piece_length > torrent_full_size:
+			size = torrent_full_size % piece_length
+		else:
+			size = piece_length
+		return size
+
+	def piece_to_files(self, index: int, root: Path) -> Generator[Tuple[FileInfo, Path, int, int]]:
+		piece_length = self.pieces.piece_length
+		piece_start = index * piece_length
+		piece_end = piece_start + self.calculate_piece_size(index)
+		for file in self.files:
+			file_end = file.start + file.length
+			if piece_start >= file_end:
+				continue
+			if file.start >= piece_end:
+				continue
+
+			path = self._get_file_path(root, file)
+			start_pos = max(piece_start, file.start)
+			file_end = file.start + file.length
+			end_pos = min(piece_end, file_end)
+
+			yield file, path, start_pos, end_pos

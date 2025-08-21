@@ -4,7 +4,7 @@ import time
 from typing import Hashable, List, Tuple
 
 from core.DataStorage import EntityComponent
-from torrent.structures import PieceInfo
+from torrent import TorrentInfo
 
 logger = logging.getLogger(__name__)
 
@@ -12,32 +12,26 @@ logger = logging.getLogger(__name__)
 class PieceEC(EntityComponent):
 	__BLOCK_SIZE = 2 ** 14  # (16kb)
 
-	def __init__(self, info_hash: bytes, piece_info: PieceInfo):
+	def __init__(self, info: TorrentInfo, index: int, data: bytes = bytes()):
 		super().__init__()
-		self.data: bytearray = bytearray()
+		self.data: bytearray = bytearray(data)
+		self.__downloaded: int = len(data)
 
-		self.info_hash: bytes = info_hash
-		self.__piece_info: PieceInfo = piece_info
+		self.info_hash: bytes = info.info_hash
+		self.index: int = index
+
+		self.__hash: bytes = info.pieces.get_piece_hash(index)
 		self.__begin = 0  # block_index * block_size
 
-		# last piece size calculations
-		self.__size = piece_info.piece_length
-		if (piece_info.index + 1) * piece_info.piece_length > piece_info.full_size:
-			self.__size = piece_info.full_size % piece_info.piece_length
-		self.__downloaded: int = 0
+		self.__size = info.calculate_piece_size(index)
 
 		self.__in_progress: List[Tuple[bytes, float, int, int, int]] = []
 		self.__canceled: List[Tuple[bytes, float, int, int, int]] = []
 
-
-	@property
-	def index(self) -> int:
-		return self.__piece_info.index
-
 	def has_next(self) -> bool:
 		return bool(self.__canceled or self.__begin < self.__size)
 
-	def calculate_block_size(self, begin: int) -> int:
+	def _calculate_block_size(self, begin: int) -> int:
 		if begin + self.__block_size > self.__size:
 			return self.__size % self.__block_size
 		return self.__block_size
@@ -49,7 +43,7 @@ class PieceEC(EntityComponent):
 			return index, begin, block_size
 
 		begin = self.__begin
-		block_size = self.calculate_block_size(begin)
+		block_size = self._calculate_block_size(begin)
 		self.__begin += block_size
 		self.__in_progress.append((peer_id, time.time(), self.index, begin, block_size))
 		return self.index, begin, block_size
@@ -63,12 +57,15 @@ class PieceEC(EntityComponent):
 		self.__downloaded += len(block)
 
 		# check piece is corrupted and reset piece
-		if self.completed and not self.__piece_info.piece_hash == hashlib.sha1(self.data).digest():
+		if self.completed and not self.__hash == hashlib.sha1(self.data).digest():
 			logger.warning(f"piece {self.index} is corrupted. reset")
 
 			self.__downloaded = 0
 			self.__begin = 0
 			self.__canceled = []
+
+	def check_hash(self) -> bool:
+		return self.__hash == hashlib.sha1(self.data).digest()
 
 	@property
 	def completed(self):
@@ -89,6 +86,27 @@ class PieceEC(EntityComponent):
 	def make_hash(info_hash: bytes, index: int) -> Hashable:
 		return info_hash, index
 
+	def get_block(self, begin, length) -> bytes:
+		return self.data[begin:begin + length]
+
 
 class PieceToSaveEC(EntityComponent):
 	pass
+
+
+class PiecePendingRemoveEC(EntityComponent):
+	REMOVE_TIMEOUT = 15  # TODO: move to config
+
+	def __init__(self) -> None:
+		super().__init__()
+		self.__last_update: float = 0
+
+	def update(self):
+		self.__last_update = time.time()
+
+	def can_remove(self) -> bool:
+		return time.time() - self.__last_update > self.REMOVE_TIMEOUT
+
+	@property
+	def last_update(self) -> float:
+		return self.__last_update

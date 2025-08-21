@@ -21,8 +21,8 @@ def create_peer_id():
 
 def start():
 	config = Config()
-	_, external_ip = network_setup(config.port)
-	env = Env(create_peer_id(), external_ip, config)
+	ip, external_ip = network_setup(config.port)
+	env = Env(create_peer_id(), ip, external_ip, config)
 
 	application = Application(env)
 	try:

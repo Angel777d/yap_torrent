@@ -6,11 +6,13 @@ import struct
 import time
 from asyncio import StreamReader, StreamWriter, IncompleteReadError
 from enum import Enum, unique, auto
-from typing import Tuple
+from typing import Tuple, Optional
 
 from torrent.structures import PeerInfo
 
 logger = logging.getLogger(__name__)
+
+PSTR_V1 = b'BitTorrent protocol'
 
 
 class MessageId(Enum):
@@ -173,13 +175,12 @@ class Message:
 		# peer_id: 20-byte string used as a unique ID for the client. This is usually the same peer_id that is transmitted in tracker requests (but not always e.g. an anonymity option in Azureus).
 		# In version 1.0 of the BitTorrent protocol, pstrlen = 19, and pstr = "BitTorrent protocol".
 
-		pstr = b'BitTorrent protocol'
-		pstrlen = len(pstr)
+		pstrlen = len(PSTR_V1)
 		reserved = bytearray(8)
-		return struct.pack(cls.HANDSHAKE_FORMAT, pstrlen, pstr, reserved, info_hash, peer_id)
+		return struct.pack(cls.HANDSHAKE_FORMAT, pstrlen, PSTR_V1, reserved, info_hash, peer_id)
 
 	@classmethod
-	def parse_handshake_message(cls, buffer: bytes):
+	def parse_handshake_message(cls, buffer: bytes) -> Tuple[bytes, bytes, bytes, bytes, bytes]:
 		return struct.unpack_from(cls.HANDSHAKE_FORMAT, buffer)
 
 
@@ -191,84 +192,100 @@ class ConnectionState(Enum):
 	Disconnected = auto()
 
 
+async def read_handshake_message(reader: StreamReader) -> Tuple[bytes, bytes, bytes, bytes, bytes]:
+	pstrlen = await reader.readexactly(1)
+	pstr = await reader.readexactly(int.from_bytes(pstrlen))
+	reserved = await reader.readexactly(8)
+	info_hash = await reader.readexactly(20)
+	peer_id = await reader.readexactly(20)
+	return pstrlen, pstr, reserved, info_hash, peer_id
+
+
+async def on_connect(local_peer_id: bytes, reader: StreamReader, writer: StreamWriter, timeout: float = 1.0):
+	try:
+		async with asyncio.timeout(timeout):
+			pstrlen, pstr, reserved, info_hash, remote_peer_id = await read_handshake_message(reader)
+	except TimeoutError:
+		logger.debug(f"Incoming handshake timeout error")
+		writer.close()
+		return None
+	except Exception as ex:
+		logger.error(f"Incoming handshake unexpected error {ex}")
+		writer.close()
+		return None
+
+	try:
+		message = Message.create_handshake_message(info_hash, local_peer_id)
+		logger.debug(f"Send handshake back to: {remote_peer_id}, message: {message}")
+		writer.write(message)
+		await writer.drain()
+	except Exception as ex:
+		logger.error(f"Handshake to {remote_peer_id} failed by {ex}")
+		writer.close()
+		return None
+
+	return info_hash, remote_peer_id
+
+
+async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, timeout: float = 1.0) -> Optional[
+	Tuple[bytes, StreamReader, StreamWriter]]:
+	logger.debug(f"try connect to {peer_info}")
+
+	try:
+		async with asyncio.timeout(timeout):
+			reader, writer = await asyncio.open_connection(peer_info.host, peer_info.port)
+	except TimeoutError:
+		logger.debug(f"Connection to {peer_info} Failed")
+		return None
+
+	message = Message.create_handshake_message(info_hash, local_peer_id)
+	logger.debug(f"Send handshake to: {peer_info}, message: {message}")
+
+	writer.write(message)
+	await writer.drain()
+	try:
+		async with asyncio.timeout(timeout):
+			handshake_response = await read_handshake_message(reader)
+	except TimeoutError:
+		logger.debug(f"Handshake to {peer_info} Failed")
+		writer.close()
+		return None
+	except Exception as ex:
+		logger.error(f"Handshake to {peer_info} failed by {ex}")
+		writer.close()
+		return None
+
+	pstrlen, pstr, reserved, remote_info_hash, remote_peer_id = handshake_response
+	logger.debug(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
+
+	logger.info(f"Connected to peer: {peer_info}. Peer id: {remote_peer_id}")
+	return remote_peer_id, reader, writer
+
+
 class Connection:
 
-	def __init__(self, timeout: int = 30):
+	def __init__(self, remote_peer_id: bytes, reader: StreamReader, writer: StreamWriter, timeout: int = 30):
 		self.timeout = timeout
 
-		self.remote_peer_id = None
-		self.host = ""
+		self.remote_peer_id = remote_peer_id
 
 		self.connection_time = time.time()
 		self.last_message_time = time.time()
 		self.last_out_time = time.time()
 
-		self.reader: StreamReader = None
-		self.writer: StreamWriter = None
-
-		self.state = ConnectionState.Created
-
-	async def connect(self, peer_info: PeerInfo, attempt: int, info_hash: bytes, peer_id: bytes,
-	                  bitfield: bytes) -> None:
-
-		self.host = peer_info.host
-		self.state = ConnectionState.Handshake
-		self.connection_time = time.time()
-
-		logger.debug(f"try connect to {peer_info} attempt {attempt}")
-
-		try:
-			async with asyncio.timeout(1):
-				self.reader, self.writer = await asyncio.open_connection(peer_info.host, peer_info.port + attempt)
-		except TimeoutError:
-			self.state = ConnectionState.Disconnected
-			logger.debug(f"Connection to {peer_info} attempt {attempt} failed")
-			return
-
-		message = Message.create_handshake_message(info_hash, peer_id)
-		logger.debug(f"Send handshake to: {peer_info}, message: {message}")
-
-		self.writer.write(message)
-		await self.writer.drain()
-		try:
-			async with asyncio.timeout(1):
-				handshake_response = await self.reader.readexactly(len(message))
-		except TimeoutError:
-			self.state = ConnectionState.Disconnected
-			logger.debug(f"Handshake to {peer_info} failed")
-			return
-		except Exception as ex:
-			self.state = ConnectionState.Disconnected
-			logger.debug(f"Handshake to {peer_info} failed by {ex}")
-			return
-
-		self.state = ConnectionState.Disconnected
-		_, _, _, remote_info_hash, remote_peer_id = Message.parse_handshake_message(handshake_response)
-		logger.debug(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
-
-		self.remote_peer_id = remote_peer_id
-		self.last_message_time = time.time()
-
-		# send bitfield just after the handshake if any
-		if bitfield:
-			await self.bitfield(bitfield)
-
-		if remote_info_hash == info_hash:
-			self.state = ConnectionState.Connected
-			logger.info(f"Connected to peer: {peer_info}. Peer id: {remote_peer_id}")
-		else:
-			self.state = ConnectionState.Disconnected
+		self.reader: StreamReader = reader
+		self.writer: StreamWriter = writer
 
 	def is_dead(self) -> bool:
-		return self.state == ConnectionState.Disconnected or (time.time() - self.last_message_time > self.timeout)
+		return time.time() - self.last_message_time > self.timeout
 
 	def close(self) -> None:
-		logger.debug(f"Close connection {self.host}")
+		logger.debug(f"Close connection {self.remote_peer_id}")
 
 		self.last_message_time = .0
-		# in case connection was not created at all
-		if self.writer:
-			self.writer.close()
+		self.remote_peer_id = bytes()
+		self.writer.close()
+
 		self.writer = None
 		self.reader = None
 
@@ -285,12 +302,12 @@ class Connection:
 
 		except IncompleteReadError as ex:
 			message = Message(MessageId.ERROR)
-			logger.info(f"IncompleteReadError on {self.remote_peer_id} {self.host}. Exception {ex}")
+			logger.info(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
 		except ConnectionResetError as ex:
 			message = Message(MessageId.ERROR)
-			logger.info(f"ConnectionResetError on {self.remote_peer_id} {self.host}. Exception {ex}")
+			logger.info(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
 
-		logger.debug(f"got message {message} from {self.host}")
+		logger.debug(f"got message {message} from {self.remote_peer_id}")
 		return self.__on_message(message)
 
 	async def keep_alive(self) -> None:
@@ -319,20 +336,20 @@ class Connection:
 	async def request(self, piece_index, begin, length) -> None:
 		await self.__send(Message.create(MessageId.REQUEST, (piece_index, begin, length)))
 
-	async def piece(self, piece_index, begin, block) -> None:
+	async def piece(self, piece_index: int, begin: int, block: bytes) -> None:
 		await self.__send(Message.create(MessageId.PIECE, (piece_index, begin, block)))
 
 	async def cancel(self, piece_index, begin, length) -> None:
 		await self.__send(Message.create(MessageId.CANCEL, (piece_index, begin, length)))
 
 	async def __send(self, message: bytes) -> None:
-		logger.debug(f"send {Message.from_bytes(message[4:])} message to {self.remote_peer_id} {self.host}")
+		logger.debug(f"send {Message.from_bytes(message[4:])} message to {self.remote_peer_id}")
 		try:
 			self.last_out_time = time.time()
 			self.writer.write(message)
 			await self.writer.drain()
 		except Exception as ex:
-			logger.warning(f"got send error on {self.remote_peer_id} {self.host}: {ex}")
+			logger.warning(f"got send error on {self.remote_peer_id}: {ex}")
 
 	def __on_message(self, message: Message):
 		self.last_message_time = time.time()
