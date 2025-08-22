@@ -22,7 +22,7 @@ class AnnounceSystem(System):
 		updates_collection = ds.get_collection(TorrentTrackerUpdatedEC).entities
 		for entity in updates_collection:
 			entity.remove_component(TorrentTrackerUpdatedEC)
-			tracker_ec = entity.get_component(TorrentTrackerDataEC)
+			tracker_ec:TorrentTrackerDataEC = entity.get_component(TorrentTrackerDataEC)
 			peers = tracker_ec.peers
 			for peer in peers:
 				if not ds.get_collection(PeerInfoEC).find(PeerInfoEC.make_hash(tracker_ec.info_hash, peer)):
