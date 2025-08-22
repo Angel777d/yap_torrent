@@ -12,7 +12,6 @@ def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
 			length = end_pos - start_pos
 			f.seek(offset)
 			buffer = f.read(length)
-			# print(f"read {length} bytes from {path}, offset: {offset}")
 			data[start_pos % piece_length:end_pos % piece_length] = buffer
 	return bytes(data)
 
@@ -26,7 +25,11 @@ def save_piece(root: Path, info: TorrentInfo, index: int, data: bytes) -> None:
 		buffer = data[read_from:read_to]
 		offset = start_pos - file.start
 
-		with open(path, "r+b" if path.exists() else "wb") as f:
+		# reserve file size
+		if not path.exists():
+			with open(path, "wb") as out:
+				out.truncate(file.length)
+
+		with open(path, "r+b") as f:
 			f.seek(offset)
 			f.write(buffer)
-			# print(f"write {len(buffer)} bytes to {path}, offset: {offset}")

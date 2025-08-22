@@ -1,5 +1,5 @@
 import time
-from typing import List
+from typing import List, Tuple
 
 from core.DataStorage import EntityComponent
 from torrent.structures import TrackerAnnounceResponse, PeerInfo
@@ -25,6 +25,12 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.tracker_id = response.tracker_id
 
 		self.peers = response.peers
+
+	def load(self, tracker_data: Tuple[float, float, float, tuple[PeerInfo]]):
+		self.min_interval, self.interval, self.last_update_time, self.peers = tracker_data
+
+	def save(self) -> Tuple[float, float, float, tuple[PeerInfo]]:
+		return self.min_interval, self.interval, self.last_update_time, self.peers
 
 
 # marker to process update data

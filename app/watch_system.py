@@ -4,7 +4,6 @@ import os
 import pickle
 from pathlib import Path
 from shutil import move
-from typing import Optional
 
 from app import System, Env
 from app.components.bitfield_ec import BitfieldEC
@@ -75,20 +74,16 @@ class WatcherSystem(System):
 				with open(file_path, 'rb') as f:
 					info, bitfield, tracker_data = pickle.load(f)
 					logger.info(f"{info.name} loaded from save")
-					await self._add_torrent(info, bitfield, tracker_data)
+					entity = await self._add_torrent(info, bitfield)
+
+					entity.get_component(TorrentTrackerDataEC).load(tracker_data)
+					entity.add_component(TorrentTrackerUpdatedEC())
 
 	async def _save_local(self, entity: Entity):
 		info = entity.get_component(TorrentInfoEC).info
 		bitfield = entity.get_component(BitfieldEC).dump()
 
-		# TODO: serialize/deserialize
-		tracker_data = entity.get_component(TorrentTrackerDataEC)
-		tracker_data = (
-			tracker_data.min_interval,
-			tracker_data.interval,
-			tracker_data.last_update_time,
-			tracker_data.peers
-		)
+		tracker_data = entity.get_component(TorrentTrackerDataEC).save()
 
 		path = self.active_path.joinpath(str(info.name))
 
@@ -99,22 +94,10 @@ class WatcherSystem(System):
 		loop = asyncio.get_running_loop()
 		await loop.run_in_executor(None, save)
 
-	async def _add_torrent(self, torrent_info: TorrentInfo, bitfield: bytes = bytes(),
-	                       tracker_data: Optional[TorrentTrackerDataEC] = None) -> Entity:
+	async def _add_torrent(self, torrent_info: TorrentInfo, bitfield: bytes = bytes()) -> Entity:
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentInfoEC(torrent_info))
 		entity.add_component(BitfieldEC(torrent_info.pieces.num).update(bitfield))
 		entity.add_component(TorrentTrackerDataEC(torrent_info.info_hash, torrent_info.announce_list))
-
-		if tracker_data:
-			min_interval, interval, t, peers = tracker_data
-
-			component = entity.get_component(TorrentTrackerDataEC)
-			component.min_interval = min_interval
-			component.interval = interval
-			component.last_update_time = t
-			component.peers = peers
-
-			entity.add_component(TorrentTrackerUpdatedEC())
 
 		return entity
