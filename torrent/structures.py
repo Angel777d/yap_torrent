@@ -122,13 +122,6 @@ class TorrentInfo:
 		else:
 			return (FileInfo([self.name], self.info.get("length", 0), self.info.get("md5sum", '')),)
 
-	def _get_file_path(self, root: Path, file: FileInfo) -> Path:
-		# add folder for multifile torrent
-		path = root.joinpath(self.name) if 'files' in self.info else root
-		for file_path in file.path:
-			path = path.joinpath(file_path)
-		return path
-
 	@property
 	@deprecated("use announce_list instead")
 	def announce(self) -> str:
@@ -146,6 +139,13 @@ class TorrentInfo:
 	def pieces(self) -> Pieces:
 		return Pieces(self.info.get('piece length', 1), self.info.get('pieces', b""))
 
+	def get_file_path(self, root: Path, file: FileInfo) -> Path:
+		# add folder for multifile torrent
+		path = root.joinpath(self.name) if 'files' in self.info else root
+		for file_path in file.path:
+			path = path.joinpath(file_path)
+		return path
+
 	def calculate_piece_size(self, index: int) -> int:
 		piece_length = self.pieces.piece_length
 		torrent_full_size = self.size
@@ -155,7 +155,7 @@ class TorrentInfo:
 			size = piece_length
 		return size
 
-	def piece_to_files(self, index: int, root: Path) -> Generator[Tuple[FileInfo, Path, int, int]]:
+	def piece_to_files(self, index: int) -> Generator[Tuple[FileInfo, int, int]]:
 		piece_length = self.pieces.piece_length
 		piece_start = index * piece_length
 		piece_end = piece_start + self.calculate_piece_size(index)
@@ -166,9 +166,8 @@ class TorrentInfo:
 			if file.start >= piece_end:
 				continue
 
-			path = self._get_file_path(root, file)
 			start_pos = max(piece_start, file.start)
 			file_end = file.start + file.length
 			end_pos = min(piece_end, file_end)
 
-			yield file, path, start_pos, end_pos
+			yield file, start_pos, end_pos

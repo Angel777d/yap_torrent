@@ -9,7 +9,7 @@ from app.components.bitfield_ec import BitfieldEC
 from app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
 from app.components.piece_ec import PieceEC, PieceToSaveEC, PiecePendingRemoveEC
 from app.components.torrent_ec import TorrentInfoEC
-from app.utils import load_piece
+from app.utils import load_piece, check_hash
 from core.DataStorage import Entity
 from torrent.connection import Connection, MessageId, connect, on_connect, Message
 from torrent.structures import PeerInfo
@@ -297,7 +297,7 @@ async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity
 		# TODO: how did we get here?
 		return
 
-	if not PieceEC.check_hash(piece_ec.data, info.pieces.get_piece_hash(index)):
+	if not check_hash(piece_ec.data, info.pieces.get_piece_hash(index)):
 		logger.error(f"Piece {index} in {info.name} torrent is broken")
 		# TODO: check files, reload piece
 		return
