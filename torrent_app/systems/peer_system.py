@@ -4,16 +4,16 @@ import random
 from asyncio import StreamReader, StreamWriter
 from pathlib import Path
 
+from core.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
 from torrent_app.components.piece_ec import PieceEC, PieceToSaveEC, PiecePendingRemoveEC
 from torrent_app.components.torrent_ec import TorrentInfoEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC
-from torrent_app.utils import load_piece, check_hash
-from core.DataStorage import Entity
 from torrent_app.protocol.connection import Connection, MessageId, connect, on_connect, Message
 from torrent_app.protocol.structures import PeerInfo
+from torrent_app.utils import load_piece, check_hash
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class PeerSystem(System):
 		if torrent_entity:
 			await self._add_peer(peer_entity, info_hash, remote_peer_id, reader, writer)
 		else:
-			logger.error(f"no torrent for info hash{info_hash}")
+			logger.warning(f"no torrent for info hash{info_hash}. handshake: {result}")
 
 	async def _update(self, delta_time: float):
 		ds = self.env.data_storage
@@ -74,14 +74,16 @@ class PeerSystem(System):
 		while len(active_collection) < self.env.config.max_connections and pending_peers:
 			peer_entity = pending_peers.pop(0)
 			peer_entity.remove_component(PeerPendingEC)
-			peer_ec: PeerInfoEC = peer_entity.get_component(PeerInfoEC)
+			asyncio.create_task(self._connect(peer_entity, my_peer_id))
 
-			result = await connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id)
-			if not result:
-				continue
-			remote_peer_id, reader, writer = result
+	async def _connect(self, peer_entity: Entity, my_peer_id: bytes):
+		peer_ec: PeerInfoEC = peer_entity.get_component(PeerInfoEC)
+		result = await connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id)
+		if not result:
+			return
+		remote_peer_id, reader, writer = result
 
-			await self._add_peer(peer_entity, peer_ec.info_hash, remote_peer_id, reader, writer)
+		await self._add_peer(peer_entity, peer_ec.info_hash, remote_peer_id, reader, writer)
 
 	async def _add_peer(self, peer_entity: Entity, info_hash: bytes, remote_peer_id: bytes, reader: StreamReader,
 	                    writer: StreamWriter):
@@ -92,8 +94,7 @@ class PeerSystem(System):
 
 		connection = Connection(remote_peer_id, reader, writer)
 
-		loop = asyncio.get_running_loop()
-		task = asyncio.create_task(await loop.run_in_executor(None, _listen, self.env, peer_entity, torrent_entity))
+		task = asyncio.create_task(_listen(self.env, peer_entity, torrent_entity))
 
 		peer_entity.add_component(BitfieldEC(info.pieces.num))
 		peer_entity.add_component(PeerConnectionEC(connection, task))
@@ -295,7 +296,7 @@ async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity
 
 	piece_ec = piece_entity.get_component(PieceEC)
 	if not piece_ec.completed:
-		logger.error(f"Piece {index} in {info.name} is not completed")
+		logger.error(f"Piece {index} in {info.name} is not completed on request")
 		# TODO: how did we get here?
 		return
 
