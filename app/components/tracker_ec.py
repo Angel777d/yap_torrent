@@ -1,23 +1,30 @@
 import time
-from typing import List, Tuple
 
 from core.DataStorage import EntityComponent
-from torrent import TorrentInfo
 from torrent.structures import TrackerAnnounceResponse, PeerInfo
 
 
-class TorrentTrackerDataEC(EntityComponent):
-	def __init__(self, torrent_info: TorrentInfo):
-		super().__init__()
+class SaveData:
+	def __init__(self) -> None:
+		self.tracker_id: str = ""
+		self.last_update_time: float = 0
+		self.interval: float = 0
+		self.min_interval: float = 0
+		self.peers: tuple[PeerInfo, ...] = tuple()
+		self.uploaded = 0
 
-		self.info_hash: bytes = torrent_info.info_hash
-		self.announce_list: List[List[str]] = torrent_info.announce_list
+
+class TorrentTrackerDataEC(EntityComponent):
+	def __init__(self):
+		super().__init__()
 
 		self.last_update_time: float = 0
 		self.interval: float = 0
 		self.min_interval: float = 0
 		self.tracker_id: str = ""
 		self.peers: tuple[PeerInfo] = tuple()
+
+		self.uploaded = 0
 
 	def save_announce(self, response: TrackerAnnounceResponse):
 		self.last_update_time = time.time()
@@ -27,12 +34,27 @@ class TorrentTrackerDataEC(EntityComponent):
 
 		self.peers = response.peers
 
-	def load(self, tracker_data: Tuple[float, float, float, tuple[PeerInfo]]):
-		self.min_interval, self.interval, self.last_update_time, self.peers = tracker_data
+	def update_uploaded(self, length: int) -> None:
+		self.uploaded += length
+
+	def import_save(self, data: SaveData):
+		self.tracker_id = data.tracker_id
+		self.last_update_time = data.last_update_time
+		self.interval = data.interval
+		self.min_interval = data.min_interval
+		self.peers = data.peers
+		self.uploaded = data.uploaded
 		return self
 
-	def save(self) -> Tuple[float, float, float, tuple[PeerInfo]]:
-		return self.min_interval, self.interval, self.last_update_time, self.peers
+	def export_save(self) -> SaveData:
+		result = SaveData()
+		result.tracker_id = self.tracker_id
+		result.last_update_time = self.last_update_time
+		result.interval = self.interval
+		result.min_interval = self.min_interval
+		result.peers = self.peers
+		result.uploaded = self.uploaded
+		return result
 
 
 # marker to process update data

@@ -50,6 +50,18 @@ class WatcherSystem(System):
 			entity.remove_component(TorrentSaveEC)
 			await self._save_local(entity)
 
+	def close(self):
+		to_save = self.env.data_storage.get_collection(TorrentTrackerDataEC).entities
+		for entity in to_save:
+			torrent_info = entity.get_component(TorrentInfoEC).info
+			bitfield = entity.get_component(BitfieldEC).dump()
+			tracker_data = entity.get_component(TorrentTrackerDataEC).export_save()
+
+			path = self.active_path.joinpath(str(torrent_info.name))
+			with open(path, 'wb') as f:
+				pickle.dump((torrent_info, bitfield, tracker_data), f, pickle.HIGHEST_PROTOCOL)
+				logger.debug(f"Save torrent data {torrent_info.name}")
+
 	async def _load_from_path(self, path: Path):
 		files_list = []
 		for root, dirs, files in os.walk(path):
@@ -113,7 +125,7 @@ class WatcherSystem(System):
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentInfoEC(torrent_info))
 		entity.add_component(bitfield)
-		entity.add_component(TorrentTrackerDataEC(torrent_info))
+		entity.add_component(TorrentTrackerDataEC())
 		entity.add_component(TorrentSaveEC())
 
 	async def _load_local(self):
@@ -127,14 +139,14 @@ class WatcherSystem(System):
 					entity = self.env.data_storage.create_entity()
 					entity.add_component(TorrentInfoEC(torrent_info))
 					entity.add_component(BitfieldEC(torrent_info.pieces.num).update(bitfield))
-					entity.add_component(TorrentTrackerDataEC(torrent_info).load(tracker_data))
+					entity.add_component(TorrentTrackerDataEC().import_save(tracker_data))
 					entity.add_component(TorrentTrackerUpdatedEC())
 
 	async def _save_local(self, entity: Entity):
 		torrent_info = entity.get_component(TorrentInfoEC).info
 		bitfield = entity.get_component(BitfieldEC).dump()
 
-		tracker_data = entity.get_component(TorrentTrackerDataEC).save()
+		tracker_data = entity.get_component(TorrentTrackerDataEC).export_save()
 
 		path = self.active_path.joinpath(str(torrent_info.name))
 

@@ -29,11 +29,10 @@ class PieceSystem(TimeSystem):
 		for entity in ds.get_collection(PieceToSaveEC).entities:
 			entity.remove_component(PieceToSaveEC)
 
-			piece = entity.get_component(PieceEC)
+			piece: PieceEC = entity.get_component(PieceEC)
 			torrent_entity: Entity = ds.get_collection(TorrentInfoEC).find(piece.info_hash)
 			info = torrent_entity.get_component(TorrentInfoEC).info
 			save_piece(self.download_path, info, piece.index, piece.data)
-
 
 			torrent_entity.get_component(BitfieldEC).set_index(piece.index)
 			if not torrent_entity.has_component(TorrentSaveEC):

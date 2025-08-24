@@ -6,6 +6,8 @@ from app.components.bitfield_ec import BitfieldEC
 from app.components.peer_ec import PeerInfoEC, PeerPendingEC
 from app.components.torrent_ec import TorrentInfoEC
 from app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerUpdatedEC
+from core.DataStorage import Entity
+from torrent import TorrentInfo
 from torrent.tracker import make_announce
 
 logger = logging.getLogger(__name__)
@@ -22,11 +24,11 @@ class AnnounceSystem(System):
 		updates_collection = ds.get_collection(TorrentTrackerUpdatedEC).entities
 		for entity in updates_collection:
 			entity.remove_component(TorrentTrackerUpdatedEC)
-			tracker_ec:TorrentTrackerDataEC = entity.get_component(TorrentTrackerDataEC)
-			peers = tracker_ec.peers
+			torrent_info: TorrentInfo = entity.get_component(TorrentInfoEC).info
+			peers = entity.get_component(TorrentTrackerDataEC).peers
 			for peer in peers:
-				if not ds.get_collection(PeerInfoEC).find(PeerInfoEC.make_hash(tracker_ec.info_hash, peer)):
-					ds.create_entity().add_component(PeerInfoEC(tracker_ec.info_hash, peer)).add_component(
+				if not ds.get_collection(PeerInfoEC).find(PeerInfoEC.make_hash(torrent_info.info_hash, peer)):
+					ds.create_entity().add_component(PeerInfoEC(torrent_info.info_hash, peer)).add_component(
 						PeerPendingEC())
 
 		# make announces
@@ -35,32 +37,33 @@ class AnnounceSystem(System):
 			tracker_ec = entity.get_component(TorrentTrackerDataEC)
 			interval = min(tracker_ec.interval, tracker_ec.min_interval)
 			if tracker_ec.last_update_time + interval <= current_time:
-				await self.__tracker_announce(tracker_ec, event)
+				await self.__tracker_announce(entity, event)
 
-	async def __tracker_announce(self, tracker_ec: TorrentTrackerDataEC, event: str = "started"):
+	async def __tracker_announce(self, entity: Entity, event: str = "started"):
 		peer_id = self.env.peer_id
 		external_ip = self.env.external_ip
 		port = self.env.config.port
+		tracker_ec = entity.get_component(TorrentTrackerDataEC)
+		torrent_info = entity.get_component(TorrentInfoEC).info
 
-		torrent_entity = self.env.data_storage.get_collection(TorrentInfoEC).find(tracker_ec.info_hash)
+		torrent_entity = self.env.data_storage.get_collection(TorrentInfoEC).find(torrent_info.info_hash)
 		bitfield_ec = torrent_entity.get_component(BitfieldEC)
 		info = torrent_entity.get_component(TorrentInfoEC).info
 
 		downloaded = bitfield_ec.have_num * info.pieces.piece_length
 		left = max(info.size - downloaded, 0)
 
-		# TODO: track uploaded data size
-		uploaded = 0
+		uploaded = torrent_entity.get_component(TorrentTrackerDataEC).uploaded
 
 		# TODO: support announce-list format
 		# https://bittorrent.org/beps/bep_0012.html
-		for announce_group in tracker_ec.announce_list:
+		for announce_group in torrent_info.announce_list:
 			for announce in announce_group:
 				logger.info(f"make announce to: {announce}")
 
 				result = make_announce(
 					announce,
-					tracker_ec.info_hash,
+					torrent_info.info_hash,
 					peer_id=peer_id,
 					downloaded=downloaded,
 					uploaded=uploaded,
@@ -81,4 +84,4 @@ class AnnounceSystem(System):
 		logger.warning("WTF: no announce results")
 
 		tracker_ec.last_update_time = time.time()
-		tracker_ec.interval = 60 * 5  # retry in 5 min
+		tracker_ec.min_interval = tracker_ec.interval = 60 * 5  # retry in 5 min

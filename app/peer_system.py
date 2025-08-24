@@ -9,6 +9,7 @@ from app.components.bitfield_ec import BitfieldEC
 from app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
 from app.components.piece_ec import PieceEC, PieceToSaveEC, PiecePendingRemoveEC
 from app.components.torrent_ec import TorrentInfoEC
+from app.components.tracker_ec import TorrentTrackerDataEC
 from app.utils import load_piece, check_hash
 from core.DataStorage import Entity
 from torrent.connection import Connection, MessageId, connect, on_connect, Message
@@ -73,7 +74,7 @@ class PeerSystem(System):
 		while len(active_collection) < self.env.config.max_connections and pending_peers:
 			peer_entity = pending_peers.pop(0)
 			peer_entity.remove_component(PeerPendingEC)
-			peer_ec = peer_entity.get_component(PeerInfoEC)
+			peer_ec: PeerInfoEC = peer_entity.get_component(PeerInfoEC)
 
 			result = await connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id)
 			if not result:
@@ -237,7 +238,8 @@ async def _send_have_to_peers(env: Env, info_hash: bytes, index: int):
 	entities = env.data_storage.get_collection(PeerConnectionEC).entities
 	for entity in entities:
 		connection: Connection = entity.get_component(PeerConnectionEC).connection
-		if entity.get_component(PeerInfoEC).info_hash == info_hash:
+		peer_ec: PeerInfoEC = entity.get_component(PeerInfoEC)
+		if peer_ec.info_hash == info_hash:
 			await connection.have(index)
 
 
@@ -304,4 +306,5 @@ async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity
 
 	data = piece_ec.get_block(begin, length)
 	piece_entity.get_component(PiecePendingRemoveEC).update()
+	torrent_entity.get_component(TorrentTrackerDataEC).update_uploaded(length)
 	await connection.piece(index, begin, data)
