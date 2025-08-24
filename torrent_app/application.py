@@ -57,7 +57,7 @@ class Application:
 			for system in self.systems:
 				await system.update(dt)
 
-	def close(self):
+	def stop(self):
 		logging.info("Close torrent app")
 		for system in self.systems:
 			system.close()
