@@ -2,12 +2,12 @@ import asyncio
 import logging
 from pathlib import Path
 
+from core.DataStorage import Entity
 from torrent_app import Env, TimeSystem
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
 from torrent_app.utils import save_piece
-from core.DataStorage import Entity
 
 logger = logging.getLogger(__name__)
 
