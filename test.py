@@ -3,7 +3,7 @@ from os.path import getsize
 from pathlib import Path
 from typing import Generator, Tuple, List
 
-from app.utils import load_piece, save_piece
+from torrent_app.utils import load_piece, save_piece
 
 _TEST_FILES = [Path("test1.rar"), Path("test2.rar")]
 _PIECE_SIZE = 2 ** 16

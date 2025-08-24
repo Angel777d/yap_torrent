@@ -2,8 +2,8 @@ from asyncio import Task
 from typing import Hashable, Set, Tuple
 
 from core.DataStorage import EntityComponent
-from torrent.connection import Connection
-from torrent.structures import PeerInfo
+from torrent_app.protocol.connection import Connection
+from torrent_app.protocol.structures import PeerInfo
 
 
 class PeerInfoEC(EntityComponent):

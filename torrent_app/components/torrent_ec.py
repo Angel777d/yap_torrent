@@ -1,7 +1,7 @@
 from typing import Hashable
 
 from core.DataStorage import EntityComponent
-from torrent import TorrentInfo
+from torrent_app.protocol import TorrentInfo
 
 
 class TorrentInfoEC(EntityComponent):

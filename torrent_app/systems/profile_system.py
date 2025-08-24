@@ -1,9 +1,9 @@
 import asyncio
 import logging
 
-from app import TimeSystem, Env
-from app.components.peer_ec import PeerConnectionEC
-from app.components.piece_ec import PieceEC
+from torrent_app import TimeSystem, Env
+from torrent_app.components.peer_ec import PeerConnectionEC
+from torrent_app.components.piece_ec import PieceEC
 
 logger = logging.getLogger(__name__)
 

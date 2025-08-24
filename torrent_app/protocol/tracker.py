@@ -2,7 +2,7 @@ import logging
 
 import requests
 
-from torrent.structures import TrackerAnnounceResponse
+from torrent_app.protocol.structures import TrackerAnnounceResponse
 
 logger = logging.getLogger(__name__)
 

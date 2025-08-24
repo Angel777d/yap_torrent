@@ -2,9 +2,9 @@
 import time
 from typing import Hashable, List, Tuple
 
-from app.utils import check_hash
+from torrent_app.utils import check_hash
 from core.DataStorage import EntityComponent
-from torrent import TorrentInfo
+from torrent_app.protocol import TorrentInfo
 
 logger = logging.getLogger(__name__)
 

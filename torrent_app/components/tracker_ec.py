@@ -1,7 +1,7 @@
 import time
 
 from core.DataStorage import EntityComponent
-from torrent.structures import TrackerAnnounceResponse, PeerInfo
+from torrent_app.protocol.structures import TrackerAnnounceResponse, PeerInfo
 
 
 class SaveData:

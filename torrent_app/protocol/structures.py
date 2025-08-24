@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import List, Generator, Tuple
 from warnings import deprecated
 
-from torrent.parser import decode
+from torrent_app.protocol.parser import decode
 
 
 class PeerInfo:
@@ -140,7 +140,7 @@ class TorrentInfo:
 		return Pieces(self.info.get('piece length', 1), self.info.get('pieces', b""))
 
 	def get_file_path(self, root: Path, file: FileInfo) -> Path:
-		# add folder for multifile torrent
+		# add folder for multifile protocol
 		path = root.joinpath(self.name) if 'files' in self.info else root
 		for file_path in file.path:
 			path = path.joinpath(file_path)

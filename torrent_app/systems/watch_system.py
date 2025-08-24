@@ -6,13 +6,13 @@ import pickle
 from pathlib import Path
 from shutil import move
 
-from app import System, Env
-from app.components.bitfield_ec import BitfieldEC
-from app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
-from app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerUpdatedEC
-from app.utils import check_hash
 from core.DataStorage import Entity
-from torrent import load_torrent_file, TorrentInfo
+from torrent_app import System, Env
+from torrent_app.components.bitfield_ec import BitfieldEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
+from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerUpdatedEC
+from torrent_app.protocol import load_torrent_file, TorrentInfo
+from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class WatcherSystem(System):
 		for file_path, file_name in files_to_move:
 			move(file_path, self.trash_path.joinpath(file_name))
 
-		# save local torrent data
+		# save local protocol data
 		to_save = self.env.data_storage.get_collection(TorrentSaveEC).entities
 		for entity in to_save:
 			entity.remove_component(TorrentSaveEC)
@@ -121,7 +121,10 @@ class WatcherSystem(System):
 					index += 1
 					current_piece_length = torrent_info.calculate_piece_size(index)
 
-		logger.info(f"New torrent {torrent_info.name} added")
+		downloaded = bitfield.have_num * torrent_info.pieces.piece_length
+		downloaded = min(downloaded, torrent_info.size) / torrent_info.size * 100
+
+		logger.info(f"New torrent {torrent_info.name} added. {downloaded:.2f}% progress")
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentInfoEC(torrent_info))
 		entity.add_component(bitfield)

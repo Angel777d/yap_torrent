@@ -4,16 +4,16 @@ import random
 from asyncio import StreamReader, StreamWriter
 from pathlib import Path
 
-from app import System, Env
-from app.components.bitfield_ec import BitfieldEC
-from app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
-from app.components.piece_ec import PieceEC, PieceToSaveEC, PiecePendingRemoveEC
-from app.components.torrent_ec import TorrentInfoEC
-from app.components.tracker_ec import TorrentTrackerDataEC
-from app.utils import load_piece, check_hash
+from torrent_app import System, Env
+from torrent_app.components.bitfield_ec import BitfieldEC
+from torrent_app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
+from torrent_app.components.piece_ec import PieceEC, PieceToSaveEC, PiecePendingRemoveEC
+from torrent_app.components.torrent_ec import TorrentInfoEC
+from torrent_app.components.tracker_ec import TorrentTrackerDataEC
+from torrent_app.utils import load_piece, check_hash
 from core.DataStorage import Entity
-from torrent.connection import Connection, MessageId, connect, on_connect, Message
-from torrent.structures import PeerInfo
+from torrent_app.protocol.connection import Connection, MessageId, connect, on_connect, Message
+from torrent_app.protocol.structures import PeerInfo
 
 logger = logging.getLogger(__name__)
 

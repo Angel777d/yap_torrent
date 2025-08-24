@@ -1,14 +1,14 @@
 import logging
 import time
 
-from app import System
-from app.components.bitfield_ec import BitfieldEC
-from app.components.peer_ec import PeerInfoEC, PeerPendingEC
-from app.components.torrent_ec import TorrentInfoEC
-from app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerUpdatedEC
 from core.DataStorage import Entity
-from torrent import TorrentInfo
-from torrent.tracker import make_announce
+from torrent_app import System
+from torrent_app.components.bitfield_ec import BitfieldEC
+from torrent_app.components.peer_ec import PeerInfoEC, PeerPendingEC
+from torrent_app.components.torrent_ec import TorrentInfoEC
+from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerUpdatedEC
+from torrent_app.protocol import TorrentInfo
+from torrent_app.protocol.tracker import make_announce
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class AnnounceSystem(System):
 		torrent_info = entity.get_component(TorrentInfoEC).info
 
 		torrent_entity = self.env.data_storage.get_collection(TorrentInfoEC).find(torrent_info.info_hash)
-		bitfield_ec = torrent_entity.get_component(BitfieldEC)
+		bitfield_ec: BitfieldEC = torrent_entity.get_component(BitfieldEC)
 		info = torrent_entity.get_component(TorrentInfoEC).info
 
 		downloaded = bitfield_ec.have_num * info.pieces.piece_length

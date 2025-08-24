@@ -1,6 +1,6 @@
 import logging
 
-from app.config import Config
+from torrent_app.config import Config
 from core.DataStorage import DataStorage
 
 logger = logging.getLogger(__name__)

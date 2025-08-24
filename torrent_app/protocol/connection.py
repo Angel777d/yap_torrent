@@ -8,7 +8,7 @@ from asyncio import StreamReader, StreamWriter, IncompleteReadError
 from enum import Enum, unique, auto
 from typing import Tuple, Optional
 
-from torrent.structures import PeerInfo
+from torrent_app.protocol.structures import PeerInfo
 
 logger = logging.getLogger(__name__)
 

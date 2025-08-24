@@ -1,14 +1,10 @@
 import hashlib
 import logging
 
-from torrent.parser import decode, encode
-from torrent.structures import TorrentInfo
+from torrent_app.protocol.parser import decode, encode
+from torrent_app.protocol.structures import TorrentInfo
 
 logger = logging.getLogger(__name__)
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(handler)
-logger.setLevel(logging.INFO)
 
 
 def load_torrent_file(path) -> TorrentInfo:
