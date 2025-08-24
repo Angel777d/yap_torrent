@@ -91,7 +91,6 @@ class WatcherSystem(System):
 		for file in torrent_info.files:
 			path = torrent_info.get_file_path(self.download_path, file)
 			if not path.exists():
-				print(f"File {path} skipped at check")
 				buffer.clear()
 				continue
 
@@ -113,10 +112,8 @@ class WatcherSystem(System):
 						continue
 
 					if check_hash(bytes(buffer), torrent_info.pieces.get_piece_hash(index)):
-						print(f"index {index} is ok")
 						bitfield.set_index(index)
-					else:
-						print(f"index {index} is invalid")
+
 					buffer.clear()
 					index += 1
 					current_piece_length = torrent_info.calculate_piece_size(index)
@@ -124,7 +121,7 @@ class WatcherSystem(System):
 		downloaded = bitfield.have_num * torrent_info.pieces.piece_length
 		downloaded = min(downloaded, torrent_info.size) / torrent_info.size * 100
 
-		logger.info(f"New torrent {torrent_info.name} added. {downloaded:.2f}% progress")
+		logger.info(f"New torrent {torrent_info.name} added. Local data: {downloaded:.2f}%")
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentInfoEC(torrent_info))
 		entity.add_component(bitfield)

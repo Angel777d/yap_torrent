@@ -1,7 +1,6 @@
 import asyncio
 import logging
 
-from terminal.TerminalApp import TerminalApp
 from torrent_app.application import Application
 
 logger = logging.getLogger()
@@ -23,16 +22,13 @@ logger.addHandler(handler)
 class MainLoop:
 	def __init__(self):
 		self.application = Application()
-		self.terminal_app = TerminalApp()
 
 	async def run(self, close_event: asyncio.Event):
-		asyncio.create_task(self.application.run())
-		asyncio.create_task(self.terminal_app.run())
+		asyncio.create_task(self.application.run(close_event))
 		await close_event.wait()
 
 	def stop(self):
 		self.application.stop()
-		self.terminal_app.stop()
 
 
 if __name__ == '__main__':

@@ -33,7 +33,7 @@ class Application:
 		self.env = Env(create_peer_id(), ip, external_ip, config)
 		self.systems: List[System] = []
 
-	async def run(self):
+	async def run(self, close_event: asyncio.Event):
 		env = self.env
 		logging.info("Start torrent app")
 
@@ -47,14 +47,14 @@ class Application:
 
 		last_time = time.time()
 
-		while True:
+		while not close_event.is_set():
 			await asyncio.sleep(GLOBAL_TICK_TIME)
 
 			current_time = time.time()
 			dt = current_time - last_time
 			last_time = current_time
 
-			# print("tick", dt)
+			print("tick", dt)
 			for system in self.systems:
 				await system.update(dt)
 
