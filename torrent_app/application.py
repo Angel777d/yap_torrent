@@ -54,7 +54,6 @@ class Application:
 			dt = current_time - last_time
 			last_time = current_time
 
-			print("tick", dt)
 			for system in self.systems:
 				await system.update(dt)
 

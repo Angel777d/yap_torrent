@@ -1,6 +1,6 @@
 ﻿import logging
 import time
-from typing import Hashable, Tuple, Set, Dict
+from typing import Hashable, Tuple, Set
 
 from core.DataStorage import EntityComponent
 from torrent_app.protocol import TorrentInfo
@@ -14,13 +14,14 @@ class PieceEC(EntityComponent):
 
 	def __init__(self, info: TorrentInfo, index: int, data: bytes = bytes()):
 		super().__init__()
+
+		self.__hash: bytes = info.pieces.get_piece_hash(index)
+		self.__size = info.calculate_piece_size(index)
+
 		self.info_hash: bytes = info.info_hash
 		self.index: int = index
 		self.data: bytes = data
-
-		self.__hash: bytes = info.pieces.get_piece_hash(index)
-
-		self.__size = info.calculate_piece_size(index)
+		self.__downloaded = bytearray(self.__size)
 
 		begin = 0
 		self.__all_blocks: Set[int] = set()
@@ -28,11 +29,11 @@ class PieceEC(EntityComponent):
 			self.__all_blocks.add(begin)
 			begin += self.__block_size
 
-		self.__loaded: Dict[int, bytes] = {}
+		self.__loaded: Set[int] = set()
 		self.__requested: Set[int] = set()
 
 	def has_next(self) -> bool:
-		return bool(len(self.__all_blocks.difference(self.__requested, set(self.__loaded.keys()))))
+		return bool(len(self.__all_blocks.difference(self.__requested, self.__loaded)))
 
 	def _calculate_block_size(self, begin: int) -> int:
 		if begin + self.__block_size > self.__size:
@@ -40,7 +41,7 @@ class PieceEC(EntityComponent):
 		return self.__block_size
 
 	def get_next(self, peer_id: bytes) -> Tuple[int, int, int]:
-		begin = self.__all_blocks.difference(self.__requested, set(self.__loaded.keys())).pop()
+		begin = self.__all_blocks.difference(self.__requested, self.__loaded).pop()
 		self.__requested.add(begin)
 
 		block_size = self._calculate_block_size(begin)
@@ -50,16 +51,16 @@ class PieceEC(EntityComponent):
 		pass
 
 	def append(self, begin: int, block: bytes):
-		self.__loaded[begin] = block
-		self.__requested.remove(begin)
+		self.__downloaded[begin:begin + len(block)] = block
 
+		self.__loaded.add(begin)
+		self.__requested.remove(begin)
 		if self.completed:
-			self.data = bytearray()
-			for block in sorted([(k, v) for k, v in self.__loaded.items()], key=lambda x: x[0]):
-				self.data += block[1]
+			self.data = bytes(self.__downloaded)
+			self.__downloaded.clear()
 
 			# check piece is corrupted and reset piece
-			if not check_hash(bytes(self.data), self.__hash):
+			if not check_hash(self.data, self.__hash):
 				logger.warning(f"piece {self.index} is corrupted. reset")
 
 				self.__requested.clear()
