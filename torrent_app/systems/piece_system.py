@@ -34,7 +34,6 @@ class PieceSystem(TimeSystem):
 			info = torrent_entity.get_component(TorrentInfoEC).info
 			save_piece(self.download_path, info, piece.index, piece.data)
 
-			torrent_entity.get_component(BitfieldEC).set_index(piece.index)
 			if not torrent_entity.has_component(TorrentSaveEC):
 				torrent_entity.add_component(TorrentSaveEC())
 

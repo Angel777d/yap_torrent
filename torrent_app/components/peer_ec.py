@@ -1,3 +1,4 @@
+import logging
 from asyncio import Task
 from typing import Hashable, Set, Tuple
 
@@ -58,12 +59,14 @@ class PeerConnectionEC(EntityComponent):
 	async def interested(self) -> None:
 		if self.local_interested:
 			return
+		logging.debug(f"Interested in peer {self.connection.remote_peer_id}")
 		await self.connection.interested()
 		self.local_interested = True
 
 	async def not_interested(self) -> None:
 		if not self.local_interested:
 			return
+		logging.debug(f"Not interested in peer {self.connection.remote_peer_id}")
 		await self.connection.not_interested()
 		self.local_interested = False
 
@@ -83,16 +86,17 @@ class PeerConnectionEC(EntityComponent):
 		self.__in_progress.add((index, begin))
 		await self.connection.request(index, begin, length)
 
+	def get_blocks(self, index: int) -> Set[int]:
+		return set(block[1] for block in self.__in_progress if block[0] == index)
+
 	def can_request(self) -> bool:
 		return len(self.__in_progress) < self.__queue_size
 
 	def reset_block(self, index, begin) -> None:
-		self.__in_progress.remove((index, begin))
-
-	def reset_progress(self) -> Set[int]:
-		result = set(index for index, begin in self.__in_progress)
-		self.__in_progress.clear()
-		return result
+		try:
+			self.__in_progress.remove((index, begin))
+		except KeyError as ex:
+			print(ex)
 
 	def is_free_to_download(self) -> bool:
 		return not self.__in_progress

@@ -21,54 +21,60 @@ class PieceEC(EntityComponent):
 		self.info_hash: bytes = info.info_hash
 		self.index: int = index
 		self.data: bytes = data
-		self.__downloaded = bytearray(self.__size)
+		self.__downloaded: bytearray = bytearray(self.__size)
 
+		self.__blocks: Set[int] = self.__create_blocks()
+
+	def __create_blocks(self) -> Set[int]:
+		if self.completed:
+			return set()
 		begin = 0
-		self.__all_blocks: Set[int] = set()
+		result: Set[int] = set()
 		while begin < self.__size:
-			self.__all_blocks.add(begin)
+			result.add(begin)
 			begin += self.__block_size
+		return result
 
-		self.__loaded: Set[int] = set()
-		self.__requested: Set[int] = set()
-
-	def has_next(self) -> bool:
-		return bool(len(self.__all_blocks.difference(self.__requested, self.__loaded)))
+	def has_next(self, in_progress: set) -> bool:
+		return bool(len(self.__blocks.difference(in_progress)))
 
 	def _calculate_block_size(self, begin: int) -> int:
 		if begin + self.__block_size > self.__size:
 			return self.__size % self.__block_size
 		return self.__block_size
 
-	def get_next(self, peer_id: bytes) -> Tuple[int, int, int]:
-		begin = self.__all_blocks.difference(self.__requested, self.__loaded).pop()
-		self.__requested.add(begin)
-
+	def get_next(self, in_progress: set) -> Tuple[int, int, int]:
+		begin = self.__blocks.difference(in_progress).pop()
 		block_size = self._calculate_block_size(begin)
 		return self.index, begin, block_size
 
-	def cancel(self, peer_id: bytes):
-		pass
-
 	def append(self, begin: int, block: bytes):
-		self.__downloaded[begin:begin + len(block)] = block
-
-		self.__loaded.add(begin)
-		self.__requested.remove(begin)
+		# already completed
 		if self.completed:
+			return
+		# block already downloaded. just skip
+		if begin not in self.__blocks:
+			return
+
+		self.__downloaded[begin:begin + len(block)] = block
+		self.__blocks.remove(begin)
+
+		if not self.__blocks:
 			self.data = bytes(self.__downloaded)
 			self.__downloaded.clear()
 
 			# check piece is corrupted and reset piece
 			if not check_hash(self.data, self.__hash):
 				logger.warning(f"piece {self.index} is corrupted. reset")
+				self.__blocks = self.__create_blocks()
+				self.data = bytes()
 
-				self.__requested.clear()
-				self.__loaded.clear()
+			# mark to save
+			self.add_marker(PieceToSaveEC)
 
 	@property
 	def completed(self):
-		return len(self.__all_blocks) == len(self.__loaded)
+		return len(self.data) == self.__size
 
 	@property
 	def __block_size(self):
