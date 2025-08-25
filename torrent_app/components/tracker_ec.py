@@ -27,7 +27,7 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.uploaded = 0
 
 	def save_announce(self, response: TrackerAnnounceResponse):
-		self.last_update_time = time.time()
+		self.last_update_time = time.monotonic()
 		self.interval = response.interval
 		self.min_interval = response.min_interval
 		self.tracker_id = response.tracker_id

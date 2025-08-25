@@ -45,12 +45,12 @@ class Application:
 			# await ProfileSystem(env).start(),
 		]
 
-		last_time = time.time()
+		last_time = time.monotonic()
 
 		while not close_event.is_set():
 			await asyncio.sleep(GLOBAL_TICK_TIME)
 
-			current_time = time.time()
+			current_time = time.monotonic()
 			dt = current_time - last_time
 			last_time = current_time
 

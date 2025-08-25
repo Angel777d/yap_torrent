@@ -107,10 +107,10 @@ class PiecePendingRemoveEC(EntityComponent):
 		self.__last_update: float = 0
 
 	def update(self):
-		self.__last_update = time.time()
+		self.__last_update = time.monotonic()
 
 	def can_remove(self) -> bool:
-		return time.time() - self.__last_update > self.REMOVE_TIMEOUT
+		return time.monotonic() - self.__last_update > self.REMOVE_TIMEOUT
 
 	@property
 	def last_update(self) -> float:

@@ -269,15 +269,15 @@ class Connection:
 
 		self.remote_peer_id = remote_peer_id
 
-		self.connection_time = time.time()
-		self.last_message_time = time.time()
-		self.last_out_time = time.time()
+		self.connection_time = time.monotonic()
+		self.last_message_time = time.monotonic()
+		self.last_out_time = time.monotonic()
 
 		self.reader: StreamReader = reader
 		self.writer: StreamWriter = writer
 
 	def is_dead(self) -> bool:
-		return time.time() - self.last_message_time > self.timeout
+		return time.monotonic() - self.last_message_time > self.timeout
 
 	def close(self) -> None:
 		logger.debug(f"Close connection {self.remote_peer_id}")
@@ -308,12 +308,12 @@ class Connection:
 			logger.debug(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
 
 		logger.debug(f"got message {message} from {self.remote_peer_id}")
-		self.last_message_time = time.time()
+		self.last_message_time = time.monotonic()
 
 		return message
 
 	async def keep_alive(self) -> None:
-		if time.time() - self.last_out_time < 10:
+		if time.monotonic() - self.last_out_time < 10:
 			return
 		await self.__send(Message.create(MessageId.KEEP_ALIVE))
 
@@ -347,7 +347,7 @@ class Connection:
 	async def __send(self, message: bytes) -> None:
 		logger.debug(f"send {Message.from_bytes(message[4:])} message to {self.remote_peer_id}")
 		try:
-			self.last_out_time = time.time()
+			self.last_out_time = time.monotonic()
 			self.writer.write(message)
 			await self.writer.drain()
 		except Exception as ex:

@@ -6,6 +6,8 @@ from core.DataStorage import EntityComponent
 from torrent_app.protocol.connection import Connection
 from torrent_app.protocol.structures import PeerInfo
 
+logger = logging.getLogger(__name__)
+
 
 class PeerInfoEC(EntityComponent):
 	def __init__(self, info_hash: bytes, peer_info: PeerInfo, attempt: int = 0):
@@ -59,14 +61,14 @@ class PeerConnectionEC(EntityComponent):
 	async def interested(self) -> None:
 		if self.local_interested:
 			return
-		logging.debug(f"Interested in peer {self.connection.remote_peer_id}")
+		logger.debug(f"Interested in peer {self.connection.remote_peer_id}")
 		await self.connection.interested()
 		self.local_interested = True
 
 	async def not_interested(self) -> None:
 		if not self.local_interested:
 			return
-		logging.debug(f"Not interested in peer {self.connection.remote_peer_id}")
+		logger.debug(f"Not interested in peer {self.connection.remote_peer_id}")
 		await self.connection.not_interested()
 		self.local_interested = False
 

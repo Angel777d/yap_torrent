@@ -17,7 +17,7 @@ class AnnounceSystem(System):
 
 	async def _update(self, delta_time: float):
 		event = "started"  # "started", "completed", "stopped"
-		current_time = time.time()
+		current_time = time.monotonic()
 		ds = self.env.data_storage
 
 		# process updated trackers
@@ -83,5 +83,5 @@ class AnnounceSystem(System):
 		# TODO: make it better
 		logger.warning("WTF: no announce results")
 
-		tracker_ec.last_update_time = time.time()
+		tracker_ec.last_update_time = time.monotonic()
 		tracker_ec.min_interval = tracker_ec.interval = 60 * 5  # retry in 5 min

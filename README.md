@@ -14,7 +14,6 @@
 
 ### TODO:
 
-* implement endgame download strategy
 * add console commands
 * support magnet link
 * select peers to connect
