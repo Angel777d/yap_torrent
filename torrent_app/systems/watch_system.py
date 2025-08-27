@@ -9,9 +9,12 @@ from shutil import move
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
-from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerUpdatedEC
-from torrent_app.protocol import load_torrent_file, TorrentInfo
+from torrent_app.components.extensions import TorrentMetadataEC
+from torrent_app.components.peer_ec import KnownPeersEC, KnownPeersUpdateEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC, TorrentHashEC
+from torrent_app.components.tracker_ec import TorrentTrackerDataEC
+from torrent_app.protocol import load_torrent_file
+from torrent_app.protocol.structures import TorrentFileInfo
 from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
@@ -51,16 +54,24 @@ class WatcherSystem(System):
 			await self._save_local(entity)
 
 	def close(self):
-		to_save = self.env.data_storage.get_collection(TorrentTrackerDataEC).entities
+		to_save = self.env.data_storage.get_collection(TorrentInfoEC).entities
 		for entity in to_save:
-			torrent_info = entity.get_component(TorrentInfoEC).info
-			bitfield = entity.get_component(BitfieldEC).dump()
+			self.save(entity)
+
+	def save(self, entity: Entity):
+		info_hash = entity.get_component(TorrentHashEC).info_hash
+		torrent_info = entity.get_component(TorrentInfoEC).info
+		bitfield = entity.get_component(BitfieldEC).dump(torrent_info.pieces.num)
+		peers = entity.get_component(KnownPeersEC).peers
+
+		tracker_data = None
+		if entity.has_component(TorrentTrackerDataEC):
 			tracker_data = entity.get_component(TorrentTrackerDataEC).export_save()
 
-			path = self.active_path.joinpath(str(torrent_info.name))
-			with open(path, 'wb') as f:
-				pickle.dump((torrent_info, bitfield, tracker_data), f, pickle.HIGHEST_PROTOCOL)
-				logger.debug(f"Save torrent data {torrent_info.name}")
+		path = self.active_path.joinpath(str(torrent_info.name))
+		with open(path, 'wb') as f:
+			logger.debug(f"Save torrent data {torrent_info.name}")
+			pickle.dump((info_hash, torrent_info, bitfield, peers, tracker_data), f, pickle.HIGHEST_PROTOCOL)
 
 	async def _load_from_path(self, path: Path):
 		files_list = []
@@ -72,7 +83,7 @@ class WatcherSystem(System):
 					continue
 
 				torrent_info = load_torrent_file(file_path)
-				if not torrent_info.is_valid():
+				if not torrent_info:
 					logger.info(f"Torrent file {file_path} is invalid")
 					continue
 
@@ -82,15 +93,17 @@ class WatcherSystem(System):
 
 		return files_list
 
-	async def _check_torrent(self, torrent_info: TorrentInfo):
+	async def _check_torrent(self, file_info: TorrentFileInfo):
+		torrent_info = file_info.info
 		piece_length = torrent_info.pieces.piece_length
-		bitfield = BitfieldEC(torrent_info.pieces.num)
+		bitfield = BitfieldEC()
 
 		buffer: bytearray = bytearray()
 
 		for file in torrent_info.files:
 			path = torrent_info.get_file_path(self.download_path, file)
 			if not path.exists():
+				logger.debug(f"File {path} does not exist. skipping")
 				buffer.clear()
 				continue
 
@@ -112,7 +125,10 @@ class WatcherSystem(System):
 						continue
 
 					if check_hash(bytes(buffer), torrent_info.pieces.get_piece_hash(index)):
+						logger.debug(f"piece {index} is YES")
 						bitfield.set_index(index)
+					else:
+						logger.debug(f"piece {index} is NO")
 
 					buffer.clear()
 					index += 1
@@ -123,9 +139,14 @@ class WatcherSystem(System):
 
 		logger.info(f"New torrent {torrent_info.name} added. Local data: {downloaded:.2f}%")
 		entity = self.env.data_storage.create_entity()
-		entity.add_component(TorrentInfoEC(torrent_info))
+		entity.add_component(TorrentHashEC(file_info.info_hash))
+		entity.add_component(TorrentMetadataEC().set_metadata(torrent_info.get_metadata()))
+		entity.add_component(KnownPeersEC())
 		entity.add_component(bitfield)
-		entity.add_component(TorrentTrackerDataEC())
+
+		entity.add_component(TorrentInfoEC(torrent_info))
+
+		entity.add_component(TorrentTrackerDataEC(file_info.announce_list))
 		entity.add_component(TorrentSaveEC())
 
 	async def _load_local(self):
@@ -133,26 +154,24 @@ class WatcherSystem(System):
 			for file_name in files:
 				file_path = Path(root).joinpath(file_name)
 				with open(file_path, 'rb') as f:
-					torrent_info, bitfield, tracker_data = pickle.load(f)
+					logger.debug(f"loading save from {file_path}")
+					info_hash, torrent_info, bitfield, peers, tracker_data = pickle.load(f)
 					logger.info(f"{torrent_info.name} loaded from save")
 
 					entity = self.env.data_storage.create_entity()
+					entity.add_component(TorrentHashEC(info_hash))
+					entity.add_component(TorrentMetadataEC().set_metadata(torrent_info.get_metadata()))
+					entity.add_component(KnownPeersEC().update_peers(peers))
+					entity.add_component(BitfieldEC().update(bitfield))
+
 					entity.add_component(TorrentInfoEC(torrent_info))
-					entity.add_component(BitfieldEC(torrent_info.pieces.num).update(bitfield))
-					entity.add_component(TorrentTrackerDataEC().import_save(tracker_data))
-					entity.add_component(TorrentTrackerUpdatedEC())
+
+					entity.add_component(KnownPeersUpdateEC())
+
+					# update tracker data if any
+					if tracker_data:
+						entity.add_component(TorrentTrackerDataEC(tracker_data.announce_list).import_save(tracker_data))
 
 	async def _save_local(self, entity: Entity):
-		torrent_info = entity.get_component(TorrentInfoEC).info
-		bitfield = entity.get_component(BitfieldEC).dump()
-
-		tracker_data = entity.get_component(TorrentTrackerDataEC).export_save()
-
-		path = self.active_path.joinpath(str(torrent_info.name))
-
-		def save():
-			with open(path, 'wb') as f:
-				pickle.dump((torrent_info, bitfield, tracker_data), f, pickle.HIGHEST_PROTOCOL)
-
 		loop = asyncio.get_running_loop()
-		await loop.run_in_executor(None, save)
+		await loop.run_in_executor(None, self.save, entity)

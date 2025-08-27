@@ -1,7 +1,8 @@
+import hashlib
 from pathlib import Path
 from typing import List, Generator, Tuple
-from warnings import deprecated
 
+from torrent_app.protocol import encode
 from torrent_app.protocol.parser import decode
 
 
@@ -21,42 +22,42 @@ class PeerInfo:
 class TrackerAnnounceResponse:
 	def __init__(self, response, compact: int = 1):
 		self.__compact: int = compact
-		self.__data: dict = decode(response)
+		self.__tracker_response: dict = decode(response)
 
 	@property
 	def interval(self) -> int:
-		return self.__data.get('interval', -1)
+		return self.__tracker_response.get('interval', -1)
 
 	@property
 	def min_interval(self) -> int:
-		return self.__data.get('min interval', 60 * 30)
+		return self.__tracker_response.get('min interval', 60 * 30)
 
 	@property
 	def complete(self) -> int:
-		return self.__data.get('complete', 0)
+		return self.__tracker_response.get('complete', 0)
 
 	@property
 	def incomplete(self) -> int:
-		return self.__data.get('incomplete', 0)
+		return self.__tracker_response.get('incomplete', 0)
 
 	@property
 	def peers(self) -> tuple[PeerInfo, ...]:
-		peers: bytes = self.__data.get("peers", b'')
+		peers: bytes = self.__tracker_response.get("peers", b'')
 		if self.__compact:
 			return tuple(PeerInfo.from_bytes(peers[i: i + 6]) for i in range(0, len(peers), 6))
 		raise NotImplementedError()
 
 	@property
 	def tracker_id(self) -> str:
-		return self.__data.get("tracker id", "")
+		return self.__tracker_response.get("tracker id", "")
 
 	@property
 	def failure_reason(self) -> str:
-		return self.__data.get("failure reason", "")
+		return self.__tracker_response.get("failure reason", "")
 
 	@property
 	def warning_message(self) -> str:
-		return self.__data.get("warning message", "")
+		return self.__tracker_response.get("warning message", "")
 
 
 class Pieces:
@@ -90,21 +91,15 @@ class FileInfo:
 
 
 class TorrentInfo:
-	def __init__(self, info_hash: bytes, data: dict):
-		self.info_hash: bytes = info_hash
-		self.__data = data
+	def __init__(self, info: dict) -> None:
+		self.__info: dict = info
 
-	def is_valid(self) -> bool:
-		return len(self.info_hash) > 0
-
-	@property
-	def info(self) -> dict:
-		return self.__data.get("info", {})
+	def get_metadata(self) -> bytes:
+		return encode(self.__info)
 
 	@property
 	def name(self) -> str:
-		info = self.info
-		return info.get('name.utf-8', info.get("name", ""))
+		return self.__info.get('name.utf-8', self.__info.get("name", ""))
 
 	@staticmethod
 	def __files_generator(files_field: List[dict]):
@@ -116,20 +111,11 @@ class TorrentInfo:
 
 	@property
 	def files(self) -> tuple[FileInfo]:
-		files_field: List[dict] = self.info.get('files', [])
+		files_field: List[dict] = self.__info.get('files', [])
 		if files_field:
 			return *(self.__files_generator(files_field)),
 		else:
-			return (FileInfo([self.name], self.info.get("length", 0), self.info.get("md5sum", '')),)
-
-	@property
-	@deprecated("use announce_list instead")
-	def announce(self) -> str:
-		return self.__data.get("announce", "WTF")
-
-	@property
-	def announce_list(self) -> List[List[str]]:
-		return self.__data.get('announce-list', [[self.__data.get("announce", "WTF")]])
+			return (FileInfo([self.name], self.__info.get("length", 0), self.__info.get("md5sum", '')),)
 
 	@property
 	def size(self) -> int:
@@ -137,11 +123,11 @@ class TorrentInfo:
 
 	@property
 	def pieces(self) -> Pieces:
-		return Pieces(self.info.get('piece length', 1), self.info.get('pieces', b""))
+		return Pieces(self.__info.get('piece length', 1), self.__info.get('pieces', b""))
 
 	def get_file_path(self, root: Path, file: FileInfo) -> Path:
 		# add folder for multifile protocol
-		path = root.joinpath(self.name) if 'files' in self.info else root
+		path = root.joinpath(self.name) if 'files' in self.__info else root
 		for file_path in file.path:
 			path = path.joinpath(file_path)
 		return path
@@ -171,3 +157,47 @@ class TorrentInfo:
 			end_pos = min(piece_end, file_end)
 
 			yield file, start_pos, end_pos
+
+
+class TorrentFileInfo:
+	def __init__(self, data: dict):
+		self.__data = data
+		self.__info = TorrentInfo(self.__data.get("info", {}))
+		self.__info_hash = hashlib.sha1(self.__info.get_metadata()).digest()
+
+	def is_valid(self) -> bool:
+		return len(self.__info_hash) > 0
+
+	@property
+	def info(self) -> TorrentInfo:
+		return self.__info
+
+	@property
+	def info_hash(self) -> bytes:
+		return self.__info_hash
+
+	# announce: The announce URL of the tracker (string)
+	# announce-list: (optional) this is an extension to the official specification, offering backwards-compatibility. (list of lists of strings).
+	@property
+	def announce_list(self) -> List[List[str]]:
+		return self.__data.get('announce-list', [[self.__data.get("announce", "WTF")]])
+
+	# creation date: (optional) the creation time of the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
+	@property
+	def creation_date(self):
+		return self.__data.get("creation date")
+
+	# comment: (optional) free-form textual comments of the author (string)
+	@property
+	def comment(self):
+		return self.__data.get("comment")
+
+	# created by: (optional) name and version of the program used to create the .torrent (string)
+	@property
+	def created_by(self):
+		return self.__data.get("created by")
+
+	# encoding: (optional) the string encoding format used to generate the pieces part of the info dictionary in the .torrent metafile (string)
+	@property
+	def encoding(self):
+		return self.__data.get("encoding")

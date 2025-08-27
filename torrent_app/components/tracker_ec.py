@@ -1,4 +1,5 @@
 import time
+from typing import List
 
 from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol.structures import TrackerAnnounceResponse, PeerInfo
@@ -11,18 +12,20 @@ class SaveData:
 		self.interval: float = 0
 		self.min_interval: float = 0
 		self.peers: tuple[PeerInfo, ...] = tuple()
-		self.uploaded = 0
+		self.uploaded: int = 0
+		self.announce_list: List[List[str]] = []
 
 
 class TorrentTrackerDataEC(EntityComponent):
-	def __init__(self):
+	def __init__(self, announce_list: List[List[str]]):
 		super().__init__()
+
+		self.announce_list: List = announce_list
 
 		self.last_update_time: float = 0
 		self.interval: float = 0
 		self.min_interval: float = 0
 		self.tracker_id: str = ""
-		self.peers: tuple[PeerInfo] = tuple()
 
 		self.uploaded = 0
 
@@ -32,8 +35,6 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.min_interval = response.min_interval
 		self.tracker_id = response.tracker_id
 
-		self.peers = response.peers
-
 	def update_uploaded(self, length: int) -> None:
 		self.uploaded += length
 
@@ -42,7 +43,6 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.last_update_time = data.last_update_time
 		self.interval = data.interval
 		self.min_interval = data.min_interval
-		self.peers = data.peers
 		self.uploaded = data.uploaded
 		return self
 
@@ -52,11 +52,6 @@ class TorrentTrackerDataEC(EntityComponent):
 		result.last_update_time = self.last_update_time
 		result.interval = self.interval
 		result.min_interval = self.min_interval
-		result.peers = self.peers
 		result.uploaded = self.uploaded
+		result.announce_list = self.announce_list
 		return result
-
-
-# marker to process update data
-class TorrentTrackerUpdatedEC(EntityComponent):
-	pass

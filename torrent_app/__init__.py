@@ -1,6 +1,7 @@
 import logging
 
 from angelovichcore.DataStorage import DataStorage
+from angelovichcore.Dispatcher import Dispatcher
 from torrent_app.config import Config
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,7 @@ class Env:
 		self.external_ip: str = external_ip
 		self.config: Config = cfg
 		self.data_storage = DataStorage()
+		self.event_bus = Dispatcher()
 
 
 class System:

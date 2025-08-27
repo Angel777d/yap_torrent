@@ -12,13 +12,13 @@ logger = logging.getLogger(__name__)
 class PieceEC(EntityComponent):
 	__BLOCK_SIZE = 2 ** 14  # (16kb)
 
-	def __init__(self, info: TorrentInfo, index: int, data: bytes = bytes()):
+	def __init__(self, info_hash: bytes, info: TorrentInfo, index: int, data: bytes = bytes()):
 		super().__init__()
 
 		self.__hash: bytes = info.pieces.get_piece_hash(index)
 		self.__size = info.calculate_piece_size(index)
 
-		self.info_hash: bytes = info.info_hash
+		self.info_hash: bytes = info_hash
 		self.index: int = index
 		self.data: bytes = data
 		self.__downloaded: bytearray = bytearray(self.__size)

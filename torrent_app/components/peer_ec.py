@@ -28,16 +28,14 @@ class PeerInfoEC(EntityComponent):
 		return self.make_hash(self.info_hash, self.peer_info)
 
 
-class PeerPendingEC(EntityComponent):
-	pass
-
-
 class PeerConnectionEC(EntityComponent):
-	def __init__(self, connection: Connection, task: Task, queue_size: int = 10) -> None:
+	def __init__(self, connection: Connection, task: Task, reserved: bytes, queue_size: int = 10) -> None:
 		super().__init__()
 
 		self.connection: Connection = connection
 		self.task: Task = task
+
+		self.reserved: bytes = reserved
 
 		self.local_choked = True
 		self.local_interested = False
@@ -102,3 +100,21 @@ class PeerConnectionEC(EntityComponent):
 
 	def is_free_to_download(self) -> bool:
 		return not self.__in_progress
+
+
+class KnownPeersEC(EntityComponent):
+	def __init__(self):
+		super().__init__()
+		self.peers: tuple[PeerInfo, ...] = tuple()
+
+	def update_peers(self, peers: tuple[PeerInfo, ...]) -> "KnownPeersEC":
+		self.peers = peers
+		return self
+
+
+class KnownPeersUpdateEC(EntityComponent):
+	pass
+
+
+class PeerPendingEC(EntityComponent):
+	pass
