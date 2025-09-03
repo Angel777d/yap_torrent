@@ -6,7 +6,7 @@ import pickle
 from pathlib import Path
 from shutil import move
 
-from core.DataStorage import Entity
+from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC

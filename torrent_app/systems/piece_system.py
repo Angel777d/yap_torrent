@@ -2,7 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from core.DataStorage import Entity
+from angelovichcore.DataStorage import Entity
 from torrent_app import Env, TimeSystem
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC

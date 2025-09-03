@@ -1,6 +1,6 @@
 import time
 
-from core.DataStorage import EntityComponent
+from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol.structures import TrackerAnnounceResponse, PeerInfo
 
 
