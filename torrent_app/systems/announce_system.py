@@ -1,7 +1,7 @@
 import logging
 import time
 
-from core.DataStorage import Entity
+from angelovichcore.DataStorage import Entity
 from torrent_app import System
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerInfoEC, PeerPendingEC

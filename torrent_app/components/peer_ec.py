@@ -2,7 +2,7 @@ import logging
 from asyncio import Task
 from typing import Hashable, Set, Tuple
 
-from core.DataStorage import EntityComponent
+from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol.connection import Connection
 from torrent_app.protocol.structures import PeerInfo
 

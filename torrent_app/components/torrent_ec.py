@@ -1,6 +1,6 @@
 from typing import Hashable
 
-from core.DataStorage import EntityComponent
+from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import TorrentInfo
 
 

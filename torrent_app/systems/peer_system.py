@@ -4,7 +4,7 @@ import random
 from asyncio import StreamReader, StreamWriter
 from pathlib import Path
 
-from core.DataStorage import Entity
+from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC

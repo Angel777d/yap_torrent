@@ -2,7 +2,7 @@
 import time
 from typing import Hashable, Tuple, Set
 
-from core.DataStorage import EntityComponent
+from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import TorrentInfo
 from torrent_app.utils import check_hash
 
