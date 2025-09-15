@@ -7,6 +7,7 @@ from torrent_app import Env, System, Config, upnp
 from torrent_app.systems.announce_system import AnnounceSystem
 from torrent_app.systems.dht_system import DHTSystem
 from torrent_app.systems.extension_system import ExtensionSystem
+from torrent_app.systems.input_system import InputSystem
 from torrent_app.systems.peer_system import PeerSystem
 from torrent_app.systems.piece_system import PieceSystem
 from torrent_app.systems.watch_system import WatcherSystem
@@ -54,6 +55,7 @@ class Application:
 			# await ProfileSystem(env).start(),
 			await ExtensionSystem(env).start(),
 			await DHTSystem(env).start(),
+			await InputSystem(env).start(),
 		]
 
 		last_time = time.monotonic()
