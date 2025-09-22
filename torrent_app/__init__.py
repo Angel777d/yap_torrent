@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from typing import List
 
 from angelovichcore.DataStorage import DataStorage
 from angelovichcore.Dispatcher import Dispatcher
@@ -19,7 +21,8 @@ class Env:
 
 class System:
 	def __init__(self, env: Env):
-		self.env: Env = env
+		self.__env: Env = env
+		self.__tasks: List[asyncio.Task] = []
 
 	async def start(self) -> 'System':
 		return self
@@ -30,8 +33,16 @@ class System:
 	async def _update(self, delta_time: float):
 		pass
 
-	def close(self):
-		pass
+	def add_task(self, task: asyncio.Task):
+		self.__tasks.append(task)
+
+	def close(self) -> None:
+		for task in self.__tasks:
+			task.cancel()
+
+	@property
+	def env(self):
+		return self.__env
 
 
 class TimeSystem(System):

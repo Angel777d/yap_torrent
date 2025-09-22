@@ -5,9 +5,11 @@ from typing import List
 
 from torrent_app import Env, System, Config, upnp
 from torrent_app.systems.announce_system import AnnounceSystem
-from torrent_app.systems.dht_system import DHTSystem
-from torrent_app.systems.extension_system import ExtensionSystem
+from torrent_app.systems.bt_main_system import BTMainSystem
+from torrent_app.systems.bt_dht_system import BTDHTSystem
+from torrent_app.systems.bt_extension_system import BTExtensionSystem
 from torrent_app.systems.input_system import InputSystem
+from torrent_app.systems.bt_ext_metadata_system import BTExtMetadataSystem
 from torrent_app.systems.peer_system import PeerSystem
 from torrent_app.systems.piece_system import PieceSystem
 from torrent_app.systems.watch_system import WatcherSystem
@@ -52,10 +54,12 @@ class Application:
 			await AnnounceSystem(env).start(),
 			await PeerSystem(env).start(),
 			await PieceSystem(env).start(),
-			# await ProfileSystem(env).start(),
-			await ExtensionSystem(env).start(),
-			await DHTSystem(env).start(),
+			await BTMainSystem(env).start(),
+			await BTExtensionSystem(env).start(),
+			await BTExtMetadataSystem(env).start(),
+			await BTDHTSystem(env).start(),
 			await InputSystem(env).start(),
+			# await ProfileSystem(env).start(),
 		]
 
 		last_time = time.monotonic()

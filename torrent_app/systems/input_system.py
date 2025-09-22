@@ -3,7 +3,6 @@ import logging
 
 from torrent_app import System
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.extensions import TorrentMetadataEC
 from torrent_app.components.peer_ec import KnownPeersEC
 from torrent_app.components.torrent_ec import TorrentHashEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 # stupid idea to use console input like this
 class InputSystem(System):
 	async def start(self) -> 'System':
-		asyncio.create_task(self.process_input())
+		self.add_task(asyncio.create_task(self.process_input()))
 		return await super().start()
 
 	async def process_input(self) -> bytes:
@@ -29,15 +28,15 @@ class InputSystem(System):
 
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentHashEC(magnet.info_hash))
-		entity.add_component(TorrentMetadataEC())
 		entity.add_component(KnownPeersEC())
 		entity.add_component(BitfieldEC())
 
-		# TODO: download first
-		# entity.add_component(TorrentInfoEC(torrent_info))
 
 		if magnet.trackers:
 			entity.add_component(TorrentTrackerDataEC([magnet.trackers]))
+
+		# TODO: download first
+		# entity.add_component(TorrentInfoEC(torrent_info))
 
 		# TODO: support empty TorrentInfo
 		# entity.add_component(TorrentSaveEC())

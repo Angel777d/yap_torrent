@@ -2,7 +2,7 @@ import asyncio
 import logging
 import random
 from asyncio import DatagramProtocol, transports
-from typing import Any, Optional, Dict, Tuple
+from typing import Any, Optional, Dict
 
 from torrent_app.protocol import encode, decode
 
@@ -12,7 +12,7 @@ CLIENT_VERSION = "AP"
 
 
 class DHTServerProtocolHandler:
-	def create_response(self, message: Dict[str, Any], addr: tuple[str | Any, int]) -> Dict[str, Any]:
+	def process_message(self, message: Dict[str, Any], addr: tuple[str | Any, int]) -> Dict[str, Any]:
 		raise NotImplementedError()
 
 
@@ -27,9 +27,10 @@ class DHTServerProtocol(DatagramProtocol):
 
 	def datagram_received(self, data: bytes, addr: tuple[str | Any, int]):
 		message = decode(data)
-		logger.info(f'got some DHT message {data} from addr {addr}')
-		response = self.handler.create_response(message)
-		self.transport.sendto(encode(response))
+		logger.info(f'got some DHT message {message} from addr {addr}')
+		response = self.handler.process_message(message, addr)
+		send_data = encode(response)
+		self.transport.sendto(send_data, addr)
 		self.transport.close()
 
 
@@ -62,7 +63,7 @@ class DHTClientProtocol(DatagramProtocol):
 		self.on_con_lost.set_result(True)
 
 
-async def __send_message(message: Dict[str, Any], host: str, port: int) -> Optional[Dict[str, Any]]:
+async def __send_message(message: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
 	message["v"] = CLIENT_VERSION
 	loop = asyncio.get_running_loop()
 	on_con_lost = loop.create_future()
@@ -77,7 +78,7 @@ async def __send_message(message: Dict[str, Any], host: str, port: int) -> Optio
 
 	if protocol.response:
 		return decode(protocol.response)
-	return None
+	return {}
 
 
 def __get_transaction_id() -> str:
@@ -118,7 +119,7 @@ async def get_peers(node_id: bytes, info_hash: bytes, host: str, port: int) -> O
 	}, host, port)
 
 
-async def find_node(node_id: bytes, target: bytes, host: str, port: int) -> Optional[Dict[str, Any]]:
+async def find_node(node_id: bytes, target: bytes, host: str, port: int) -> Dict[str, Any]:
 	return await __send_message({
 		"t": __get_transaction_id(),
 		"y": "q",
@@ -130,7 +131,7 @@ async def find_node(node_id: bytes, target: bytes, host: str, port: int) -> Opti
 	}, host, port)
 
 
-async def ping(node_id: bytes, host: str, port: int) -> Optional[Dict[str, Any]]:
+async def ping(node_id: bytes, host: str, port: int) -> Dict[str, Any]:
 	return await __send_message({
 		"t": __get_transaction_id(),
 		"y": "q",
@@ -142,21 +143,20 @@ async def ping(node_id: bytes, host: str, port: int) -> Optional[Dict[str, Any]]
 
 
 def make_response(t: str,
-                  node_id: Optional[bytes] = None,
-                  error: Optional[Tuple[int, str]] = None,
-                  response: Optional[Dict[str, Any]] = None):
-	# prepare an error
-	if error:
-		return {
-			"t": t,
-			"y": "e",
-			"e": error
-		}
-
+                  node_id: bytes,
+                  response: Dict[str, Any]):
 	# prepare response structure
 	response["id"] = node_id
 	return {
 		"t": t,
 		"y": "r",
 		"r": response
+	}
+
+
+def make_error(t: str, code: int, error_message: str):
+	return {
+		"t": t,
+		"y": "e",
+		"e": (code, error_message)
 	}

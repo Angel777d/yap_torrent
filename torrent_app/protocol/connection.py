@@ -5,103 +5,14 @@ import logging
 import struct
 import time
 from asyncio import StreamReader, StreamWriter, IncompleteReadError
-from enum import Enum
 from typing import Tuple, Optional
 
-from . import decode
+from .message import Message
 from .structures import PeerInfo
 
 logger = logging.getLogger(__name__)
 
 PSTR_V1 = b'BitTorrent protocol'
-
-
-class MessageId(Enum):
-	KEEP_ALIVE = -1  # <len=0000>
-	CHOKE = 0  # <len=0001><id=0>
-	UNCHOKE = 1  # <len=0001><id=1>
-	INTERESTED = 2  # <len=0001><id=2>
-	NOT_INTERESTED = 3  # <len=0001><id=3>
-	HAVE = 4  # <len=0005><id=4><piece index>
-	BITFIELD = 5  # <len=0001+X><id=5><bitfield>
-	REQUEST = 6  # <len=0013><id=6><index><begin><length>
-	PIECE = 7  # <len=0009+X><id=7><index><begin><block>
-	CANCEL = 8  # <len=0013><id=8><index><begin><length>
-	PORT = 9  # <len=0003><id=9><port>
-	EXTENDED = 20  # <len=0001+X><id=20><extended message ID>
-
-	ERROR = -2
-
-
-class Message:
-	def __init__(self, message_id: MessageId = MessageId.KEEP_ALIVE):
-		self.__message_id: MessageId = message_id
-		self.__payload: bytes = bytes()
-
-	@classmethod
-	def from_bytes(cls, buffer: bytes):
-		message = cls()
-
-		# KEEP_ALIVE case
-		if not buffer:
-			return message
-
-		try:
-			message.__message_id = MessageId(buffer[0])
-		except ValueError:
-			message.__message_id = MessageId.ERROR
-		message.__payload = buffer[1:]
-		return message
-
-	@property
-	def message_id(self) -> MessageId:
-		return self.__message_id
-
-	@property
-	def index(self) -> int:
-		if self.__message_id == MessageId.HAVE:
-			return struct.unpack("!I", self.__payload)[0]
-		raise RuntimeError("wrong message type for index property")
-
-	@property
-	def bitfield(self) -> bytes:
-		if self.__message_id == MessageId.BITFIELD:
-			return self.__payload
-		raise RuntimeError("wrong message type for bitfield property")
-
-	@property
-	def piece(self) -> Tuple[int, int, bytes]:
-		if self.__message_id == MessageId.PIECE:
-			return struct.unpack(f"!II{len(self.__payload) - 8}s", self.__payload)
-		raise RuntimeError("wrong message type for piece property")
-
-	@property
-	def request(self) -> Tuple[int, int, int]:
-		if self.__message_id == MessageId.REQUEST:
-			return struct.unpack(f"!III", self.__payload)
-		raise RuntimeError("wrong message type for request property")
-
-	@property
-	def port(self) -> int:
-		if self.__message_id == MessageId.PORT:
-			return struct.unpack(f"!H", self.__payload)[0]
-		raise RuntimeError("wrong message type for 'port' property")
-
-	@property
-	def extended(self) -> tuple[int, dict]:
-		if self.__message_id == MessageId.EXTENDED:
-			return self.__payload[0], decode(self.__payload[1:])
-		raise RuntimeError("wrong message type for 'extended' property")
-
-	@property
-	def raw_payload(self) -> bytes:
-		return self.__payload
-
-	def __repr__(self):
-		return self.__str__()
-
-	def __str__(self):
-		return self.__message_id.name
 
 
 def __create_handshake_message(info_hash: bytes, peer_id: bytes, reserved=bytes(8)):
@@ -227,69 +138,31 @@ class Connection:
 		self.writer = None
 		self.reader = None
 
-	async def read(self) -> Message:
+	async def read(self) -> tuple[Optional[Message], str]:
 		try:
 			buffer = await self.reader.readexactly(4)
 			length = struct.unpack("!I", buffer)[0]
 
 			if length:
 				buffer = await self.reader.readexactly(length)
-				message = Message.from_bytes(buffer)
+				self.last_message_time = time.monotonic()
+				return Message(buffer), ""
 			else:
-				message = Message(MessageId.KEEP_ALIVE)
+				self.last_message_time = time.monotonic()
+				return None, ""  # KEEP ALIVE
 
 		except IncompleteReadError as ex:
-			message = Message(MessageId.ERROR)
-			logger.debug(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
+			return None, f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}"
 		except ConnectionResetError as ex:
-			message = Message(MessageId.ERROR)
-			logger.debug(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
-
-		logger.debug(f"got message {message} from {self.remote_peer_id}")
-		self.last_message_time = time.monotonic()
-
-		return message
+			return None, f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}"
 
 	async def keep_alive(self) -> None:
 		if time.monotonic() - self.last_out_time < 10:
 			return
-		await self.__send(bytes())
+		await self.send(bytes())
 
-	async def choke(self) -> None:
-		await self.__send(struct.pack('!B', MessageId.CHOKE.value))
-
-	async def unchoke(self) -> None:
-		await self.__send(struct.pack('!B', MessageId.UNCHOKE.value))
-
-	async def interested(self) -> None:
-		await self.__send(struct.pack('!B', MessageId.INTERESTED.value))
-
-	async def not_interested(self) -> None:
-		await self.__send(struct.pack('!B', MessageId.NOT_INTERESTED.value))
-
-	async def have(self, piece_index) -> None:
-		await self.__send(struct.pack('!BI', MessageId.HAVE.value, piece_index))
-
-	async def bitfield(self, bitfield) -> None:
-		await self.__send(struct.pack(f'!B{len(bitfield)}s', MessageId.BITFIELD.value, bitfield))
-
-	async def request(self, piece_index, begin, length) -> None:
-		await self.__send(struct.pack('!BIII', MessageId.REQUEST.value, piece_index, begin, length))
-
-	async def piece(self, piece_index: int, begin: int, block: bytes) -> None:
-		await self.__send(struct.pack(f'!BII{len(block)}s', MessageId.PIECE.value, piece_index, begin, block))
-
-	async def cancel(self, piece_index, begin, length) -> None:
-		await self.__send(struct.pack('!BIII', MessageId.CANCEL.value, piece_index, begin, length))
-
-	async def port(self, port: int) -> None:
-		await self.__send(struct.pack('!BH', MessageId.PORT.value, port))
-
-	async def extended(self, ext_id: int, payload: bytes) -> None:
-		await self.__send(struct.pack(f'!BB{len(payload)}s', MessageId.EXTENDED.value, ext_id, payload))
-
-	async def __send(self, message: bytes) -> None:
-		logger.debug(f"send {Message.from_bytes(message)} message to {self.remote_peer_id}")
+	async def send(self, message: bytes) -> None:
+		logger.debug(f"send {Message(message)} message to {self.remote_peer_id}")
 		try:
 			self.last_out_time = time.monotonic()
 			self.writer.write(struct.pack("!I", len(message)))

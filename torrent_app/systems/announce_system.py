@@ -72,8 +72,9 @@ class AnnounceSystem(System):
 					compact=1,
 					tracker_id=tracker_ec.tracker_id
 				)
-
-				if result and not result.failure_reason:
+				if not result:
+					continue
+				elif not result.failure_reason:
 					tracker_ec.save_announce(result)
 					peers_ec.update_peers(result.peers)
 					tracker_ec.add_marker(KnownPeersUpdateEC)

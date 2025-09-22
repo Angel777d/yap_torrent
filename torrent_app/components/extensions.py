@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict
 
 from angelovichcore.DataStorage import EntityComponent
 
@@ -9,16 +9,19 @@ METADATA_PIECE_SIZE = 2 ** 14
 # Extension Protocol
 class PeerExtensionsEC(EntityComponent):
 	EXT_TO_ID: dict[str, int] = {}
-	LOCAL_ID_TO_EXT = {}
+	__ID_TO_EXT: dict[int, str] = {}
+
+	@classmethod
+	def add_supported(cls, supported_extension: str):
+		cls.EXT_TO_ID[supported_extension] = len(cls.EXT_TO_ID)
+		cls.__ID_TO_EXT = {v: k for k, v in cls.EXT_TO_ID.items()}
 
 	def __init__(self, remote_ext_to_id: dict[str, int]):
 		super().__init__()
 		self.remote_ext_to_id: dict[str, int] = remote_ext_to_id
 
-	@classmethod
-	async def setup(cls, *supported: str):
-		cls.EXT_TO_ID = {ext: index for index, ext in enumerate(supported, start=1)}
-		cls.LOCAL_ID_TO_EXT = {v: k for k, v in cls.EXT_TO_ID.items()}
+	def get_extension_name(self, ext_id: int) -> str:
+		return self.__ID_TO_EXT.get(ext_id, "")
 
 
 class TorrentMetadataEC(EntityComponent):
@@ -27,7 +30,7 @@ class TorrentMetadataEC(EntityComponent):
 		self.metadata_size: int = -1
 
 		self.metadata: bytes = bytes()
-		self.pieces: Optional[Dict[int, bytes]] = {}
+		self.pieces: Dict[int, bytes] = {}
 
 	def add_piece(self, index: int, piece: bytes):
 		self.pieces[index] = piece
@@ -38,5 +41,5 @@ class TorrentMetadataEC(EntityComponent):
 	def set_metadata(self, metadata: bytes) -> "TorrentMetadataEC":
 		self.metadata = metadata
 		self.metadata_size = len(metadata)
-		self.pieces = None
+		self.pieces.clear()
 		return self

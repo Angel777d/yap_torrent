@@ -9,7 +9,6 @@ from shutil import move
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.extensions import TorrentMetadataEC
 from torrent_app.components.peer_ec import KnownPeersEC, KnownPeersUpdateEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC, TorrentHashEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC
@@ -57,6 +56,7 @@ class WatcherSystem(System):
 		to_save = self.env.data_storage.get_collection(TorrentInfoEC).entities
 		for entity in to_save:
 			self.save(entity)
+		super().close()
 
 	def save(self, entity: Entity):
 		info_hash = entity.get_component(TorrentHashEC).info_hash
@@ -140,7 +140,6 @@ class WatcherSystem(System):
 		logger.info(f"New torrent {torrent_info.name} added. Local data: {downloaded:.2f}%")
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentHashEC(file_info.info_hash))
-		entity.add_component(TorrentMetadataEC().set_metadata(torrent_info.get_metadata()))
 		entity.add_component(KnownPeersEC())
 		entity.add_component(bitfield)
 
@@ -160,7 +159,6 @@ class WatcherSystem(System):
 
 					entity = self.env.data_storage.create_entity()
 					entity.add_component(TorrentHashEC(info_hash))
-					entity.add_component(TorrentMetadataEC().set_metadata(torrent_info.get_metadata()))
 					entity.add_component(KnownPeersEC().update_peers(peers))
 					entity.add_component(BitfieldEC().update(bitfield))
 
