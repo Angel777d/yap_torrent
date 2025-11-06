@@ -22,8 +22,6 @@ class BTExtMetadataSystem(System):
 		self.env.event_bus.add_listener("protocol.extensions.create_handshake", self.__on_create_handshake, scope=self)
 		self.env.event_bus.add_listener("protocol.extensions.got_handshake", self.__on_got_handshake, scope=self)
 
-		return await super().start()
-
 	async def __on_create_handshake(self, torrent_entity: Entity, additional_fields: dict[str, Any]) -> None:
 		if not torrent_entity.has_component(TorrentInfoEC):
 			return

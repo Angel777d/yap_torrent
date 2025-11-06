@@ -1,11 +1,11 @@
 import asyncio
 import logging
 import time
-from asyncio import AbstractEventLoop
-from typing import List, Dict, Any
+from typing import List
 
 import torrent_app.plugins as plugins
 from torrent_app import Env, System, Config, upnp
+from torrent_app.plugins import TorrentPlugin
 from torrent_app.systems.announce_system import AnnounceSystem
 from torrent_app.systems.bt_dht_system import BTDHTSystem
 from torrent_app.systems.bt_ext_metadata_system import BTExtMetadataSystem
@@ -45,31 +45,35 @@ class Application:
 		ip, external_ip = network_setup()
 		open_port(ip, config.port, config.dht_port)
 
-		self.env = Env(create_peer_id(), ip, external_ip, config)
-		self.systems: List[System] = []
+		env = Env(create_peer_id(), ip, external_ip, config)
+		self.systems: List[System] = [
+			WatcherSystem(env),
+			AnnounceSystem(env),
+			PeerSystem(env),
+			PieceSystem(env),
+			BTMainSystem(env),
+			BTExtensionSystem(env),
+			BTExtMetadataSystem(env),
+			BTDHTSystem(env),
+		]
 
-		self.plugins: Dict[str, Any] = plugins.discover_plugins(self.env.config)
+		self.plugins: List[TorrentPlugin] = plugins.discover_plugins(env.config)
+
+		self.env = env
 
 	async def run(self, close_event: asyncio.Event):
 		env = self.env
-		self.systems = [
-			await WatcherSystem(env).start(),
-			await AnnounceSystem(env).start(),
-			await PeerSystem(env).start(),
-			await PieceSystem(env).start(),
-			await BTMainSystem(env).start(),
-			await BTExtensionSystem(env).start(),
-			await BTExtMetadataSystem(env).start(),
-			await BTDHTSystem(env).start(),
-		]
-
-		for name, module in self.plugins.items():
-			loop: AbstractEventLoop = asyncio.get_running_loop()
-			self.systems.extend([await system.start() for system in module.init_plugin(loop, env)])
-
 		last_time = time.monotonic()
 
-		logger.info("Torrent App start")
+		logger.info("Torrent application start")
+
+		for system in self.systems:
+			await system.start()
+
+		for plugin in self.plugins:
+			await plugin.start(env)
+
+		logger.info("Torrent application initialized")
 
 		while not close_event.is_set():
 			await asyncio.sleep(GLOBAL_TICK_TIME)
@@ -81,9 +85,15 @@ class Application:
 			for system in self.systems:
 				await system.update(dt)
 
-		logger.info("Torrent App stop")
+			for plugin in self.plugins:
+				await plugin.update(dt)
+
+		logger.info("Torrent application stop")
 
 		for system in self.systems:
 			system.close()
 
-		logger.info("Torrent App closed")
+		for plugin in self.plugins:
+			plugin.close()
+
+		logger.info("Torrent application closed")

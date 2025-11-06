@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 
 # stupid idea to use console input like this
 class InputSystem(System):
-	async def start(self) -> 'System':
+	async def start(self):
 		self.add_task(asyncio.create_task(self.process_input()))
-		return await super().start()
 
 	async def process_input(self) -> bytes:
 		loop = asyncio.get_running_loop()

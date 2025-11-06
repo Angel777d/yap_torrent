@@ -25,7 +25,7 @@ class System:
 		self.__tasks: List[asyncio.Task] = []
 
 	async def start(self) -> 'System':
-		return self
+		pass
 
 	async def update(self, delta_time: float):
 		await self._update(delta_time)

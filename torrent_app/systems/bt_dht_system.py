@@ -47,7 +47,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 
 		self.__server = None
 
-	async def start(self) -> 'System':
+	async def start(self):
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
 
@@ -60,8 +60,6 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		self.__server = await loop.create_datagram_endpoint(
 			lambda: DHTServerProtocol(self),
 			local_addr=(host, port))
-
-		return await System.start(self)
 
 	def close(self):
 		transport, protocol = self.__server

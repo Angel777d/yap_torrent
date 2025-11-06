@@ -17,9 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 class BTMainSystem(System):
-	async def start(self) -> 'System':
+	async def start(self):
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-		return await super().start()
 
 	def close(self):
 		self.env.event_bus.remove_all(scope=self)

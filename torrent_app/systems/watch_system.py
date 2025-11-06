@@ -34,10 +34,9 @@ class WatcherSystem(System):
 		self.watch_path.mkdir(parents=True, exist_ok=True)
 		self.active_path.mkdir(parents=True, exist_ok=True)
 
-	async def start(self) -> System:
+	async def start(self):
 		await self.__check_folders()
 		await self._load_local()
-		return self
 
 	async def _update(self, delta_time: float):
 		files_to_move = await self._load_from_path(self.watch_path)
