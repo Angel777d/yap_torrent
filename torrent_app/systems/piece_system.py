@@ -6,7 +6,7 @@ from angelovichcore.DataStorage import Entity
 from torrent_app import Env, TimeSystem
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC
-from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC, TorrentHashEC
 from torrent_app.utils import save_piece
 
 logger = logging.getLogger(__name__)
@@ -30,16 +30,17 @@ class PieceSystem(TimeSystem):
 			entity.remove_component(PieceToSaveEC)
 
 			piece: PieceEC = entity.get_component(PieceEC)
-			torrent_entity: Entity = ds.get_collection(TorrentInfoEC).find(piece.info_hash)
-			info = torrent_entity.get_component(TorrentInfoEC).info
-			save_piece(self.download_path, info, piece.index, piece.data)
+			torrent_entity: Entity = ds.get_collection(TorrentHashEC).find(piece.info_hash)
+			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
+			save_piece(self.download_path, torrent_info, piece.index, piece.data)
 
 			if not torrent_entity.has_component(TorrentSaveEC):
 				torrent_entity.add_component(TorrentSaveEC())
 
 				# logs
-				downloaded = torrent_entity.get_component(BitfieldEC).have_num * info.pieces.piece_length
-				logger.info(f"{min(downloaded, info.size) / info.size * 100:.2f}% progress {info.name}")
+				downloaded = torrent_entity.get_component(BitfieldEC).have_num * torrent_info.pieces.piece_length
+				logger.info(
+					f"{min(downloaded, torrent_info.size) / torrent_info.size * 100:.2f}% progress {torrent_info.name}")
 
 	async def cleanup(self):
 		MAX_PIECES = 100  # TODO: move to config

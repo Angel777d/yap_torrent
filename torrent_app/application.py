@@ -1,24 +1,37 @@
 import asyncio
 import logging
 import time
-from typing import List
+from asyncio import AbstractEventLoop
+from typing import List, Dict, Any
 
+import torrent_app.plugins as plugins
 from torrent_app import Env, System, Config, upnp
 from torrent_app.systems.announce_system import AnnounceSystem
+from torrent_app.systems.bt_dht_system import BTDHTSystem
+from torrent_app.systems.bt_ext_metadata_system import BTExtMetadataSystem
+from torrent_app.systems.bt_extension_system import BTExtensionSystem
+from torrent_app.systems.bt_main_system import BTMainSystem
 from torrent_app.systems.peer_system import PeerSystem
 from torrent_app.systems.piece_system import PieceSystem
 from torrent_app.systems.watch_system import WatcherSystem
 
+logger = logging.getLogger(__name__)
+
 GLOBAL_TICK_TIME = 1
 
 
-def network_setup(port: int) -> tuple[str, str]:
-	ip: str = upnp.get_my_ip()
+def network_setup() -> tuple[str, str]:
+	return upnp.get_my_ip(), upnp.get_my_ext_ip()
+
+
+def open_port(ip: str, port: int, dht_port: int):
 	service = upnp.discover(ip)
 	if service:
-		open_res = upnp.open_port(service, port, ip)
-		print(f"open port: {open_res}")
-	return ip, upnp.get_my_ext_ip()
+		open_res = upnp.open_port(service, port, ip, protocol="TCP")
+		print(f"open TCP port: {open_res}")
+
+		open_res = upnp.open_port(service, dht_port, ip, protocol="UDP")
+		print(f"open UDP port: {open_res}")
 
 
 def create_peer_id():
@@ -29,23 +42,34 @@ def create_peer_id():
 class Application:
 	def __init__(self):
 		config = Config()
-		ip, external_ip = network_setup(config.port)
+		ip, external_ip = network_setup()
+		open_port(ip, config.port, config.dht_port)
+
 		self.env = Env(create_peer_id(), ip, external_ip, config)
 		self.systems: List[System] = []
 
+		self.plugins: Dict[str, Any] = plugins.discover_plugins(self.env.config)
+
 	async def run(self, close_event: asyncio.Event):
 		env = self.env
-		logging.info("Start torrent app")
-
 		self.systems = [
 			await WatcherSystem(env).start(),
 			await AnnounceSystem(env).start(),
 			await PeerSystem(env).start(),
 			await PieceSystem(env).start(),
-			# await ProfileSystem(env).start(),
+			await BTMainSystem(env).start(),
+			await BTExtensionSystem(env).start(),
+			await BTExtMetadataSystem(env).start(),
+			await BTDHTSystem(env).start(),
 		]
 
+		for name, module in self.plugins.items():
+			loop: AbstractEventLoop = asyncio.get_running_loop()
+			self.systems.extend([await system.start() for system in module.init_plugin(loop, env)])
+
 		last_time = time.monotonic()
+
+		logger.info("Torrent App start")
 
 		while not close_event.is_set():
 			await asyncio.sleep(GLOBAL_TICK_TIME)
@@ -57,7 +81,9 @@ class Application:
 			for system in self.systems:
 				await system.update(dt)
 
-	def stop(self):
-		logging.info("Close torrent app")
+		logger.info("Torrent App stop")
+
 		for system in self.systems:
 			system.close()
+
+		logger.info("Torrent App closed")

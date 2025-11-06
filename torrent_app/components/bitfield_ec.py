@@ -5,11 +5,8 @@ from angelovichcore.DataStorage import EntityComponent
 
 
 class BitfieldEC(EntityComponent):
-	def __init__(self, length: int):
+	def __init__(self):
 		super().__init__()
-		self._length: int = length
-		self._complete = False
-
 		self._have: Set[int] = set()
 
 	@staticmethod
@@ -17,12 +14,13 @@ class BitfieldEC(EntityComponent):
 		return index // 8, 7 - index % 8
 
 	@staticmethod
-	def position_to_index(i, offset) -> int:
+	def __position_to_index(i, offset) -> int:
 		return i * 8 + 7 - offset
 
 	def update(self, bitfield: bytes):
-		self._have = set(self.position_to_index(i, offset) for i, byte in enumerate(bitfield) for offset in range(8) if
-		                 byte & (1 << offset))
+		self._have = set(
+			self.__position_to_index(i, offset) for i, byte in enumerate(bitfield) for offset in range(8) if
+			byte & (1 << offset))
 		return self
 
 	def set_index(self, index: int):
@@ -38,8 +36,8 @@ class BitfieldEC(EntityComponent):
 	def have_num(self) -> int:
 		return len(self._have)
 
-	def dump(self) -> bytes:
+	def dump(self, length) -> bytes:
 		return bytes(
-			int(sum((1 if self.position_to_index(i, offset) in self._have else 0) << offset for offset in range(8)))
+			int(sum((1 if self.__position_to_index(i, offset) in self._have else 0) << offset for offset in range(8)))
 			for i in
-			range(math.ceil(self._length / 8)))
+			range(math.ceil(length / 8)))

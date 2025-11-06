@@ -1,0 +1,71 @@
+import asyncio
+import logging
+
+from angelovichcore.DataStorage import Entity
+from torrent_app import System
+from torrent_app.components.extensions import PeerExtensionsEC
+from torrent_app.components.peer_ec import PeerConnectionEC
+from torrent_app.protocol import bt_ext_messages as msg
+from torrent_app.protocol import extensions
+from torrent_app.protocol.connection import Message
+from torrent_app.protocol.extensions import check_extension, extension_handshake
+
+logger = logging.getLogger(__name__)
+
+
+class BTExtensionSystem(System):
+	async def start(self) -> 'System':
+		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
+		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
+		return await super().start()
+
+	def close(self):
+		self.env.event_bus.remove_all(scope=self)
+		super().close()
+
+	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message) -> None:
+		if message.message_id != msg.EXTENDED:
+			return
+
+		ext_id, payload = msg.payload_extended(message)
+
+		# ext id = 0 is a handshake message
+		if ext_id == 0:
+			peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
+			peer_id = peer_connection_ec.connection.remote_peer_id
+			logger.info(f"Got extension handshake {payload} from peer {peer_id}")
+
+			remote_ext_to_id = payload.get("m", {})
+			peer_entity.add_component(PeerExtensionsEC(remote_ext_to_id))
+			self.env.event_bus.dispatch("protocol.extensions.got_handshake", torrent_entity, payload)
+		else:
+			# check is metadata message
+			ext_ec = peer_entity.get_component(PeerExtensionsEC)
+			ext_name = ext_ec.get_extension_name(ext_id)
+			self.env.event_bus.dispatch(f"protocol.extensions.message.{ext_name}", torrent_entity, peer_entity, message)
+
+	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity) -> None:
+		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
+		reserved = peer_connection_ec.reserved
+		if not check_extension(reserved, extensions.EXTENSION_PROTOCOL):
+			return
+
+		# https://www.bittorrent.org/beps/bep_0010.html
+		additional_fields = {
+			"p": self.env.config.port,
+			"v": "Another Python Torrent 0.0.1",
+			"yourip": None,  # TODO: add address
+			"ipv6": None,
+			"ipv4": None,
+			"reqq": 250,  # TODO: check what is it
+		}
+
+		# some extensions write data to handshake message as well
+		tasks = await self.env.event_bus.dispatch(
+			"protocol.extensions.create_handshake",
+			torrent_entity=torrent_entity,
+			additional_fields=additional_fields)
+		await asyncio.gather(*tasks)
+
+		handshake = extension_handshake(PeerExtensionsEC.EXT_TO_ID, **additional_fields)
+		await peer_connection_ec.connection.send(msg.extended(0, handshake))

@@ -49,7 +49,7 @@ class _String(_Block):
 		return position
 
 	@staticmethod
-	def encode(value):
+	def encode(value) -> bytes:
 		if isinstance(value, str):
 			value = value.encode("utf-8")
 		return str(len(value)).encode("utf-8") + b":" + value
@@ -79,7 +79,7 @@ class _Array(_Block):
 		return [part.build() for part in self.parts]
 
 	@staticmethod
-	def encode(value):
+	def encode(value) -> bytes:
 		result = EMPTY
 		for item in value:
 			result += encode(item)
@@ -91,7 +91,7 @@ class _Dict(_Block):
 		return {self.parts[i].build(): self.parts[i + 1].build() for i in range(0, len(self.parts), 2)}
 
 	@staticmethod
-	def encode(value):
+	def encode(value) -> bytes:
 		result = EMPTY
 		for key, value in sorted(value.items()):
 			result += encode(key)
@@ -106,7 +106,7 @@ def decode(data: bytes) -> Dict[str, Any]:
 	return result.build()
 
 
-def encode(value):
+def encode(value) -> bytes:
 	if isinstance(value, dict):
 		return _Dict.encode(value)
 	elif isinstance(value, list):

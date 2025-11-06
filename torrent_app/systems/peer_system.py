@@ -1,21 +1,22 @@
 import asyncio
 import logging
-import random
 from asyncio import StreamReader, StreamWriter
-from pathlib import Path
 
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
-from torrent_app.components.piece_ec import PieceEC, PiecePendingRemoveEC
-from torrent_app.components.torrent_ec import TorrentInfoEC
-from torrent_app.components.tracker_ec import TorrentTrackerDataEC
-from torrent_app.protocol.connection import Connection, MessageId, connect, on_connect, Message
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC
+from torrent_app.protocol import extensions
+from torrent_app.protocol.bt_main_messages import bitfield
+from torrent_app.protocol.connection import Connection, connect, on_connect
+from torrent_app.protocol.extensions import create_reserved, merge_reserved
 from torrent_app.protocol.structures import PeerInfo
-from torrent_app.utils import load_piece, check_hash
 
 logger = logging.getLogger(__name__)
+
+# TODO: move to config?
+LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 
 
 class PeerSystem(System):
@@ -26,6 +27,7 @@ class PeerSystem(System):
 	def close(self):
 		ds = self.env.data_storage
 		ds.clear_collection(PeerConnectionEC)
+		super().close()
 
 	async def start(self):
 		port = self.env.config.port
@@ -38,11 +40,11 @@ class PeerSystem(System):
 		logger.debug('some peer connected to us')
 		local_peer_id = self.env.peer_id
 
-		result = await on_connect(local_peer_id, reader, writer)
+		result = await on_connect(local_peer_id, reader, writer, LOCAL_RESERVED)
 		if result is None:
 			return
 
-		pstrlen, pstr, reserved, info_hash, remote_peer_id = result
+		pstrlen, pstr, remote_reserved, info_hash, remote_peer_id = result
 
 		# get peer info from
 		host, port = writer.transport.get_extra_info('peername')
@@ -50,9 +52,11 @@ class PeerSystem(System):
 
 		logger.info(f'peer {remote_peer_id} is connected to us')
 
-		torrent_entity = self.env.data_storage.get_collection(TorrentInfoEC).find(info_hash)
+		torrent_entity = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)
 		if torrent_entity:
-			await self._add_peer(peer_entity, info_hash, remote_peer_id, reader, writer)
+			reserved = merge_reserved(LOCAL_RESERVED, remote_reserved)
+
+			await self._add_peer(peer_entity, remote_peer_id, reader, writer, reserved)
 		else:
 			logger.warning(f"no torrent for info hash{info_hash}. handshake: {result}")
 
@@ -78,244 +82,59 @@ class PeerSystem(System):
 
 	async def _connect(self, peer_entity: Entity, my_peer_id: bytes):
 		peer_ec: PeerInfoEC = peer_entity.get_component(PeerInfoEC)
-		result = await connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id)
+		result = await connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id, reserved=LOCAL_RESERVED)
 		if not result:
 			return
-		remote_peer_id, reader, writer = result
+		remote_peer_id, reader, writer, remote_reserved = result
+		reserved = merge_reserved(LOCAL_RESERVED, remote_reserved)
 
-		await self._add_peer(peer_entity, peer_ec.info_hash, remote_peer_id, reader, writer)
+		await self._add_peer(peer_entity, remote_peer_id, reader, writer, reserved)
 
-	async def _add_peer(self, peer_entity: Entity, info_hash: bytes, remote_peer_id: bytes, reader: StreamReader,
-	                    writer: StreamWriter):
-		ds = self.env.data_storage
-
-		torrent_entity = ds.get_collection(TorrentInfoEC).find(info_hash)
-		info = torrent_entity.get_component(TorrentInfoEC).info
-
+	async def _add_peer(self, peer_entity: Entity, remote_peer_id: bytes, reader: StreamReader,
+	                    writer: StreamWriter, reserved: bytes) -> None:
 		connection = Connection(remote_peer_id, reader, writer)
 
-		task = asyncio.create_task(_listen(self.env, peer_entity, torrent_entity))
+		task = asyncio.create_task(_listen(self.env, peer_entity))
 
-		peer_entity.add_component(BitfieldEC(info.pieces.num))
-		peer_entity.add_component(PeerConnectionEC(connection, task))
+		peer_entity.add_component(BitfieldEC())
+		peer_entity.add_component(PeerConnectionEC(connection, task, reserved))
 
 
-async def _listen(env: Env, peer_entity: Entity, torrent_entity: Entity):
+async def _listen(env: Env, peer_entity: Entity) -> None:
 	ds = env.data_storage
-	peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
-	bitfield_ec = peer_entity.get_component(BitfieldEC)
-
-	connection = peer_connection_ec.connection
+	connection = peer_entity.get_component(PeerConnectionEC).connection
 	peer_id = connection.remote_peer_id
+
+	info_hash = peer_entity.get_component(PeerInfoEC).info_hash
+	torrent_entity = ds.get_collection(TorrentHashEC).find(info_hash)
 
 	# send bitfield first
 	local_bitfield = torrent_entity.get_component(BitfieldEC)
 	if local_bitfield.have_num > 0:
-		await connection.bitfield(local_bitfield.dump())
+		torrent_info_ec = torrent_entity.get_component(TorrentInfoEC)
+		await connection.send(bitfield(local_bitfield.dump(torrent_info_ec.info.pieces.num)))
 
-	# keep alive loop
-	# async def keep_alive():
-	# 	while True:
-	# 		await asyncio.sleep(3)
-	# 		await connection.keep_alive()
-	#
-	# keep_alive_task = asyncio.create_task(keep_alive())
+	# notify systems about new peer
+	await env.event_bus.dispatch("peer.connected", torrent_entity, peer_entity)
 
 	# main peer loop
 	try:
 		while not connection.is_dead():
-			# await asyncio.sleep(0.1)  # for other peers
-			message = await connection.read()
+			# read next message
+			message, error = await connection.read()
 
-			if message.message_id == MessageId.PIECE:
-				await _process_piece_message(env, peer_entity, torrent_entity, message)
-			elif message.message_id == MessageId.REQUEST:
-				await _process_request_message(env, peer_entity, torrent_entity, message)
-			elif message.message_id == MessageId.HAVE:
-				bitfield_ec.set_index(message.index)
-				await _update_interested(peer_entity, torrent_entity)
-				if peer_connection_ec.is_free_to_download():
-					await _update_download(env, peer_entity, torrent_entity)
-			elif message.message_id == MessageId.CHOKE:
-				peer_connection_ec.local_choked = True
-				logger.debug(f"peer {peer_id} choked us")
-			elif message.message_id == MessageId.UNCHOKE:
-				if peer_connection_ec.local_choked:
-					peer_connection_ec.local_choked = False
-					await _update_download(env, peer_entity, torrent_entity)
-					# TODO: fix choke algorythm
-					# await peer_connection_ec.unchoke()
-					pass
-			elif message.message_id == MessageId.INTERESTED:
-				# TODO: fix choke algorythm
-				peer_connection_ec.remote_interested = True
-				await peer_connection_ec.unchoke()
-			elif message.message_id == MessageId.NOT_INTERESTED:
-				# TODO: fix choke algorythm
-				peer_connection_ec.remote_interested = False
-				await peer_connection_ec.choke()
-			elif message.message_id == MessageId.BITFIELD:
-				bitfield_ec.update(message.bitfield)
-				await _update_interested(peer_entity, torrent_entity)
-				await _update_download(env, peer_entity, torrent_entity)
-			elif message.message_id == MessageId.ERROR:
-				logger.debug(f"got message error on peer {peer_id}")
+			# in case of error just log and exit
+			if error:
+				logger.error(error)
 				break
+			# process messages
+			elif message:
+				await env.event_bus.dispatch("peer.message", torrent_entity, peer_entity, message)
+			# means keep alive. no message and no error
+			else:
+				pass
 	except Exception as ex:
 		logger.error(f"got error on peer loop: {ex}")
 
 	logger.info(f"close connection to {peer_id}")
-
 	ds.remove_entity(peer_entity)
-
-
-async def _update_download(env: Env, peer_entity: Entity, torrent_entity: Entity):
-	ds = env.data_storage
-	peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
-	peer_id = peer_connection_ec.connection.remote_peer_id
-
-	# check if interested
-	if not peer_connection_ec.local_interested:
-		return
-
-	info_ec = torrent_entity.get_component(TorrentInfoEC)
-	info = info_ec.info
-
-	# check if choked
-	if peer_connection_ec.local_choked:
-		# stop wait if choked
-		return
-
-	if not peer_connection_ec.is_free_to_download():
-		logger.warning("peer is in download already")
-		return
-
-	# TODO: implement strategies
-	local_bitfield = torrent_entity.get_component(BitfieldEC)
-	remote_bitfield = peer_entity.get_component(BitfieldEC)
-	pieces = local_bitfield.interested_in(remote_bitfield, exclude=set())
-	index = random.choice(list(pieces))
-
-	logger.debug(f"selected piece {index} for {torrent_entity.get_component(TorrentInfoEC).info.name}. peer {peer_id}")
-	# find or create piece
-	piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info.info_hash, index))
-	if not piece_entity:
-		piece_entity = ds.create_entity().add_component(PieceEC(info, index))
-		piece_entity.add_component(PiecePendingRemoveEC())
-
-	await _request_pieces(peer_connection_ec, piece_entity.get_component(PieceEC))
-
-
-async def _update_interested(peer_entity: Entity, torrent_entity: Entity):
-	remote_bitfield = peer_entity.get_component(BitfieldEC)
-	local_bitfield = torrent_entity.get_component(BitfieldEC)
-	connection = peer_entity.get_component(PeerConnectionEC)
-
-	if local_bitfield.interested_in(remote_bitfield, exclude=set()):
-		await connection.interested()
-	else:
-		await connection.not_interested()
-
-
-async def _request_pieces(peer_connection_ec: PeerConnectionEC, piece_ec: PieceEC) -> None:
-	in_progress = peer_connection_ec.get_blocks(piece_ec.index)
-	while peer_connection_ec.can_request() and piece_ec.has_next(in_progress):
-		index, begin, length = piece_ec.get_next(in_progress)
-		await peer_connection_ec.request(index, begin, length)
-		in_progress.add(begin)
-
-
-async def _send_have_to_peers(env: Env, info_hash: bytes, index: int):
-	entities = env.data_storage.get_collection(PeerConnectionEC).entities
-	for entity in entities:
-		connection: Connection = entity.get_component(PeerConnectionEC).connection
-		peer_ec: PeerInfoEC = entity.get_component(PeerInfoEC)
-		if peer_ec.info_hash == info_hash:
-			await connection.have(index)
-
-
-async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: Entity, message: Message):
-	ds = env.data_storage
-	info_hash = torrent_entity.get_component(TorrentInfoEC).info.info_hash
-	peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
-
-	index, begin, block = message.piece
-
-	# add block to piece
-	piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
-	piece_ec = piece_entity.get_component(PieceEC)
-
-	# check piece already completed (by other peer)
-	if piece_ec.completed:
-		await _update_interested(peer_entity, torrent_entity)
-		if peer_connection_ec.is_free_to_download():
-			await _update_download(env, peer_entity, torrent_entity)
-		return
-
-	# other peer can finish this first
-	if begin in peer_connection_ec.get_blocks(index):
-		# add data to piece
-		piece_ec.append(begin, block)
-
-		# remove block from connection queue
-		peer_connection_ec.reset_block(index, begin)
-
-		# cancel others
-		for entity in ds.get_collection(PeerConnectionEC).entities:
-			p = entity.get_component(PeerConnectionEC)
-			if begin in p.get_blocks(index):
-				logger.debug(f"cancel download block {index, begin} {p.connection.remote_peer_id}")
-				p.reset_block(index, begin)
-				await p.connection.cancel(index, begin, len(block))
-
-	# whole piece was downloaded
-	if piece_ec.completed:
-		logger.info(f"piece {index} completed")
-
-		torrent_entity.get_component(BitfieldEC).set_index(index)
-		await _send_have_to_peers(env, info_hash, index)
-
-		await _update_interested(peer_entity, torrent_entity)
-
-	# request for next pieces
-	else:
-		await _request_pieces(peer_connection_ec, piece_ec)
-
-	# go to next piece
-	if peer_connection_ec.is_free_to_download():
-		await _update_download(env, peer_entity, torrent_entity)
-
-
-async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity: Entity, message: Message):
-	ds = env.data_storage
-	config = env.config
-	info = torrent_entity.get_component(TorrentInfoEC).info
-	connection = peer_entity.get_component(PeerConnectionEC).connection
-
-	index, begin, length = message.request
-
-	piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info.info_hash, index))
-
-	# load piece
-	if not piece_entity:
-		root = Path(config.download_folder)
-		data = load_piece(root, info, index)
-
-		piece_entity = ds.create_entity().add_component(PieceEC(info, index, data))
-		piece_entity.add_component(PiecePendingRemoveEC())
-
-	piece_ec = piece_entity.get_component(PieceEC)
-	if not piece_ec.completed:
-		logger.error(f"Piece {index} in {info.name} is not completed on request")
-		# TODO: how did we get here?
-		return
-
-	if not check_hash(piece_ec.data, info.pieces.get_piece_hash(index)):
-		logger.error(f"Piece {index} in {info.name} torrent is broken")
-		# TODO: check files, reload piece
-		return
-
-	data = piece_ec.get_block(begin, length)
-	piece_entity.get_component(PiecePendingRemoveEC).update()
-	torrent_entity.get_component(TorrentTrackerDataEC).update_uploaded(length)
-	await connection.piece(index, begin, data)

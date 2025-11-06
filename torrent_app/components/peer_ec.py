@@ -3,6 +3,7 @@ from asyncio import Task
 from typing import Hashable, Set, Tuple
 
 from angelovichcore.DataStorage import EntityComponent
+from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.connection import Connection
 from torrent_app.protocol.structures import PeerInfo
 
@@ -28,16 +29,14 @@ class PeerInfoEC(EntityComponent):
 		return self.make_hash(self.info_hash, self.peer_info)
 
 
-class PeerPendingEC(EntityComponent):
-	pass
-
-
 class PeerConnectionEC(EntityComponent):
-	def __init__(self, connection: Connection, task: Task, queue_size: int = 10) -> None:
+	def __init__(self, connection: Connection, task: Task, reserved: bytes, queue_size: int = 10) -> None:
 		super().__init__()
 
 		self.connection: Connection = connection
 		self.task: Task = task
+
+		self.reserved: bytes = reserved
 
 		self.local_choked = True
 		self.local_interested = False
@@ -62,31 +61,31 @@ class PeerConnectionEC(EntityComponent):
 		if self.local_interested:
 			return
 		logger.debug(f"Interested in peer {self.connection.remote_peer_id}")
-		await self.connection.interested()
+		await self.connection.send(msg.interested())
 		self.local_interested = True
 
 	async def not_interested(self) -> None:
 		if not self.local_interested:
 			return
 		logger.debug(f"Not interested in peer {self.connection.remote_peer_id}")
-		await self.connection.not_interested()
+		await self.connection.send(msg.not_interested())
 		self.local_interested = False
 
 	async def choke(self) -> None:
 		if self.remote_choked:
 			return
-		await self.connection.choke()
+		await self.connection.send(msg.choke())
 		self.remote_choked = True
 
 	async def unchoke(self) -> None:
 		if not self.remote_choked:
 			return
-		await self.connection.unchoke()
+		await self.connection.send(msg.unchoke())
 		self.remote_choked = False
 
 	async def request(self, index: int, begin: int, length: int) -> None:
 		self.__in_progress.add((index, begin))
-		await self.connection.request(index, begin, length)
+		await self.connection.send(msg.request(index, begin, length))
 
 	def get_blocks(self, index: int) -> Set[int]:
 		return set(block[1] for block in self.__in_progress if block[0] == index)
@@ -102,3 +101,21 @@ class PeerConnectionEC(EntityComponent):
 
 	def is_free_to_download(self) -> bool:
 		return not self.__in_progress
+
+
+class KnownPeersEC(EntityComponent):
+	def __init__(self):
+		super().__init__()
+		self.peers: tuple[PeerInfo, ...] = tuple()
+
+	def update_peers(self, peers: tuple[PeerInfo, ...]) -> "KnownPeersEC":
+		self.peers = peers
+		return self
+
+
+class KnownPeersUpdateEC(EntityComponent):
+	pass
+
+
+class PeerPendingEC(EntityComponent):
+	pass
