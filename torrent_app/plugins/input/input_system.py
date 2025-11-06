@@ -31,7 +31,6 @@ class InputSystem(System):
 		entity.add_component(KnownPeersEC())
 		entity.add_component(BitfieldEC())
 
-
 		if magnet.trackers:
 			entity.add_component(TorrentTrackerDataEC([magnet.trackers]))
 

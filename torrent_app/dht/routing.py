@@ -39,6 +39,7 @@ class DHTBucket:
 	def can_split(self):
 		return self.max_node - self.min_node > self.BUCKET_CAPACITY
 
+
 class DHTRoutingTable:
 	def __init__(self, local_node_id: bytes):
 		self.buckets: List[DHTBucket] = [DHTBucket()]

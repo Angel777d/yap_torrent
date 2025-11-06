@@ -160,7 +160,7 @@ def open_port(
 	return resp.status, resp.read()
 
 
-def get_my_ip(router_ip=None) -> str | None:
+def get_my_ip(router_ip=None) -> str:
 	if router_ip is None:
 		router_ip = "8.8.8.8"  # default route
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -169,7 +169,7 @@ def get_my_ip(router_ip=None) -> str | None:
 			return s.getsockname()[0]
 		except socket.error as err:
 			print(err)
-	return None
+	return "127.0.0.1"
 
 # interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
 # all_ips = [ip[-1][0] for ip in interfaces]
