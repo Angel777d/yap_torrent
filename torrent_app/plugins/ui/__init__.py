@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from asyncio import AbstractEventLoop
 from datetime import datetime
@@ -50,10 +49,11 @@ class ClockApp(App):
 app = ClockApp()
 
 
-# torrent_app.plugins.torrent_ui
+# torrent_app.plugins.ui
 async def start(env: Env):
-	loop = asyncio.get_running_loop()
-	app.start(loop)
+	# loop = asyncio.get_running_loop()
+	# app.start(loop)
+	pass
 
 
 async def update(delta_time: float):
