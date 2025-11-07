@@ -15,7 +15,7 @@ class Env:
 		self.ip: str = ip
 		self.external_ip: str = external_ip
 		self.config: Config = cfg
-		self.data_storage = DataStorage()
+		self.data_storage: DataStorage = DataStorage()
 		self.event_bus = Dispatcher()
 
 
