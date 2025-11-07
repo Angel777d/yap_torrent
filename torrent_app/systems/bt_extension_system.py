@@ -36,12 +36,12 @@ class BTExtensionSystem(System):
 
 			remote_ext_to_id = payload.get("m", {})
 			peer_entity.add_component(PeerExtensionsEC(remote_ext_to_id))
-			self.env.event_bus.dispatch("protocol.extensions.got_handshake", torrent_entity, payload)
+			await self.env.event_bus.dispatch("protocol.extensions.got_handshake", torrent_entity, payload)
 		else:
 			# check is metadata message
 			ext_ec = peer_entity.get_component(PeerExtensionsEC)
 			ext_name = ext_ec.get_extension_name(ext_id)
-			self.env.event_bus.dispatch(f"protocol.extensions.message.{ext_name}", torrent_entity, peer_entity, message)
+			await self.env.event_bus.dispatch(f"protocol.extensions.message.{ext_name}", torrent_entity, peer_entity, message)
 
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity) -> None:
 		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
