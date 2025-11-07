@@ -63,7 +63,6 @@ class Application:
 
 	async def run(self, close_event: asyncio.Event):
 		env = self.env
-		last_time = time.monotonic()
 
 		logger.info("Torrent application start")
 
@@ -75,9 +74,8 @@ class Application:
 
 		logger.info("Torrent application initialized")
 
+		last_time = time.monotonic()
 		while not close_event.is_set():
-			await asyncio.sleep(GLOBAL_TICK_TIME)
-
 			current_time = time.monotonic()
 			dt = current_time - last_time
 			last_time = current_time
@@ -88,12 +86,16 @@ class Application:
 			for plugin in self.plugins:
 				await plugin.update(dt)
 
-		logger.info("Torrent application stop")
+			await asyncio.sleep(GLOBAL_TICK_TIME)
 
+		logger.info("Torrent application stop")
+		self.stop()
+
+		logger.info("Torrent application closed")
+
+	def stop(self):
 		for system in self.systems:
 			system.close()
 
 		for plugin in self.plugins:
 			plugin.close()
-
-		logger.info("Torrent application closed")

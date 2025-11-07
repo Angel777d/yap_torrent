@@ -28,11 +28,15 @@ class MainLoop:
 		asyncio.create_task(self.application.run(close_event))
 		await close_event.wait()
 
+	def stop(self):
+		self.application.stop()
+
 
 if __name__ == '__main__':
+	app = MainLoop()
 	event = asyncio.Event()
 
 	try:
-		asyncio.run(MainLoop().run(event))
+		asyncio.run(app.run(event))
 	except KeyboardInterrupt:
-		event.set()
+		app.stop()
