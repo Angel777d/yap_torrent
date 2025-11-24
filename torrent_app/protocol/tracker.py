@@ -56,11 +56,14 @@ def make_announce(
 			params=params,
 			headers=headers,
 		)
+
+		if response.status_code != 200:
+			return None
+
+		return TrackerAnnounceResponse(response.content, compact=compact)
+
 	except ConnectionError as ex:
 		logger.warning(f"got error on announce: {ex}")
-		return None
+	except Exception as ex:
+		logger.error(f"got net exception: {ex}")
 
-	if response.status_code != 200:
-		return None
-
-	return TrackerAnnounceResponse(response.content, compact=compact)

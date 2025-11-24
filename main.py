@@ -8,16 +8,16 @@ logger.setLevel(logging.DEBUG)
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
-handler = logging.StreamHandler()
+# handler = logging.StreamHandler()
+# handler.setFormatter(logging.Formatter(LOG_FORMAT))
+# handler.setLevel(logging.DEBUG)
+# logger.addHandler(handler)
+
+
+handler = logging.FileHandler('torrent.log')
 handler.setFormatter(logging.Formatter(LOG_FORMAT))
 handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
-
-
-# handler = logging.FileHandler('torrent.log')
-# handler.setFormatter(logging.Formatter(LOG_FORMAT))
-# handler.setLevel(logging.ERROR)
-# logger.addHandler(handler)
 
 
 class MainLoop:
