@@ -44,6 +44,8 @@ class System:
 	def env(self):
 		return self.__env
 
+	def __repr__(self):
+		return f"System: {self.__class__.__name__}"
 
 class TimeSystem(System):
 	def __init__(self, env: Env, min_update_time: float = 1):

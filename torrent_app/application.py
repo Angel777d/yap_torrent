@@ -67,9 +67,11 @@ class Application:
 		logger.info("Torrent application start")
 
 		for system in self.systems:
+			logger.debug(f"sart system {system}")
 			await system.start()
 
 		for plugin in self.plugins:
+			logger.debug(f"sart plugin {plugin}")
 			await plugin.start(env)
 
 		logger.info("Torrent application initialized")

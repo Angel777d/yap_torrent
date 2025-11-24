@@ -22,6 +22,9 @@ class TorrentPlugin:
 	def close(self):
 		self.module.close()
 
+	def __repr__(self):
+		return f"Module: '{self.name}' ({self.module})"
+
 
 def discover_plugins(config: Config) -> List[TorrentPlugin]:
 	discovered_plugins = []
