@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from torrent_app.components.torrent_ec import TorrentHashEC
-from torrent_app.plugins.rest_api.web_app import rest_app
+from torrent_app.plugins.rest_api import get_env
 
 router = APIRouter(
 	prefix="/torrents",
@@ -13,7 +13,7 @@ router = APIRouter(
 
 @router.get("/")
 async def read_users():
-	ds = rest_app.env.data_storage
+	ds = get_env().data_storage
 	return [{"hash_info": str(e.get_component(TorrentHashEC).info_hash)} for e in ds.get_collection(TorrentHashEC).entities]
 
 @router.get("/{hash_info}")
