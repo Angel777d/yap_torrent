@@ -1,0 +1,8 @@
+#title {
+    content-align-horizontal: center;
+    text-style: reverse;
+}
+
+#any-key {
+    content-align-horizontal: center;
+}
