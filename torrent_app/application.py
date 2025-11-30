@@ -65,6 +65,7 @@ class Application:
 
 	async def run(self, close_event: asyncio.Event):
 		env = self.env
+		env.close_event = close_event
 
 		logger.info("Torrent application start")
 
