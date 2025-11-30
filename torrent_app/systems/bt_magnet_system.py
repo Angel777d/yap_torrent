@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from torrent_app import System
@@ -11,19 +10,21 @@ from torrent_app.protocol.magnet import MagnetInfo
 logger = logging.getLogger(__name__)
 
 
-# stupid idea to use console input like this
-class InputSystem(System):
-	async def start(self):
-		self.add_task(asyncio.create_task(self.process_input()))
+class MagnetSystem(System):
+	async def start(self) -> 'System':
+		self.env.event_bus.add_listener("magnet.add", self.__on_magnet_add, scope=self)
+		return await super().start()
 
-	async def process_input(self) -> bytes:
-		loop = asyncio.get_running_loop()
-		while True:
-			await loop.run_in_executor(None, self.wait_input)
+	def close(self) -> None:
+		super().close()
+		self.env.event_bus.remove_all(scope=self)
 
-	def wait_input(self):
-		result = input("add magnet:")
-		magnet = MagnetInfo(result)
+	async def __on_magnet_add(self, value: str) -> None:
+		magnet = MagnetInfo(value)
+
+		if not magnet.is_valid():
+			logger.info(f"magnet: {value} is invalid")
+			return
 
 		entity = self.env.data_storage.create_entity()
 		entity.add_component(TorrentHashEC(magnet.info_hash))
