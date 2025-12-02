@@ -20,23 +20,13 @@ handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 
 
-class MainLoop:
-	def __init__(self):
-		self.application = Application()
-
-	async def run(self, close_event: asyncio.Event):
-		asyncio.create_task(self.application.run(close_event))
-		await close_event.wait()
-
-	def stop(self):
-		self.application.stop()
 
 
 if __name__ == '__main__':
-	app = MainLoop()
 	event = asyncio.Event()
+	application = Application()
 
 	try:
-		asyncio.run(app.run(event))
+		asyncio.run(application.run(event))
 	except KeyboardInterrupt:
-		app.stop()
+		event.set()

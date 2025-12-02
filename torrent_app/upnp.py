@@ -26,9 +26,18 @@ SSDP_REQUEST = (
 
 
 def get_my_ext_ip() -> str:
-	external_ip = urllib.request.urlopen('https://ident.me').read().decode('utf8')
-	print("external_ip:", external_ip)
-	return external_ip
+	services = [
+		"https://ipecho.net/plain",
+		'https://ident.me'
+	]
+	for service in services:
+		try:
+			external_ip = urllib.request.urlopen(service, timeout=1).read().decode('utf8')
+			print("external_ip:", external_ip)
+			return external_ip
+		except Exception as e:
+			print(e)
+	return ""
 
 
 def discover(ip):

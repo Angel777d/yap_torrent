@@ -18,7 +18,7 @@ def make_announce(
 		port=6881,
 		compact=1,
 		event="",
-		tracker_id: str = ""
+		tracker_id: bytes = b''
 ) -> TrackerAnnounceResponse | None:
 	# peer_id = '-PC0100-123469398945'
 	# peer_id = '-qB4230-414563428945'
@@ -48,6 +48,7 @@ def make_announce(
 	}
 
 	if tracker_id:
+		# TODO: check if bytes ok here
 		params["trackerid"] = tracker_id
 
 	try:
@@ -66,4 +67,3 @@ def make_announce(
 		logger.warning(f"got error on announce: {ex}")
 	except Exception as ex:
 		logger.error(f"got net exception: {ex}")
-

@@ -1,5 +1,3 @@
-import asyncio
-
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
@@ -46,5 +44,5 @@ class AddMagnetDialog(ModalScreen):
 	def on_button_pressed(self, event: Button.Pressed) -> None:
 		value = self.query_one(Input).value
 		event_bus: Dispatcher = self.app.env.event_bus
-		asyncio.create_task(event_bus.dispatch("magnet.add", value=value)).result()
+		event_bus.dispatch("magnet.add", value=value)
 		self.app.pop_screen()

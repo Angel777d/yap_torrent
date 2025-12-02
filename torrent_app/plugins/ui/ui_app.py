@@ -35,12 +35,16 @@ class TorrentUIApp(App):
 
 	def __init__(self):
 		super(TorrentUIApp, self).__init__()
-		self.__task: Optional[Task] = None
+		# self.__task: Optional[Task] = None
 		self.__env: Optional[Env] = None
 
+	# override default implementation
 	def action_help_quit(self) -> None:
-		env = self.env
-		env.close_event.set()
+		self.env.close_event.set()
+
+	# override default implementation
+	def action_quit(self) -> None:
+		self.env.close_event.set()
 
 	@property
 	def env(self) -> Optional[Env]:
@@ -51,7 +55,8 @@ class TorrentUIApp(App):
 
 	def start(self, loop: AbstractEventLoop, env: Env):
 		self.__env = env
-		self.__task = loop.create_task(self.run_async(
+		# self.__task = loop.create_task(self.run_async(
+		loop.create_task(self.run_async(
 			headless=False,
 			inline=False,
 			inline_no_clear=False,
@@ -61,5 +66,4 @@ class TorrentUIApp(App):
 		))
 
 	def stop(self):
-		if self.__task:
-			self.__task.cancel()
+		self.exit()

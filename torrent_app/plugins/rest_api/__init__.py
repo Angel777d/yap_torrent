@@ -1,6 +1,7 @@
 import asyncio
 
 from torrent_app import Env
+from torrent_app.plugins.rest_api.global_state import state
 
 
 async def create_app():
@@ -14,29 +15,14 @@ async def create_app():
 
 	import uvicorn
 	config = uvicorn.Config(app, host='localhost', port=8000)
-	server = uvicorn.Server(config)
-
-	state.task = asyncio.create_task(server.serve())
-
-
-class State:
-	def __init__(self):
-		self.env = None
-		self.server = None
-		self.task = None
-
-
-state = State()
-
-
-def get_env() -> Env:
-	return state.env
+	state.server = uvicorn.Server(config)
+	asyncio.create_task(state.server.serve())
 
 
 # torrent_app.plugins.rest_api
 async def start(env: Env):
 	state.env = env
-	state.task = asyncio.create_task(create_app())
+	asyncio.create_task(create_app())
 
 
 async def update(delta_time: float):
@@ -44,4 +30,4 @@ async def update(delta_time: float):
 
 
 def close():
-	state.task.cancel()
+	asyncio.create_task(state.server.shutdown())

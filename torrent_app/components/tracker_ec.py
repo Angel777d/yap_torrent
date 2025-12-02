@@ -7,17 +7,17 @@ from torrent_app.protocol.structures import TrackerAnnounceResponse, PeerInfo
 
 class SaveData:
 	def __init__(self) -> None:
-		self.tracker_id: str = ""
+		self.tracker_id: bytes = b''
 		self.last_update_time: float = 0
 		self.interval: float = 0
 		self.min_interval: float = 0
 		self.peers: tuple[PeerInfo, ...] = tuple()
 		self.uploaded: int = 0
-		self.announce_list: List[List[str]] = []
+		self.announce_list: List[List[bytes]] = []
 
 
 class TorrentTrackerDataEC(EntityComponent):
-	def __init__(self, announce_list: List[List[str]]):
+	def __init__(self, announce_list: List[List[bytes]]):
 		super().__init__()
 
 		self.announce_list: List = announce_list
@@ -25,7 +25,7 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.last_update_time: float = 0
 		self.interval: float = 0
 		self.min_interval: float = 0
-		self.tracker_id: str = ""
+		self.tracker_id: bytes = b''
 
 		self.uploaded = 0
 

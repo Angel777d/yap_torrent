@@ -1,6 +1,6 @@
 import logging
 from asyncio import Task
-from typing import Hashable, Set, Tuple
+from typing import Hashable, Set, Tuple, Iterable
 
 from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import bt_main_messages as msg
@@ -30,11 +30,12 @@ class PeerInfoEC(EntityComponent):
 
 
 class PeerConnectionEC(EntityComponent):
-	def __init__(self, connection: Connection, task: Task, reserved: bytes, queue_size: int = 10) -> None:
+	def __init__(self, connection: Connection, reserved: bytes, queue_size: int = 10) -> None:
 		super().__init__()
 
 		self.connection: Connection = connection
-		self.task: Task = task
+		# TODO: move connection listener task somewhere else
+		self.task: Task = None
 
 		self.reserved: bytes = reserved
 
@@ -110,8 +111,13 @@ class KnownPeersEC(EntityComponent):
 
 	def update_peers(self, peers: tuple[PeerInfo, ...]) -> "KnownPeersEC":
 		self.peers = peers
+		self.add_marker(KnownPeersUpdateEC)
 		return self
 
+	def extend_peers(self, values: Iterable[PeerInfo]) -> "KnownPeersEC":
+		peers = set(self.peers)
+		peers.update(values)
+		return self.update_peers(tuple(peers))
 
 class KnownPeersUpdateEC(EntityComponent):
 	pass

@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import List
+from asyncio import Task
+from typing import List, Coroutine, Any
 
 from angelovichcore.DataStorage import DataStorage
 from angelovichcore.Dispatcher import Dispatcher
@@ -33,8 +34,11 @@ class System:
 	async def _update(self, delta_time: float):
 		pass
 
-	def add_task(self, task: asyncio.Task):
+	def add_task(self, coro: Coroutine[Any, Any, Any]) -> Task:
+		task = asyncio.create_task(coro)
+		task.add_done_callback(lambda _: self.__tasks.remove(task))
 		self.__tasks.append(task)
+		return task
 
 	def close(self) -> None:
 		for task in self.__tasks:
@@ -46,6 +50,7 @@ class System:
 
 	def __repr__(self):
 		return f"System: {self.__class__.__name__}"
+
 
 class TimeSystem(System):
 	def __init__(self, env: Env, min_update_time: float = 1):

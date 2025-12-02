@@ -70,11 +70,11 @@ class Application:
 		logger.info("Torrent application start")
 
 		for system in self.systems:
-			logger.debug(f"sart system {system}")
+			logger.debug(f"start system {system}")
 			await system.start()
 
 		for plugin in self.plugins:
-			logger.debug(f"sart plugin {plugin}")
+			logger.debug(f"start plugin {plugin}")
 			await plugin.start(env)
 
 		logger.info("Torrent application initialized")
@@ -105,6 +105,11 @@ class Application:
 		self.stop()
 
 		logger.info("Torrent application closed")
+
+		await asyncio.sleep(0)
+
+	# leftovers = asyncio.all_tasks()
+	# print(leftovers)
 
 	def stop(self):
 		for system in self.systems:

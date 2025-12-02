@@ -18,7 +18,7 @@ class _Block:
 		position += 1
 		current_byte = data[position].to_bytes(1)
 		while current_byte != END:
-			child = {DICT: _Dict, LIST: _Array, INT: _Int}.get(current_byte, _String)()
+			child = {DICT: _Dict, LIST: _Array, INT: _Int}.get(current_byte, _Bytes)()
 			self.parts.append(child)
 			position = child.read(data, position)
 			current_byte = data[position].to_bytes(1)
@@ -29,7 +29,7 @@ class _Block:
 		return self.value
 
 
-class _String(_Block):
+class _Bytes(_Block):
 	def read(self, data: bytes, position):
 		size_len = 0
 		current_byte = data[position].to_bytes(1)
@@ -39,11 +39,11 @@ class _String(_Block):
 
 		size = int(data[position: position + size_len])
 		position += 1 + size_len
-		tmp = data[position: position + size]
-		try:
-			self.value = tmp.decode("utf-8")
-		except UnicodeDecodeError as err:
-			self.value = tmp
+		self.value = data[position: position + size]
+		# try:
+		# 	self.value = tmp.decode("utf-8")
+		# except UnicodeDecodeError as err:
+		# 	self.value = tmp
 
 		position += size
 		return position
@@ -88,7 +88,7 @@ class _Array(_Block):
 
 class _Dict(_Block):
 	def build(self):
-		return {self.parts[i].build(): self.parts[i + 1].build() for i in range(0, len(self.parts), 2)}
+		return {self.parts[i].build().decode("utf-8"): self.parts[i + 1].build() for i in range(0, len(self.parts), 2)}
 
 	@staticmethod
 	def encode(value) -> bytes:
@@ -111,11 +111,13 @@ def encode(value) -> bytes:
 		return _Dict.encode(value)
 	elif isinstance(value, list):
 		return _Array.encode(value)
+	elif isinstance(value, tuple):
+		return _Array.encode(value)
 	elif isinstance(value, str):
-		return _String.encode(value)
+		return _Bytes.encode(value)
 	elif isinstance(value, bytes):
-		return _String.encode(value)
+		return _Bytes.encode(value)
 	elif isinstance(value, int):
 		return _Int.encode(value)
 	else:
-		raise Exception("unknown type " + str(type(object)))
+		raise Exception("unknown type " + str(type(value)))

@@ -63,7 +63,7 @@ class DHTClientProtocol(DatagramProtocol):
 		self.on_con_lost.set_result(True)
 
 
-async def __send_message(message: Dict[str, Any], host: str, port: int) -> Dict[str, Any]:
+async def __send_message(message: Dict[str, Any], host: str, port: int, timeout=2) -> Dict[str, Any]:
 	message["v"] = CLIENT_VERSION
 	loop = asyncio.get_running_loop()
 	on_con_lost = loop.create_future()
@@ -71,10 +71,13 @@ async def __send_message(message: Dict[str, Any], host: str, port: int) -> Dict[
 		lambda: DHTClientProtocol(encode(message), on_con_lost),
 		remote_addr=(host, port)
 	)
+
 	try:
-		await on_con_lost
-	finally:
-		transport.close()
+		async with asyncio.timeout(timeout):
+			await on_con_lost
+	except TimeoutError:
+		logger.debug(f"Message {message} to {host}:{port} failed by timeout")
+		return {}
 
 	if protocol.response:
 		return decode(protocol.response)
@@ -142,7 +145,7 @@ async def ping(node_id: bytes, host: str, port: int) -> Dict[str, Any]:
 	}, host, port)
 
 
-def make_response(t: str,
+def make_response(t: bytes,
                   node_id: bytes,
                   response: Dict[str, Any]):
 	# prepare response structure
@@ -154,7 +157,7 @@ def make_response(t: str,
 	}
 
 
-def make_error(t: str, code: int, error_message: str):
+def make_error(t: bytes, code: int, error_message: str):
 	return {
 		"t": t,
 		"y": "e",

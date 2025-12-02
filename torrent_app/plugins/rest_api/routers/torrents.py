@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from torrent_app.components.torrent_ec import TorrentHashEC
-from torrent_app.plugins.rest_api import get_env
+from torrent_app.plugins.rest_api.global_state import get_env
 
 router = APIRouter(
 	prefix="/torrents",

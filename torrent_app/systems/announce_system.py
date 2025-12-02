@@ -30,7 +30,7 @@ class AnnounceSystem(System):
 					ds.create_entity().add_component(PeerInfoEC(info_hash, peer)).add_component(
 						PeerPendingEC())
 
-		# make announces
+		# make announcement
 		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
 		for torrent_entity in trackers_collection:
 			tracker_ec = torrent_entity.get_component(TorrentTrackerDataEC)
@@ -38,54 +38,58 @@ class AnnounceSystem(System):
 			if tracker_ec.last_update_time + interval <= current_time:
 				await self.__tracker_announce(torrent_entity, event)
 
+	async def __tracker_announce(self, torrent_entity: Entity, event: str = "started"):
+		peer_id = self.env.peer_id
+		external_ip = self.env.external_ip
+		port = self.env.config.port
+		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+		tracker_ec = torrent_entity.get_component(TorrentTrackerDataEC)
+		peers_ec = torrent_entity.get_component(KnownPeersEC)
+		bitfield_ec = torrent_entity.get_component(BitfieldEC)
 
-async def __tracker_announce(self, torrent_entity: Entity, event: str = "started"):
-	peer_id = self.env.peer_id
-	external_ip = self.env.external_ip
-	port = self.env.config.port
-	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
-	tracker_ec = torrent_entity.get_component(TorrentTrackerDataEC)
-	peers_ec = torrent_entity.get_component(KnownPeersEC)
-	bitfield_ec = torrent_entity.get_component(BitfieldEC)
+		downloaded = 0
+		left = 0
+		if torrent_entity.has_component(TorrentInfoEC):
+			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
+			downloaded = bitfield_ec.have_num * torrent_info.pieces.piece_length
+			left = max(torrent_info.size - downloaded, 0)
 
-	downloaded = 0
-	left = 0
-	if torrent_entity.has_component(TorrentInfoEC):
-		torrent_info = torrent_entity.get_component(TorrentInfoEC).info
-		downloaded = bitfield_ec.have_num * torrent_info.pieces.piece_length
-		left = max(torrent_info.size - downloaded, 0)
+		uploaded = torrent_entity.get_component(TorrentTrackerDataEC).uploaded
 
-	uploaded = torrent_entity.get_component(TorrentTrackerDataEC).uploaded
+		# TODO: support announce-list format
+		# https://bittorrent.org/beps/bep_0012.html
+		for announce_group in tracker_ec.announce_list:
+			for announce in announce_group:
+				logger.info(f"make announce to: {announce}")
 
-	# TODO: support announce-list format
-	# https://bittorrent.org/beps/bep_0012.html
-	for announce_group in tracker_ec.announce_list:
-		for announce in announce_group:
-			logger.info(f"make announce to: {announce}")
+				result = make_announce(
+					announce,
+					info_hash,
+					peer_id=peer_id,
+					downloaded=downloaded,
+					uploaded=uploaded,
+					left=left,
+					port=port,
+					ip=external_ip,
+					event=event,
+					compact=1,
+					tracker_id=tracker_ec.tracker_id
+				)
+				if not result:
+					logger.error(f"announce failed: {announce}")
+					continue
+				elif result.failure_reason:
+					logger.warning(f"announce failed: {announce} {result.failure_reason}")
+					continue
+				else:
+					if result.warning_message:
+						logger.warning(f"announce warning: {result.warning_message}")
+					tracker_ec.save_announce(result)
+					peers_ec.update_peers(result.peers)
+					return
 
-			result = make_announce(
-				announce,
-				info_hash,
-				peer_id=peer_id,
-				downloaded=downloaded,
-				uploaded=uploaded,
-				left=left,
-				port=port,
-				ip=external_ip,
-				event=event,
-				compact=1,
-				tracker_id=tracker_ec.tracker_id
-			)
-			if not result:
-				continue
-			elif not result.failure_reason:
-				tracker_ec.save_announce(result)
-				peers_ec.update_peers(result.peers)
-				tracker_ec.add_marker(KnownPeersUpdateEC)
-				return
+		# TODO: make it better
+		logger.warning("WTF: no announce results")
 
-	# TODO: make it better
-	logger.warning("WTF: no announce results")
-
-	tracker_ec.last_update_time = time.monotonic()
-	tracker_ec.min_interval = tracker_ec.interval = 60 * 5  # retry in 5 min
+		tracker_ec.last_update_time = time.monotonic()
+		tracker_ec.min_interval = tracker_ec.interval = 60 * 5  # retry in 5 min

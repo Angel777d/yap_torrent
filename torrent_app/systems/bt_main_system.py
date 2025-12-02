@@ -21,7 +21,7 @@ class BTMainSystem(System):
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
 
 	def close(self):
-		self.env.event_bus.remove_all(scope=self)
+		self.env.event_bus.remove_all_listeners(scope=self)
 		super().close()
 
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
@@ -173,7 +173,7 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 
 	# whole piece was downloaded
 	if piece_ec.completed:
-		logger.info(f"piece {index} completed")
+		logger.debug(f"piece {index} completed")
 
 		torrent_entity.get_component(BitfieldEC).set_index(index)
 		await _send_have_to_peers(env, info_hash, index)

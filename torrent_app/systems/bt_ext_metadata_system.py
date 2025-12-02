@@ -5,7 +5,7 @@ from angelovichcore.DataStorage import Entity
 from torrent_app import System
 from torrent_app.components.extensions import TorrentMetadataEC, PeerExtensionsEC, UT_METADATA, METADATA_PIECE_SIZE
 from torrent_app.components.peer_ec import PeerConnectionEC
-from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC
+from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentSaveEC
 from torrent_app.protocol import bt_ext_messages as msg
 from torrent_app.protocol import encode, decode, TorrentInfo
 from torrent_app.protocol.connection import Message
@@ -22,15 +22,30 @@ class BTExtMetadataSystem(System):
 		self.env.event_bus.add_listener("protocol.extensions.create_handshake", self.__on_create_handshake, scope=self)
 		self.env.event_bus.add_listener("protocol.extensions.got_handshake", self.__on_got_handshake, scope=self)
 
+		collection = self.env.data_storage.get_collection(TorrentHashEC)
+		collection.add_listener(collection.EVENT_ADDED, self.__on_torrent_added, self)
+		for entity in collection.entities:
+			entity.add_component(TorrentMetadataEC())
+
+		return await super().start()
+
+	def close(self):
+		collection = self.env.data_storage.get_collection(TorrentHashEC)
+		collection.remove_all_listeners(self)
+		super().close()
+
+	async def __on_torrent_added(self, entity: Entity, component: TorrentHashEC):
+		entity.add_component(TorrentMetadataEC())
+
 	async def __on_create_handshake(self, torrent_entity: Entity, additional_fields: dict[str, Any]) -> None:
-		if not torrent_entity.has_component(TorrentInfoEC):
-			return
-		additional_fields["metadata_size"] = len(torrent_entity.get_component(TorrentInfoEC).info.get_metadata())
+		additional_fields["metadata_size"] = 0
+		if torrent_entity.has_component(TorrentInfoEC):
+			additional_fields["metadata_size"] = len(torrent_entity.get_component(TorrentInfoEC).info.get_metadata())
 
-	async def __on_got_handshake(self, torrent_entity: Entity, payload: Dict[str, Any]) -> None:
+	async def __on_got_handshake(self, torrent_entity: Entity, peer_entity: Entity, payload: Dict[str, Any]) -> None:
 		metadata_size = payload.get("metadata_size", -1)
+		metadata_ec = torrent_entity.get_component(TorrentMetadataEC)
 
-		metadata_ec = TorrentMetadataEC()
 		# fill local metadata if possible
 		if torrent_entity.has_component(TorrentInfoEC):
 			metadata = torrent_entity.get_component(TorrentInfoEC).info.get_metadata()
@@ -42,13 +57,28 @@ class BTExtMetadataSystem(System):
 		else:
 			return
 
-		torrent_entity.add_component(metadata_ec)
+		# just wait for request of metadata
+		if metadata_ec.is_complete():
+			return
+
+		ext_ec = peer_entity.get_component(PeerExtensionsEC)
+		remote_ext_id = ext_ec.remote_ext_to_id[UT_METADATA]
+		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
+
+		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+		logger.info(f"Start metadata load for torrent [{info_hash}]")
+
+		ext_message = encode({"msg_type": 0, "piece": 0})
+		message = msg.extended(remote_ext_id, ext_message)
+		await peer_connection_ec.connection.send(message)
 
 	async def __on_ext_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message) -> None:
 		ext_id, payload = msg.payload_extended(message)
-		ext_ec = peer_entity.get_component(PeerExtensionsEC)
 
-		# to continue process we need metadata_ec created on handshake
+		ext_ec = peer_entity.get_component(PeerExtensionsEC)
+		remote_ext_id = ext_ec.remote_ext_to_id[UT_METADATA]
+
+		# to continue the process, we need metadata_ec
 		if not torrent_entity.has_component(TorrentMetadataEC):
 			logging.error("TorrentMetadataEC not found")
 			return
@@ -68,15 +98,14 @@ class BTExtMetadataSystem(System):
 			# send piece
 			if metadata_ec.is_complete():
 				start = piece * METADATA_PIECE_SIZE
-				full_amount = metadata_ec.metadata_size // METADATA_PIECE_SIZE
-				size = metadata_ec.metadata_size % METADATA_PIECE_SIZE if piece == full_amount else METADATA_PIECE_SIZE
+				last_piece = metadata_ec.metadata_size // METADATA_PIECE_SIZE
+				size = metadata_ec.metadata_size % METADATA_PIECE_SIZE if piece == last_piece else METADATA_PIECE_SIZE
 				data = metadata_ec.metadata[start:start + size]
 				ext_message = encode({
 					"msg_type": 1,  # data
 					"piece": piece,
 					"total_size": metadata_ec.metadata_size
 				})
-				remote_ext_id = ext_ec.remote_ext_to_id[UT_METADATA]
 				await peer_connection_ec.connection.send(msg.extended(remote_ext_id, ext_message + data))
 			# send reject
 			else:
@@ -84,34 +113,56 @@ class BTExtMetadataSystem(System):
 					"msg_type": 2,  # reject
 					"piece": piece,
 				})
-				remote_ext_id = ext_ec.remote_ext_to_id[UT_METADATA]
 				await peer_connection_ec.connection.send(msg.extended(remote_ext_id, ext_message))
 		elif msg_type == 1:  # data
 			if "total_size" not in payload:
 				raise RuntimeError("total_size not found in payload")
 
+			# already downloaded all pieces
+			if metadata_ec.is_complete():
+				return
+
 			total_size = payload["total_size"]
-			full_amount = metadata_ec.metadata_size // METADATA_PIECE_SIZE
-			size = total_size % METADATA_PIECE_SIZE if piece == full_amount else METADATA_PIECE_SIZE
+			last_piece = metadata_ec.metadata_size // METADATA_PIECE_SIZE
+			size = total_size % METADATA_PIECE_SIZE if piece == last_piece else METADATA_PIECE_SIZE
 			data = message.payload[-size:]
 			metadata_ec.add_piece(piece, data)
 			downloaded = sum(len(i) for i in metadata_ec.pieces.values())
+
+			# metadata download completed
+			logger.info(f"Metadata download progress {downloaded} {total_size}")
 			if downloaded == total_size:
 				metadata = bytearray()
-				for k, v in sorted(((k, v) for k, v in metadata_ec.pieces.items()), key=lambda i: i[0]):
-					metadata.extend(v)
+				for i in range(len(metadata_ec.pieces)):
+					metadata.extend(metadata_ec.pieces[i])
 				metadata = bytes(metadata)
 				info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
-				if check_hash(info_hash, metadata):
+				if check_hash(metadata, info_hash):
 					metadata_ec.set_metadata(metadata)
 					data = decode(metadata)
 					torrent_info = TorrentInfo(data)
 					torrent_entity.add_component(TorrentInfoEC(torrent_info))
+
+					# save downloaded torrent to active torrents
+					torrent_entity.add_component(TorrentSaveEC())
+
 					# TODO: update interested to connected peers and start download torrent
 					logger.info(f"Successfully loaded metadata for torrent {torrent_info.name}")
 				else:
 					metadata_ec.pieces.clear()
 					logger.info(f"Failed to load proper metadata for torrent {info_hash}")
+
+					# start from the beginning
+					ext_message = encode({"msg_type": 0, "piece": 0})
+					await peer_connection_ec.connection.send(msg.extended(remote_ext_id, ext_message))
+
+			# load next piece
+			else:
+				ext_message = encode({
+					"msg_type": 0,  # request
+					"piece": piece + 1,
+				})
+				await peer_connection_ec.connection.send(msg.extended(remote_ext_id, ext_message))
 
 		elif msg_type == 2:  # reject
 			# TODO: ignore this peer for a while

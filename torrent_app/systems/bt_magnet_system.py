@@ -17,7 +17,7 @@ class MagnetSystem(System):
 
 	def close(self) -> None:
 		super().close()
-		self.env.event_bus.remove_all(scope=self)
+		self.env.event_bus.remove_all_listeners(scope=self)
 
 	async def __on_magnet_add(self, value: str) -> None:
 		magnet = MagnetInfo(value)
@@ -27,16 +27,11 @@ class MagnetSystem(System):
 			return
 
 		entity = self.env.data_storage.create_entity()
-		entity.add_component(TorrentHashEC(magnet.info_hash))
 		entity.add_component(KnownPeersEC())
 		entity.add_component(BitfieldEC())
+		entity.add_component(TorrentHashEC(magnet.info_hash))
 
 		if magnet.trackers:
 			entity.add_component(TorrentTrackerDataEC([magnet.trackers]))
 
-		# TODO: download first
-		# entity.add_component(TorrentInfoEC(torrent_info))
-
-		# TODO: support empty TorrentInfo
-		# entity.add_component(TorrentSaveEC())
 		logger.info(f"add torrent by magnet: {magnet}")

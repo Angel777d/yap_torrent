@@ -3,29 +3,34 @@ import logging
 import pickle
 import secrets
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Iterable, Set
 
 import torrent_app.dht.connection as dht_connection
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env, Config
-from torrent_app.components.peer_ec import PeerInfoEC, PeerConnectionEC
+from torrent_app.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC
 from torrent_app.dht import bt_dht_messages as msg
 from torrent_app.dht.connection import DHTServerProtocol, DHTServerProtocolHandler, make_response, make_error
-from torrent_app.dht.nodes import DHTNode
-from torrent_app.dht.routing import DHTRoutingTable
+from torrent_app.dht.routing.table import DHTRoutingTable
 from torrent_app.dht.tokens import DHTTokens
-from torrent_app.dht.utils import compact_address, read_compact_node_info
+from torrent_app.dht.utils import compact_address, read_compact_node_info, distance
 from torrent_app.protocol import extensions
 from torrent_app.protocol.connection import Message
 from torrent_app.protocol.extensions import check_extension
+from torrent_app.protocol.structures import PeerInfo
 
 logger = logging.getLogger(__name__)
 
 
-def load_node_id(config: Config) -> bytes:
-	file_path = Path(config.data_folder)
+def get_path_checked(config: Config) -> Path:
+	file_path = Path(config.data_folder).joinpath("dht")
 	file_path.mkdir(parents=True, exist_ok=True)
-	file_path = file_path.joinpath("node_id")
+	return file_path
+
+
+def load_node_id(config: Config) -> bytes:
+	file_path = get_path_checked(config).joinpath("node_id")
 	if file_path.exists():
 		with open(file_path, "rb") as f:
 			node_id: bytes = pickle.load(f)
@@ -36,23 +41,54 @@ def load_node_id(config: Config) -> bytes:
 	return node_id
 
 
+def load_nodes(config: Config) -> List[Tuple[bytes, str, int]]:
+	file_path = get_path_checked(config).joinpath("peers")
+	if not file_path.exists():
+		return []
+
+	with open(file_path, "rb") as f:
+		return pickle.load(f)
+
+
+def save_nodes(config: Config, peers: List[Tuple[bytes, str, int]]):
+	file_path = get_path_checked(config).joinpath("peers")
+
+	with open(file_path, "wb") as f:
+		pickle.dump(peers, f)
+
+
 class BTDHTSystem(System, DHTServerProtocolHandler):
+	BUCKET_CAPACITY = 8
+
 	def __init__(self, env: Env):
 		super().__init__(env)
 		self.__my_node_id = load_node_id(self.env.config)
 
 		self.__tokens: DHTTokens = DHTTokens(self.env.external_ip, self.env.config.dht_port)
-		self.__routing_table = DHTRoutingTable(self.__my_node_id)
-		self.__torrent_peers: Dict[bytes, List[bytes]] = {}
+		self.__routing_table = DHTRoutingTable(self.__my_node_id, self.BUCKET_CAPACITY)
 
 		self.__server = None
+
+		self.pending_nodes = load_nodes(self.env.config)
+		self.extra_nodes: Set[Tuple[bytes, str, int]] = set()
+		self.bad_nodes: Set[Tuple[str, int]] = set()
+		self.pending_torrents: List[bytes] = []
 
 	async def start(self):
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
 
-		# TODO: load local data
+		# subscribe to torrents added event
+		collection = self.env.data_storage.get_collection(TorrentHashEC)
+		collection.add_listener(collection.EVENT_ADDED, self.__on_torrent_added, self)
 
+		# add torrents without info hash to pending torrents
+		for entity in collection.entities:
+			if entity.has_component(TorrentInfoEC):
+				continue
+			self.pending_torrents.append(entity.get_component(TorrentHashEC).info_hash)
+
+		# start listening for incoming DHT connections
 		port = self.env.config.dht_port
 		host = self.env.ip
 
@@ -62,38 +98,57 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 			local_addr=(host, port))
 
 	def close(self):
+		self.env.event_bus.remove_all_listeners(self)
+
 		transport, protocol = self.__server
 		transport.close()
 
-		# TODO: save local data: routing table, peers and tokens
+		# save nodes from the routing table
+		save_nodes(self.env.config, self.__routing_table.export_nodes() + self.pending_nodes)
+
 		System.close(self)
 
 	async def _update(self, delta_time: float):
+		if self.pending_nodes:
+			_, host, port = self.pending_nodes.pop(0)
+			self.add_task(self._ping_new_host(host, port))
+		elif self.pending_torrents:
+			info_hash = self.pending_torrents.pop(0)
+			self.add_task(self.__get_peers_for(info_hash))
 		return await System._update(self, delta_time)
 
 	def process_message(self, message: Dict[str, Any], addr: tuple[str | Any, int]) -> Dict[str, Any]:
-		t: str = message.get("t", "")
+		t: bytes = message.get("t", b'')
 
-		# "y" key is one of "q" for query, "r" for response, or "e" for error
+		PING = b'ping'
+		FIND_NODE = b'find_node'
+		GET_PEERS = b'get_peers'
+		ANNOUNCE_PEER = b'announce_peer'
+
+		# "y" key is one of "q" for a query, "r" for response, or "e" for error
+		QUERY = b'q'
+		RESPONSE = b'r'
+		ERROR = b'e'
+
 		message_type = message.get("y")
-		if message_type == "q":
-			query_type = message.get("q")
+		if message_type == QUERY:
+			query_type = message.get("q").decode("utf-8")
 			arguments = message.get("a", {})
-			if query_type == "ping":
-				return make_response(t, self.__my_node_id, response={})
-			elif query_type == "find_node":
+			if query_type == PING:
+				return make_response(t, self.__my_node_id, response=self.ping_response(arguments, addr))
+			elif query_type == FIND_NODE:
 				if not arguments:
 					return make_error(t, 203, "Missing arguments")
 				if "target" not in arguments:
 					return make_error(t, 203, "Missing target argument")
 				return make_response(t, self.__my_node_id, self.find_node_response(arguments["target"]))
-			elif query_type == "get_peers":
+			elif query_type == GET_PEERS:
 				if not arguments:
 					return make_error(t, 203, "Missing arguments")
 				if "info_hash" not in arguments:
 					return make_error(t, 203, "Missing info_hash argument")
 				return make_response(t, self.__my_node_id, self.get_peers_response(arguments["info_hash"], addr))
-			elif query_type == "announce_peer":
+			elif query_type == ANNOUNCE_PEER:
 				if not arguments:
 					return make_error(t, 203, "Missing arguments")
 				if "info_hash" not in arguments:
@@ -102,7 +157,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 					return make_error(t, 203, "Missing token argument")
 				if not self.__tokens.check(addr[0], arguments["token"]):
 					return make_error(t, 203, "Bad token")
-				return make_response(t, self.__my_node_id, self.announce_peer_response(message, addr))
+				return make_response(t, self.__my_node_id, self.announce_peer_response(arguments, addr))
 			else:
 				return make_error(t, 204, f"query type {query_type} Unknown")
 		else:
@@ -114,7 +169,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		if not check_extension(reserved, extensions.DHT):
 			return
 
-		# send port message to connected peer
+		# send a port message to a connected peer
 		await peer_connection_ec.connection.send(msg.port(self.env.config.dht_port))
 
 	async def __on_message(self, _: Entity, peer_entity: Entity, message: Message):
@@ -123,45 +178,93 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 
 		port = msg.payload_port(message)
 		peer_info = peer_entity.get_component(PeerInfoEC).peer_info
-		await self.ping_host(peer_info.host, port)
+		self._add_node(bytes(), peer_info.host, port)
 
-	async def ping_host(self, host: str, port: int) -> None:
-		logger.info(f'ping sent to {host}:{port}')
+	async def __on_torrent_added(self, entity: Entity, component: TorrentHashEC):
+		if entity.has_component(TorrentInfoEC):
+			return
+		self.pending_torrents.append(component.info_hash)
+
+	def _add_node(self, node_id: bytes, host: str, port: int):
+		if (host, port) in self.bad_nodes:
+			return
+		if (node_id, host, port) in self.extra_nodes:
+			return
+		if node_id and (node_id in self.__routing_table.nodes):
+			return
+		self.pending_nodes.append((node_id, host, port))
+
+	async def __get_peers_for(self, info_hash):
+		done_nodes = set()
+		nodes_to_ask: set[Tuple[bytes, str, int]] = set(
+			(node.id, node.host, node.port) for node in self.__routing_table.get_closest_nodes(info_hash, 16))
+		found_peers_count = 0
+		while nodes_to_ask:
+			if found_peers_count > self.BUCKET_CAPACITY * 2:
+				return
+			found_peers_count += 1
+			node_id, host, port = min(nodes_to_ask, key=lambda n: distance(info_hash, n[0]))
+			nodes_to_ask.remove((node_id, host, port))
+			if node_id in done_nodes:
+				continue
+			done_nodes.add(node_id)
+			res = await dht_connection.get_peers(self.__my_node_id, info_hash, host, port)
+			if not res:
+				continue
+
+			r = res.get("r", {})
+			token: bytes = r.get("token", bytes())
+
+			nodes: bytes = r.get("nodes", bytes())
+			if nodes:
+				for node_id, host, port in read_compact_node_info(nodes):
+					nodes_to_ask.add((node_id, host, port))
+					self._add_node(node_id, host, port)
+
+			values: List[bytes] = r.get("values", [])
+			# update peers info for this torrent
+			if values:
+				logger.info(f'found {values} peers for {info_hash}')
+				found_peers_count += len(values)
+				self._update_peers(info_hash, set(PeerInfo.from_bytes(v) for v in values))
+
+		# return torrent to the pending list
+		if not found_peers_count:
+			self.pending_torrents.append(info_hash)
+
+	# async def update_node_state(self, node: DHTNode):
+	# 	logger.info(f'update state of {node}')
+	# 	ping_response = await dht_connection.ping(self.__my_node_id, node.host, node.port)
+	# 	if ping_response:
+	# 		node.mark_good()
+	# 	else:
+	# 		node.mark_fail()
+
+	async def _ping_new_host(self, host: str, port: int) -> None:
+		logger.debug(f'ping sent to {host}:{port}')
 		ping_response = await dht_connection.ping(self.__my_node_id, host, port)
-		if ping_response:
-			remote_node_id = ping_response.get("r", {}).get("id", bytes())
-			self.add_node(remote_node_id, host, port)
-
-			target = self.__my_node_id[:-1] + b'0'
-			res = await dht_connection.find_node(self.__my_node_id, target, host, port)
-			nodes = res.get("r", {}).get("nodes", bytes())
-			for node_id, host, port in read_compact_node_info(nodes):
-				self.add_node(node_id, host, port)
-		else:
-			# TODO: ignore?
-			logger.info(f'ping failed {host}:{port}')
-
-	def add_node(self, remote_node_id: bytes, host: str, port: int) -> None:
-
-		if remote_node_id in self.__routing_table.nodes:
-			logger.debug(f'node {remote_node_id} already added to routing table')
+		if not ping_response:
+			self.bad_nodes.add((host, port))
+			logger.debug(f'ping failed {host}:{port}')
 			return
 
-		node = DHTNode(remote_node_id, host, port)
-		node.mark_good()
-		logger.info(f'add {node} to routing table')
-		self.__routing_table.add_node(node)
+		remote_node_id = ping_response.get("r", {}).get("id", bytes())
+		if self.__routing_table.touch(remote_node_id, host, port):
+			logger.debug(f'new node added: {self.__routing_table.nodes[remote_node_id]}')
+		else:
+			self.extra_nodes.add((remote_node_id, host, port))
+			logger.debug(f'no place for new node: {remote_node_id}|{host}:{port}')
 
 	def find_node_response(self, target: bytes) -> Dict[str, Any]:
-		return {"nodes": self.__routing_table.get_closest_nodes(target)}
+		return {"nodes": self._get_closest_nodes(target)}
 
 	def get_peers_response(self, info_hash: bytes, addr: tuple[str | Any, int]) -> Dict[str, Any]:
 		result = {}
-		values: List[bytes] = self.__torrent_peers.get(info_hash, [])
+		values: Iterable[bytes] = self._get_peers(info_hash)
 		if values:
 			result["values"] = values
 		else:
-			result["nodes"] = self.__routing_table.get_closest_nodes(info_hash)
+			result["nodes"] = self._get_closest_nodes(info_hash)
 		result["token"] = self.__tokens.create(addr[0])
 		return result
 
@@ -172,6 +275,42 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		implied_port = arguments.get("implied_port", 0)
 		port: int = arguments.get("port", 0) if implied_port else addr[1]
 		info_hash: bytes = arguments.get("info_hash", bytes())
-		self.__torrent_peers.setdefault(info_hash, []).append(compact_address(host, port))
+
+		# TODO: what if i don't have this torrent?
+		self._update_peers(info_hash, {PeerInfo(host, port)})
 
 		return {}
+
+	def ping_response(self,
+	                  arguments: Dict[str, Any],
+	                  addr: tuple[str | Any, int]) -> Dict[str, Any]:
+		host = addr[0]
+		port = addr[1]
+		node_id = arguments.get("id", bytes())
+		self._add_node(node_id, host, port)
+		return {}
+
+	def _update_peers(self, info_hash: bytes, values: Iterable[PeerInfo]):
+		ds = self.env.data_storage
+		entity = ds.get_collection(TorrentHashEC).find(info_hash)
+		if not entity:
+			logger.error(f"There is no torrent with info hash {info_hash}")
+			return
+		entity.get_component(KnownPeersEC).extend_peers(values)
+
+	def _get_peers(self, info_hash: bytes) -> List[bytes]:
+		torrent = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)
+		if not torrent:
+			return []
+
+		peers_ec: KnownPeersEC = torrent.get_component(KnownPeersEC)
+		if not peers_ec:
+			return []
+
+		return list(compact_address(peer.host, peer.port) for peer in peers_ec.peers)
+
+	def _get_closest_nodes(self, target: bytes) -> bytes:
+		nodes = bytearray()
+		for node in self.__routing_table.get_closest_nodes(target, self.BUCKET_CAPACITY):
+			nodes.extend(node.compact_node_info)
+		return bytes(nodes)
