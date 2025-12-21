@@ -14,13 +14,10 @@ LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 # logger.addHandler(handler)
 
 
-handler = logging.FileHandler('torrent.log')
+handler = logging.FileHandler('torrent.log', mode='w')
 handler.setFormatter(logging.Formatter(LOG_FORMAT))
-handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 logger.addHandler(handler)
-
-
-
 
 if __name__ == '__main__':
 	event = asyncio.Event()
