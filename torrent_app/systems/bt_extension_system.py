@@ -14,13 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 class BTExtensionSystem(System):
-	async def start(self) -> 'System':
+	async def start(self):
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-		return await super().start()
 
 	def close(self):
-		self.env.event_bus.remove_all(scope=self)
+		self.env.event_bus.remove_all_listeners(scope=self)
 		super().close()
 
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message) -> None:
@@ -28,20 +27,21 @@ class BTExtensionSystem(System):
 			return
 
 		ext_id, payload = msg.payload_extended(message)
+		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
 
 		# ext id = 0 is a handshake message
 		if ext_id == 0:
-			peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
 			peer_id = peer_connection_ec.connection.remote_peer_id
 			logger.info(f"Got extension handshake {payload} from peer {peer_id}")
 
 			remote_ext_to_id = payload.get("m", {})
 			peer_entity.add_component(PeerExtensionsEC(remote_ext_to_id))
-			self.env.event_bus.dispatch("protocol.extensions.got_handshake", torrent_entity, payload)
+			self.env.event_bus.dispatch("protocol.extensions.got_handshake", torrent_entity, peer_entity, payload)
 		else:
 			# check is metadata message
 			ext_ec = peer_entity.get_component(PeerExtensionsEC)
 			ext_name = ext_ec.get_extension_name(ext_id)
+			logger.info(f"Got extension message {ext_name} from peer {peer_connection_ec.connection.remote_peer_id}")
 			self.env.event_bus.dispatch(f"protocol.extensions.message.{ext_name}", torrent_entity, peer_entity, message)
 
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity) -> None:
@@ -61,7 +61,7 @@ class BTExtensionSystem(System):
 		}
 
 		# some extensions write data to handshake message as well
-		tasks = await self.env.event_bus.dispatch(
+		tasks = self.env.event_bus.dispatch(
 			"protocol.extensions.create_handshake",
 			torrent_entity=torrent_entity,
 			additional_fields=additional_fields)

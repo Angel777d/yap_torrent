@@ -9,7 +9,7 @@ from shutil import move
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import KnownPeersEC, KnownPeersUpdateEC
+from torrent_app.components.peer_ec import KnownPeersEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentSaveEC, TorrentHashEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC
 from torrent_app.protocol import load_torrent_file
@@ -34,10 +34,9 @@ class WatcherSystem(System):
 		self.watch_path.mkdir(parents=True, exist_ok=True)
 		self.active_path.mkdir(parents=True, exist_ok=True)
 
-	async def start(self) -> System:
+	async def start(self):
 		await self.__check_folders()
 		await self._load_local()
-		return self
 
 	async def _update(self, delta_time: float):
 		files_to_move = await self._load_from_path(self.watch_path)
@@ -88,8 +87,7 @@ class WatcherSystem(System):
 					continue
 
 				# TODO: check already added
-
-				asyncio.create_task(self._check_torrent(torrent_info))
+				self.add_task(self._check_torrent(torrent_info))
 
 		return files_list
 
@@ -139,11 +137,11 @@ class WatcherSystem(System):
 
 		logger.info(f"New torrent {torrent_info.name} added. Local data: {downloaded:.2f}%")
 		entity = self.env.data_storage.create_entity()
-		entity.add_component(TorrentHashEC(file_info.info_hash))
 		entity.add_component(KnownPeersEC())
 		entity.add_component(bitfield)
 
 		entity.add_component(TorrentInfoEC(torrent_info))
+		entity.add_component(TorrentHashEC(file_info.info_hash))
 
 		entity.add_component(TorrentTrackerDataEC(file_info.announce_list))
 		entity.add_component(TorrentSaveEC())
@@ -158,14 +156,12 @@ class WatcherSystem(System):
 					logger.info(f"{torrent_info.name} loaded from save")
 
 					entity = self.env.data_storage.create_entity()
-					entity.add_component(TorrentHashEC(info_hash))
-					entity.add_component(KnownPeersEC().update_peers(peers))
+					peers_ec = KnownPeersEC()
+					entity.add_component(peers_ec)
 					entity.add_component(BitfieldEC().update(bitfield))
-
 					entity.add_component(TorrentInfoEC(torrent_info))
-
-					entity.add_component(KnownPeersUpdateEC())
-
+					entity.add_component(TorrentHashEC(info_hash))
+					peers_ec.update_peers(peers)
 					# update tracker data if any
 					if tracker_data:
 						entity.add_component(TorrentTrackerDataEC(tracker_data.announce_list).import_save(tracker_data))

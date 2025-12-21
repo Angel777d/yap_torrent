@@ -8,31 +8,22 @@ logger.setLevel(logging.DEBUG)
 
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter(LOG_FORMAT))
-handler.setLevel(logging.DEBUG)
-logger.addHandler(handler)
-
-
-# handler = logging.FileHandler('torrent.log')
+# handler = logging.StreamHandler()
 # handler.setFormatter(logging.Formatter(LOG_FORMAT))
-# handler.setLevel(logging.ERROR)
+# handler.setLevel(logging.DEBUG)
 # logger.addHandler(handler)
 
 
-class MainLoop:
-	def __init__(self):
-		self.application = Application()
-
-	async def run(self, close_event: asyncio.Event):
-		asyncio.create_task(self.application.run(close_event))
-		await close_event.wait()
-
+handler = logging.FileHandler('torrent.log', mode='w')
+handler.setFormatter(logging.Formatter(LOG_FORMAT))
+handler.setLevel(logging.INFO)
+logger.addHandler(handler)
 
 if __name__ == '__main__':
 	event = asyncio.Event()
+	application = Application()
 
 	try:
-		asyncio.run(MainLoop().run(event))
+		asyncio.run(application.run(event))
 	except KeyboardInterrupt:
 		event.set()

@@ -23,6 +23,14 @@ class DHTNode:
 	def mark_good(self):
 		self.__state = DHTNodeState.GOOD
 		self.__last_update = time.monotonic()
+		return self
+
+	def mark_fail(self):
+		if self.__state == DHTNodeState.GOOD:
+			self.__state = DHTNodeState.QUESTIONABLE
+		else:
+			self.__state = DHTNodeState.BAD
+		return self
 
 	def get_state(self) -> DHTNodeState:
 		if self.__state == DHTNodeState.GOOD:
@@ -33,9 +41,8 @@ class DHTNode:
 		return self.__state
 
 	@property
-	def compact_address(self) -> bytes:
-		return compact_address(self.host, self.port)
-
-	@property
 	def compact_node_info(self) -> bytes:
-		return self.id + self.compact_address
+		return self.id + compact_address(self.host, self.port)
+
+	def __repr__(self):
+		return f"DHT Node [{self.id}] {self.host}:{self.port}"

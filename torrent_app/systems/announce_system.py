@@ -30,7 +30,7 @@ class AnnounceSystem(System):
 					ds.create_entity().add_component(PeerInfoEC(info_hash, peer)).add_component(
 						PeerPendingEC())
 
-		# make announces
+		# make announcement
 		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
 		for torrent_entity in trackers_collection:
 			tracker_ec = torrent_entity.get_component(TorrentTrackerDataEC)
@@ -46,10 +46,13 @@ class AnnounceSystem(System):
 		tracker_ec = torrent_entity.get_component(TorrentTrackerDataEC)
 		peers_ec = torrent_entity.get_component(KnownPeersEC)
 		bitfield_ec = torrent_entity.get_component(BitfieldEC)
-		torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 
-		downloaded = bitfield_ec.have_num * torrent_info.pieces.piece_length
-		left = max(torrent_info.size - downloaded, 0)
+		downloaded = 0
+		left = 0
+		if torrent_entity.has_component(TorrentInfoEC):
+			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
+			downloaded = bitfield_ec.have_num * torrent_info.pieces.piece_length
+			left = max(torrent_info.size - downloaded, 0)
 
 		uploaded = torrent_entity.get_component(TorrentTrackerDataEC).uploaded
 
@@ -73,11 +76,16 @@ class AnnounceSystem(System):
 					tracker_id=tracker_ec.tracker_id
 				)
 				if not result:
+					logger.error(f"announce failed: {announce}")
 					continue
-				elif not result.failure_reason:
+				elif result.failure_reason:
+					logger.warning(f"announce failed: {announce} {result.failure_reason}")
+					continue
+				else:
+					if result.warning_message:
+						logger.warning(f"announce warning: {result.warning_message}")
 					tracker_ec.save_announce(result)
 					peers_ec.update_peers(result.peers)
-					tracker_ec.add_marker(KnownPeersUpdateEC)
 					return
 
 		# TODO: make it better

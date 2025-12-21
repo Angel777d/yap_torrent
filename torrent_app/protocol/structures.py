@@ -48,17 +48,16 @@ class TrackerAnnounceResponse:
 		raise NotImplementedError()
 
 	@property
-	def tracker_id(self) -> str:
-		return self.__tracker_response.get("tracker id", "")
+	def tracker_id(self) -> bytes:
+		return self.__tracker_response.get("tracker id", b'')
 
 	@property
 	def failure_reason(self) -> str:
-		return self.__tracker_response.get("failure reason", "")
+		return self.__tracker_response.get("failure reason", b'').decode("utf-8")
 
 	@property
 	def warning_message(self) -> str:
-		return self.__tracker_response.get("warning message", "")
-
+		return self.__tracker_response.get("warning message", b'').decode("utf-8")
 
 class Pieces:
 	def __init__(self, piece_length: int, pieces: bytes):
@@ -70,7 +69,7 @@ class Pieces:
 
 	@property
 	def num(self) -> int:
-		# pieces: string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e. not urlencoded)
+		# pieces: string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e., not urlencoded)
 		return int(len(self.__pieces) / 20)
 
 	@property
@@ -79,15 +78,15 @@ class Pieces:
 
 
 class FileInfo:
-	def __init__(self, path: List[str], length: int, md5sum: str, start: int = 0):
-		self.path: List[str] = path
+	def __init__(self, path: List[bytes], length: int, md5sum: bytes, start: int = 0):
+		self.path: List[bytes] = path
 		self.length: int = length
-		self.md5sum: str = md5sum
+		self.md5sum: bytes = md5sum
 		self.start: int = start
 
 	@classmethod
 	def from_dict(cls, data: dict, start: int):
-		return FileInfo(data.get("path", []), data.get("length", 0), data.get("md5sum", ''), start)
+		return FileInfo(data.get("path", []), data.get("length", 0), data.get("md5sum", b''), start)
 
 
 class TorrentInfo:
@@ -99,7 +98,11 @@ class TorrentInfo:
 
 	@property
 	def name(self) -> str:
-		return self.__info.get('name.utf-8', self.__info.get("name", ""))
+		return self.raw_name.decode("utf-8")
+
+	@property
+	def raw_name(self) -> bytes:
+		return self.__info.get('name.utf-8', self.__info.get("name", b''))
 
 	@staticmethod
 	def __files_generator(files_field: List[dict]):
@@ -115,7 +118,7 @@ class TorrentInfo:
 		if files_field:
 			return *(self.__files_generator(files_field)),
 		else:
-			return (FileInfo([self.name], self.__info.get("length", 0), self.__info.get("md5sum", '')),)
+			return (FileInfo([self.raw_name], self.__info.get("length", 0), self.__info.get("md5sum", b'')),)
 
 	@property
 	def size(self) -> int:
@@ -129,7 +132,7 @@ class TorrentInfo:
 		# add folder for multifile protocol
 		path = root.joinpath(self.name) if 'files' in self.__info else root
 		for file_path in file.path:
-			path = path.joinpath(file_path)
+			path = path.joinpath(file_path.decode("utf-8"))
 		return path
 
 	def calculate_piece_size(self, index: int) -> int:
@@ -176,11 +179,11 @@ class TorrentFileInfo:
 	def info_hash(self) -> bytes:
 		return self.__info_hash
 
-	# announce: The announce URL of the tracker (string)
+	# announce: The announcement URL of the tracker (string)
 	# announce-list: (optional) this is an extension to the official specification, offering backwards-compatibility. (list of lists of strings).
 	@property
-	def announce_list(self) -> List[List[str]]:
-		return self.__data.get('announce-list', [[self.__data.get("announce", "WTF")]])
+	def announce_list(self) -> List[List[bytes]]:
+		return self.__data.get('announce-list', [[self.__data.get("announce", b"WTF")]])
 
 	# creation date: (optional) the creation time of the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
 	@property

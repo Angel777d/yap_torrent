@@ -1,15 +1,16 @@
 import asyncio
 import logging
 import time
-from asyncio import AbstractEventLoop
-from typing import List, Dict, Any
+from typing import List
 
 import torrent_app.plugins as plugins
 from torrent_app import Env, System, Config, upnp
+from torrent_app.plugins import TorrentPlugin
 from torrent_app.systems.announce_system import AnnounceSystem
 from torrent_app.systems.bt_dht_system import BTDHTSystem
 from torrent_app.systems.bt_ext_metadata_system import BTExtMetadataSystem
 from torrent_app.systems.bt_extension_system import BTExtensionSystem
+from torrent_app.systems.bt_magnet_system import MagnetSystem
 from torrent_app.systems.bt_main_system import BTMainSystem
 from torrent_app.systems.peer_system import PeerSystem
 from torrent_app.systems.piece_system import PieceSystem
@@ -45,45 +46,74 @@ class Application:
 		ip, external_ip = network_setup()
 		open_port(ip, config.port, config.dht_port)
 
-		self.env = Env(create_peer_id(), ip, external_ip, config)
-		self.systems: List[System] = []
+		env = Env(create_peer_id(), ip, external_ip, config)
+		self.systems: List[System] = [
+			WatcherSystem(env),
+			AnnounceSystem(env),
+			PeerSystem(env),
+			PieceSystem(env),
+			BTMainSystem(env),
+			BTExtensionSystem(env),
+			BTExtMetadataSystem(env),
+			BTDHTSystem(env),
+			MagnetSystem(env),
+		]
 
-		self.plugins: Dict[str, Any] = plugins.discover_plugins(self.env.config)
+		self.plugins: List[TorrentPlugin] = plugins.discover_plugins(env.config)
+
+		self.env = env
 
 	async def run(self, close_event: asyncio.Event):
 		env = self.env
-		self.systems = [
-			await WatcherSystem(env).start(),
-			await AnnounceSystem(env).start(),
-			await PeerSystem(env).start(),
-			await PieceSystem(env).start(),
-			await BTMainSystem(env).start(),
-			await BTExtensionSystem(env).start(),
-			await BTExtMetadataSystem(env).start(),
-			await BTDHTSystem(env).start(),
-		]
+		env.close_event = close_event
 
-		for name, module in self.plugins.items():
-			loop: AbstractEventLoop = asyncio.get_running_loop()
-			self.systems.extend([await system.start() for system in module.init_plugin(loop, env)])
+		logger.info("Torrent application start")
+
+		for system in self.systems:
+			logger.debug(f"start system {system}")
+			await system.start()
+
+		for plugin in self.plugins:
+			logger.debug(f"start plugin {plugin}")
+			await plugin.start(env)
+
+		logger.info("Torrent application initialized")
 
 		last_time = time.monotonic()
-
-		logger.info("Torrent App start")
-
 		while not close_event.is_set():
-			await asyncio.sleep(GLOBAL_TICK_TIME)
-
 			current_time = time.monotonic()
 			dt = current_time - last_time
 			last_time = current_time
 
-			for system in self.systems:
-				await system.update(dt)
+			try:
+				for system in self.systems:
+					await system.update(dt)
+			except Exception as e:
+				logger.error("unexpected exception on systems update")
+				logger.error(e)
 
-		logger.info("Torrent App stop")
+			try:
+				for plugin in self.plugins:
+					await plugin.update(dt)
+			except Exception as e:
+				logger.error("unexpected exception on plugins update")
+				logger.error(e)
 
+			await asyncio.sleep(GLOBAL_TICK_TIME)
+
+		logger.info("Torrent application stop")
+		self.stop()
+
+		logger.info("Torrent application closed")
+
+		await asyncio.sleep(0)
+
+	# leftovers = asyncio.all_tasks()
+	# print(leftovers)
+
+	def stop(self):
 		for system in self.systems:
 			system.close()
 
-		logger.info("Torrent App closed")
+		for plugin in self.plugins:
+			plugin.close()

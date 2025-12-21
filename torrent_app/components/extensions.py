@@ -13,7 +13,7 @@ class PeerExtensionsEC(EntityComponent):
 
 	@classmethod
 	def add_supported(cls, supported_extension: str):
-		cls.EXT_TO_ID[supported_extension] = len(cls.EXT_TO_ID)
+		cls.EXT_TO_ID[supported_extension] = len(cls.EXT_TO_ID) + 1  # Start from index 1
 		cls.__ID_TO_EXT = {v: k for k, v in cls.EXT_TO_ID.items()}
 
 	def __init__(self, remote_ext_to_id: dict[str, int]):

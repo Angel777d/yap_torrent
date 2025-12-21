@@ -5,6 +5,6 @@
   "trash_folder": "data/trash",
   "disabled_plugins": [
     "torrent_app.plugins.profile",
-    "torrent_app.plugins.input"
+    "torrent_app.plugins.rest_api"
   ]
 }

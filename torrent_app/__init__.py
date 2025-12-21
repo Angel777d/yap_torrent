@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import List
+from asyncio import Task
+from typing import List, Coroutine, Any
 
 from angelovichcore.DataStorage import DataStorage
 from angelovichcore.Dispatcher import Dispatcher
@@ -15,7 +16,7 @@ class Env:
 		self.ip: str = ip
 		self.external_ip: str = external_ip
 		self.config: Config = cfg
-		self.data_storage = DataStorage()
+		self.data_storage: DataStorage = DataStorage()
 		self.event_bus = Dispatcher()
 
 
@@ -25,7 +26,7 @@ class System:
 		self.__tasks: List[asyncio.Task] = []
 
 	async def start(self) -> 'System':
-		return self
+		pass
 
 	async def update(self, delta_time: float):
 		await self._update(delta_time)
@@ -33,8 +34,11 @@ class System:
 	async def _update(self, delta_time: float):
 		pass
 
-	def add_task(self, task: asyncio.Task):
+	def add_task(self, coro: Coroutine[Any, Any, Any]) -> Task:
+		task = asyncio.create_task(coro)
+		task.add_done_callback(lambda _: self.__tasks.remove(task))
 		self.__tasks.append(task)
+		return task
 
 	def close(self) -> None:
 		for task in self.__tasks:
@@ -43,6 +47,9 @@ class System:
 	@property
 	def env(self):
 		return self.__env
+
+	def __repr__(self):
+		return f"System: {self.__class__.__name__}"
 
 
 class TimeSystem(System):

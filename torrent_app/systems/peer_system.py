@@ -34,8 +34,6 @@ class PeerSystem(System):
 		host = self.env.ip
 		await asyncio.start_server(self._server_callback, host, port)
 
-		return await super().start()
-
 	async def _server_callback(self, reader: StreamReader, writer: StreamWriter):
 		logger.debug('some peer connected to us')
 		local_peer_id = self.env.peer_id
@@ -58,7 +56,7 @@ class PeerSystem(System):
 
 			await self._add_peer(peer_entity, remote_peer_id, reader, writer, reserved)
 		else:
-			logger.warning(f"no torrent for info hash{info_hash}. handshake: {result}")
+			logger.warning(f"no torrent for info hash [{info_hash}]. handshake: {result}")
 
 	async def _update(self, delta_time: float):
 		ds = self.env.data_storage
@@ -78,7 +76,7 @@ class PeerSystem(System):
 		while len(active_collection) < self.env.config.max_connections and pending_peers:
 			peer_entity = pending_peers.pop(0)
 			peer_entity.remove_component(PeerPendingEC)
-			asyncio.create_task(self._connect(peer_entity, my_peer_id))
+			self.add_task(self._connect(peer_entity, my_peer_id))
 
 	async def _connect(self, peer_entity: Entity, my_peer_id: bytes):
 		peer_ec: PeerInfoEC = peer_entity.get_component(PeerInfoEC)
@@ -94,10 +92,10 @@ class PeerSystem(System):
 	                    writer: StreamWriter, reserved: bytes) -> None:
 		connection = Connection(remote_peer_id, reader, writer)
 
-		task = asyncio.create_task(_listen(self.env, peer_entity))
-
+		connection_ec = PeerConnectionEC(connection, reserved)
 		peer_entity.add_component(BitfieldEC())
-		peer_entity.add_component(PeerConnectionEC(connection, task, reserved))
+		peer_entity.add_component(connection_ec)
+		connection_ec.task = asyncio.create_task(_listen(self.env, peer_entity))
 
 
 async def _listen(env: Env, peer_entity: Entity) -> None:
@@ -114,8 +112,9 @@ async def _listen(env: Env, peer_entity: Entity) -> None:
 		torrent_info_ec = torrent_entity.get_component(TorrentInfoEC)
 		await connection.send(bitfield(local_bitfield.dump(torrent_info_ec.info.pieces.num)))
 
+
 	# notify systems about new peer
-	await env.event_bus.dispatch("peer.connected", torrent_entity, peer_entity)
+	env.event_bus.dispatch("peer.connected", torrent_entity, peer_entity)
 
 	# main peer loop
 	try:
@@ -129,7 +128,7 @@ async def _listen(env: Env, peer_entity: Entity) -> None:
 				break
 			# process messages
 			elif message:
-				await env.event_bus.dispatch("peer.message", torrent_entity, peer_entity, message)
+				env.event_bus.dispatch("peer.message", torrent_entity, peer_entity, message)
 			# means keep alive. no message and no error
 			else:
 				pass
