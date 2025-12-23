@@ -130,13 +130,8 @@ class Connection:
 
 	def close(self) -> None:
 		logger.debug(f"Close connection {self.remote_peer_id}")
-
 		self.last_message_time = .0
-		self.remote_peer_id = bytes()
 		self.writer.close()
-
-		self.writer = None
-		self.reader = None
 
 	async def read(self) -> tuple[Optional[Message], str]:
 		try:

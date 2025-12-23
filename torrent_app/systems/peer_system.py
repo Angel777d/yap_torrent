@@ -6,7 +6,7 @@ from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
-from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, ValidateTorrentEC
 from torrent_app.protocol import extensions
 from torrent_app.protocol.bt_main_messages import bitfield
 from torrent_app.protocol.connection import Connection, connect, on_connect
@@ -46,7 +46,7 @@ class PeerSystem(System):
 
 		# get peer info from
 		host, port = writer.transport.get_extra_info('peername')
-		peer_entity = self.env.data_storage.create_entity().add_component(PeerInfoEC(info_hash, PeerInfo(host, 0)))
+		peer_entity = self.env.data_storage.create_entity().add_component(PeerInfoEC(info_hash, PeerInfo(host, port)))
 
 		logger.info(f'peer {remote_peer_id} is connected to us')
 
@@ -61,20 +61,30 @@ class PeerSystem(System):
 	async def _update(self, delta_time: float):
 		ds = self.env.data_storage
 
-		# check capacity
-		if len(ds.get_collection(PeerConnectionEC)) >= self.env.config.max_connections:
+		active_collection = ds.get_collection(PeerConnectionEC)
+
+		def is_capacity_full():
+			return len(active_collection) >= self.env.config.max_connections
+
+		# check capacity first
+		if is_capacity_full():
 			return
 
 		# sort and filter pending peers
-		pending_peers = ds.get_collection(PeerPendingEC).entities
 		# TODO: select peers to connect
-		pass
+		pending_peers = ds.get_collection(PeerPendingEC).entities
+
+		my_peer_id = self.env.peer_id
 
 		# connect to new peers
-		my_peer_id = self.env.peer_id
-		active_collection = ds.get_collection(PeerConnectionEC)
-		while len(active_collection) < self.env.config.max_connections and pending_peers:
-			peer_entity = pending_peers.pop(0)
+		for peer_entity in pending_peers:
+			if is_capacity_full():
+				break
+
+			if ds.get_collection(TorrentHashEC).find(peer_entity.get_component(PeerInfoEC).info_hash).has_component(
+					ValidateTorrentEC):
+				continue
+
 			peer_entity.remove_component(PeerPendingEC)
 			self.add_task(self._connect(peer_entity, my_peer_id))
 
@@ -101,7 +111,6 @@ class PeerSystem(System):
 async def _listen(env: Env, peer_entity: Entity) -> None:
 	ds = env.data_storage
 	connection = peer_entity.get_component(PeerConnectionEC).connection
-	peer_id = connection.remote_peer_id
 
 	info_hash = peer_entity.get_component(PeerInfoEC).info_hash
 	torrent_entity = ds.get_collection(TorrentHashEC).find(info_hash)
@@ -112,11 +121,11 @@ async def _listen(env: Env, peer_entity: Entity) -> None:
 		torrent_info_ec = torrent_entity.get_component(TorrentInfoEC)
 		await connection.send(bitfield(local_bitfield.dump(torrent_info_ec.info.pieces.num)))
 
-
-	# notify systems about new peer
+	# notify systems about a new peer
 	env.event_bus.dispatch("peer.connected", torrent_entity, peer_entity)
 
 	# main peer loop
+	peer_id = connection.remote_peer_id
 	try:
 		while not connection.is_dead():
 			# read next message
@@ -136,4 +145,7 @@ async def _listen(env: Env, peer_entity: Entity) -> None:
 		logger.error(f"got error on peer loop: {ex}")
 
 	logger.info(f"close connection to {peer_id}")
-	ds.remove_entity(peer_entity)
+
+	# TODO: Don't like it. Make proper lifecycle
+	if peer_entity.is_valid():
+		ds.remove_entity(peer_entity)

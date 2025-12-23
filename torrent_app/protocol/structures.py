@@ -12,6 +12,9 @@ class PeerInfo:
 		self.port: int = port
 
 	def __repr__(self):
+		return self.__str__()
+
+	def __str__(self):
 		return f'PeerInfo: {self.host}:{self.port}'
 
 	@classmethod
@@ -86,7 +89,9 @@ class FileInfo:
 
 	@classmethod
 	def from_dict(cls, data: dict, start: int):
-		return FileInfo(data.get("path", []), data.get("length", 0), data.get("md5sum", b''), start)
+		# path.utf-8 is not in BEP-03. But uses widely
+		path = data.get("path.utf-8", data.get("path", []))
+		return FileInfo(path, data.get("length", 0), data.get("md5sum", b''), start)
 
 
 class TorrentInfo:
@@ -165,15 +170,12 @@ class TorrentInfo:
 class TorrentFileInfo:
 	def __init__(self, data: dict):
 		self.__data = data
-		self.__info = TorrentInfo(self.__data.get("info", {}))
-		self.__info_hash = hashlib.sha1(self.__info.get_metadata()).digest()
+		self.info = TorrentInfo(self.__data.get("info", {}))
+		self.__info_hash = hashlib.sha1(self.info.get_metadata()).digest()
 
 	def is_valid(self) -> bool:
 		return len(self.__info_hash) > 0
 
-	@property
-	def info(self) -> TorrentInfo:
-		return self.__info
 
 	@property
 	def info_hash(self) -> bytes:

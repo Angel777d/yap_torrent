@@ -97,7 +97,7 @@ async def _update_download(env: Env, peer_entity: Entity, torrent_entity: Entity
 	index = random.choice(list(pieces))
 
 	logger.debug(f"selected piece {index} for {torrent_entity.get_component(TorrentInfoEC).info.name}. peer {peer_id}")
-	# find or create piece
+	# find or create a piece
 	piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
 	if not piece_entity:
 		piece_entity = ds.create_entity().add_component(PieceEC(info_hash, info, index))
@@ -177,7 +177,6 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 
 		torrent_entity.get_component(BitfieldEC).set_index(index)
 		await _send_have_to_peers(env, info_hash, index)
-
 		await _update_interested(peer_entity, torrent_entity)
 
 	# request for next pieces

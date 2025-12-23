@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Hashable
 
 from angelovichcore.DataStorage import EntityComponent
@@ -23,5 +24,15 @@ class TorrentInfoEC(EntityComponent):
 		self.info: TorrentInfo = torrent_info
 
 
-class TorrentSaveEC(EntityComponent):
+class TorrentPathEC(EntityComponent):
+	def __init__(self, path: Path) -> None:
+		super().__init__()
+		self.root_path: Path = path
+
+
+class SaveTorrentEC(EntityComponent):
+	pass
+
+
+class ValidateTorrentEC(EntityComponent):
 	pass
