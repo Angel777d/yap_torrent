@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Tuple, Iterable, Set
 import torrent_app.dht.connection as dht_connection
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env, Config
-from torrent_app.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC
+from torrent_app.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC, KnownPeersUpdateEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC
 from torrent_app.dht import bt_dht_messages as msg
 from torrent_app.dht.connection import DHTServerProtocol, DHTServerProtocolHandler, make_response, make_error
@@ -132,7 +132,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 
 		message_type = message.get("y")
 		if message_type == QUERY:
-			query_type = message.get("q").decode("utf-8")
+			query_type = message.get("q")
 			arguments = message.get("a", {})
 			if query_type == PING:
 				return make_response(t, self.__my_node_id, response=self.ping_response(arguments, addr))
@@ -245,15 +245,18 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		ping_response = await dht_connection.ping(self.__my_node_id, host, port)
 		if not ping_response:
 			self.bad_nodes.add((host, port))
-			logger.debug(f'ping failed {host}:{port}')
+			logger.info(f'ping failed {host}:{port}')
 			return
+
+		if ping_response.get("y") == b"e":
+			logger.info(f'ping to {host}:{port} failed with error {ping_response}')
 
 		remote_node_id = ping_response.get("r", {}).get("id", bytes())
 		if self.__routing_table.touch(remote_node_id, host, port):
-			logger.debug(f'new node added: {self.__routing_table.nodes[remote_node_id]}')
+			logger.info(f'new node added: {self.__routing_table.nodes[remote_node_id]}')
 		else:
 			self.extra_nodes.add((remote_node_id, host, port))
-			logger.debug(f'no place for new node: {remote_node_id}|{host}:{port}')
+			logger.info(f'no place for new node: {remote_node_id}|{host}:{port}')
 
 	def find_node_response(self, target: bytes) -> Dict[str, Any]:
 		return {"nodes": self._get_closest_nodes(target)}
@@ -292,11 +295,12 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 
 	def _update_peers(self, info_hash: bytes, values: Iterable[PeerInfo]):
 		ds = self.env.data_storage
-		entity = ds.get_collection(TorrentHashEC).find(info_hash)
-		if not entity:
+		torrent_entity = ds.get_collection(TorrentHashEC).find(info_hash)
+		if not torrent_entity:
 			logger.error(f"There is no torrent with info hash {info_hash}")
 			return
-		entity.get_component(KnownPeersEC).extend_peers(values)
+		torrent_entity.get_component(KnownPeersEC).update_peers(values)
+		torrent_entity.add_component(KnownPeersUpdateEC())
 
 	def _get_peers(self, info_hash: bytes) -> List[bytes]:
 		torrent = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)

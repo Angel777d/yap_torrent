@@ -1,11 +1,10 @@
 import logging
 
 from torrent_app import System
-from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import KnownPeersEC
-from torrent_app.components.torrent_ec import TorrentHashEC
+from torrent_app.components.torrent_ec import SaveTorrentEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC
 from torrent_app.protocol.magnet import MagnetInfo
+from torrent_app.systems import create_torrent_entity
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +25,10 @@ class MagnetSystem(System):
 			logger.info(f"magnet: {value} is invalid")
 			return
 
-		entity = self.env.data_storage.create_entity()
-		entity.add_component(KnownPeersEC())
-		entity.add_component(BitfieldEC())
-		entity.add_component(TorrentHashEC(magnet.info_hash))
-
+		torrent_entity = create_torrent_entity(self.env, magnet.info_hash)
 		if magnet.trackers:
-			entity.add_component(TorrentTrackerDataEC([magnet.trackers]))
+			torrent_entity.add_component(TorrentTrackerDataEC([magnet.trackers]))
+		# save torrent to local data
+		torrent_entity.add_component(SaveTorrentEC())
 
 		logger.info(f"add torrent by magnet: {magnet}")

@@ -7,6 +7,7 @@ from angelovichcore.DataStorage import EntityComponent
 class BitfieldEC(EntityComponent):
 	def __init__(self):
 		super().__init__()
+		# TODO: replace with bitarray
 		self._have: Set[int] = set()
 
 	@staticmethod
@@ -16,6 +17,9 @@ class BitfieldEC(EntityComponent):
 	@staticmethod
 	def __position_to_index(i, offset) -> int:
 		return i * 8 + 7 - offset
+
+	def reset(self, value: Set[int]):
+		self._have = value
 
 	def update(self, bitfield: bytes):
 		self._have = set(

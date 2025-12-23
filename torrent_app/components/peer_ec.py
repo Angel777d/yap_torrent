@@ -53,9 +53,6 @@ class PeerConnectionEC(EntityComponent):
 		self.connection.close()
 		self.task.cancel()
 
-		self.connection = None
-		self.task = None
-
 		super()._reset()
 
 	async def interested(self) -> None:
@@ -107,17 +104,11 @@ class PeerConnectionEC(EntityComponent):
 class KnownPeersEC(EntityComponent):
 	def __init__(self):
 		super().__init__()
-		self.peers: tuple[PeerInfo, ...] = tuple()
+		self.peers: set[PeerInfo] = set()
 
-	def update_peers(self, peers: tuple[PeerInfo, ...]) -> "KnownPeersEC":
-		self.peers = peers
-		self.add_marker(KnownPeersUpdateEC)
+	def update_peers(self, peers: Iterable[PeerInfo]) -> "KnownPeersEC":
+		self.peers.update(peers)
 		return self
-
-	def extend_peers(self, values: Iterable[PeerInfo]) -> "KnownPeersEC":
-		peers = set(self.peers)
-		peers.update(values)
-		return self.update_peers(tuple(peers))
 
 class KnownPeersUpdateEC(EntityComponent):
 	pass

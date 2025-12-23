@@ -5,10 +5,11 @@ from angelovichcore.DataStorage import Entity
 from torrent_app import System
 from torrent_app.components.extensions import TorrentMetadataEC, PeerExtensionsEC, UT_METADATA, METADATA_PIECE_SIZE
 from torrent_app.components.peer_ec import PeerConnectionEC
-from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentSaveEC
+from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC
 from torrent_app.protocol import bt_ext_messages as msg
 from torrent_app.protocol import encode, decode, TorrentInfo
 from torrent_app.protocol.connection import Message
+from torrent_app.systems import invalidate_torrent
 from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ class BTExtMetadataSystem(System):
 		return await super().start()
 
 	def close(self):
+		self.env.event_bus.remove_all_listeners(scope=self)
+
 		collection = self.env.data_storage.get_collection(TorrentHashEC)
 		collection.remove_all_listeners(self)
 		super().close()
@@ -139,12 +142,11 @@ class BTExtMetadataSystem(System):
 				info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
 				if check_hash(metadata, info_hash):
 					metadata_ec.set_metadata(metadata)
-					data = decode(metadata)
-					torrent_info = TorrentInfo(data)
+					torrent_info = TorrentInfo(decode(metadata))
 					torrent_entity.add_component(TorrentInfoEC(torrent_info))
 
-					# save downloaded torrent to active torrents
-					torrent_entity.add_component(TorrentSaveEC())
+					# disconnect all peers and start validation
+					invalidate_torrent(self.env, torrent_entity)
 
 					# TODO: update interested to connected peers and start download torrent
 					logger.info(f"Successfully loaded metadata for torrent {torrent_info.name}")

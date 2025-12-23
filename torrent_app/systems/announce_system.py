@@ -44,7 +44,6 @@ class AnnounceSystem(System):
 		port = self.env.config.port
 		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
 		tracker_ec = torrent_entity.get_component(TorrentTrackerDataEC)
-		peers_ec = torrent_entity.get_component(KnownPeersEC)
 		bitfield_ec = torrent_entity.get_component(BitfieldEC)
 
 		downloaded = 0
@@ -85,7 +84,10 @@ class AnnounceSystem(System):
 					if result.warning_message:
 						logger.warning(f"announce warning: {result.warning_message}")
 					tracker_ec.save_announce(result)
-					peers_ec.update_peers(result.peers)
+
+					torrent_entity.get_component(KnownPeersEC).update_peers(result.peers)
+					torrent_entity.add_component(KnownPeersUpdateEC())
+
 					return
 
 		# TODO: make it better

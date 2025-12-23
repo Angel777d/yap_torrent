@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from asyncio import Task
-from typing import List, Coroutine, Any
+from typing import Coroutine, Any
 
 from angelovichcore.DataStorage import DataStorage
 from angelovichcore.Dispatcher import Dispatcher
@@ -23,7 +23,7 @@ class Env:
 class System:
 	def __init__(self, env: Env):
 		self.__env: Env = env
-		self.__tasks: List[asyncio.Task] = []
+		self.__tasks: set[asyncio.Task] = set()
 
 	async def start(self) -> 'System':
 		pass
@@ -37,7 +37,7 @@ class System:
 	def add_task(self, coro: Coroutine[Any, Any, Any]) -> Task:
 		task = asyncio.create_task(coro)
 		task.add_done_callback(lambda _: self.__tasks.remove(task))
-		self.__tasks.append(task)
+		self.__tasks.add(task)
 		return task
 
 	def close(self) -> None:

@@ -10,8 +10,10 @@ from torrent_app.systems.announce_system import AnnounceSystem
 from torrent_app.systems.bt_dht_system import BTDHTSystem
 from torrent_app.systems.bt_ext_metadata_system import BTExtMetadataSystem
 from torrent_app.systems.bt_extension_system import BTExtensionSystem
+from torrent_app.systems.bt_local_data_system import LocalDataSystem
 from torrent_app.systems.bt_magnet_system import MagnetSystem
 from torrent_app.systems.bt_main_system import BTMainSystem
+from torrent_app.systems.bt_validation_system import ValidationSystem
 from torrent_app.systems.peer_system import PeerSystem
 from torrent_app.systems.piece_system import PieceSystem
 from torrent_app.systems.watch_system import WatcherSystem
@@ -49,6 +51,8 @@ class Application:
 		env = Env(create_peer_id(), ip, external_ip, config)
 		self.systems: List[System] = [
 			WatcherSystem(env),
+			ValidationSystem(env),
+			LocalDataSystem(env),
 			AnnounceSystem(env),
 			PeerSystem(env),
 			PieceSystem(env),
