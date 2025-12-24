@@ -106,9 +106,6 @@ def _check_torrent(torrent_info: TorrentInfo, download_path: Path) -> Set[int]:
 					index += 1
 					current_piece_length = torrent_info.calculate_piece_size(index)
 		except Exception as ex:
-			print(ex)
-	# downloaded = bitfield.have_num * torrent_info.pieces.piece_length
-	# downloaded = min(downloaded, torrent_info.size) / torrent_info.size * 100
-	# logger.info(f"New torrent {torrent_info.name} added. Local data: {downloaded:.2f}%")
+			logger.error(f"Error while validating torrent {download_path}: {ex}")
 
 	return bitfield_data
