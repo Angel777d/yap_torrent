@@ -3,7 +3,7 @@ import logging
 import pickle
 import secrets
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Iterable, Set
+from typing import Dict, Any, List, Tuple, Iterable, Set, Optional
 
 import torrent_app.dht.connection as dht_connection
 from angelovichcore.DataStorage import Entity
@@ -93,7 +93,6 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		# start listening for incoming DHT connections
 		port = self.env.config.dht_port
 		host = self.env.ip
-
 		loop = asyncio.get_running_loop()
 		self.__server = await loop.create_datagram_endpoint(
 			lambda: DHTServerProtocol(self),
@@ -102,13 +101,14 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 	def close(self):
 		self.env.event_bus.remove_all_listeners(self)
 
+		# stop listening for incoming DHT connections
 		transport, protocol = self.__server
 		transport.close()
 
 		# save nodes from the routing table
 		save_nodes(self.env.config, self._routing_table.export_nodes() + self.pending_nodes)
 
-		System.close(self)
+		super().close()
 
 	async def _update(self, delta_time: float):
 		if self.pending_nodes:
@@ -116,23 +116,9 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 			self.add_task(self._ping_new_host(host, port))
 		elif self.pending_torrents:
 			info_hash = self.pending_torrents.pop(0)
-			self.add_task(self.__get_peers_for(info_hash))
+			self.add_task(self._find_peers(info_hash))
 		return await System._update(self, delta_time)
 
-	def process_query(self, message: KRPCMessage, addr: tuple[str | Any, int]) -> Dict[str, Any]:
-		query_type = message.query_type
-		arguments = message.arguments
-		if query_type == KRPCQueryType.PING:
-			return message.make_response(self._my_node_id, self.query_ping_response(arguments, addr))
-		elif query_type == KRPCQueryType.FIND_NODE:
-			return message.make_response(self._my_node_id, self.query_find_node_response(arguments, addr))
-		elif query_type == KRPCQueryType.GET_PEERS:
-			return message.make_response(self._my_node_id, self.query_get_peers_response(arguments, addr))
-		elif query_type == KRPCQueryType.ANNOUNCE_PEER:
-			if not self._tokens.check(addr[0], arguments["token"]):
-				return message.make_error(203, "Bad token")
-			return message.make_response(self._my_node_id, self.query_announce_peer_response(arguments, addr))
-		return message.make_error(203, "Unknown query type")
 
 	async def __on_peer_connected(self, _: Entity, peer_entity: Entity) -> None:
 		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
@@ -165,37 +151,61 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 			return
 		self.pending_nodes.append((node_id, host, port))
 
-	async def __get_peers_for(self, info_hash):
-		done_nodes = set()
-		nodes_to_ask: set[Tuple[bytes, str, int]] = set(
-			(node.id, node.host, node.port) for node in self._routing_table.get_closest_nodes(info_hash, 16))
+	async def _find_peers(self, info_hash):
+		class RequestNode:
+			def __init__(self, _id: bytes, _host: str, _port: int):
+				self.node_id: bytes = _id
+				self.host: str = _host
+				self.port: int = _port
+				self.token: bytes = bytes()
+
+		all_nodes: Dict[bytes: RequestNode] = {
+			node.id: RequestNode(node.id, node.host, node.port) for node in
+			self._routing_table.get_closest_nodes(info_hash, 16)
+		}
+		done_nodes: Set[bytes] = set()
+
 		found_peers_count = 0
-		while nodes_to_ask:
-			if found_peers_count > self.BUCKET_CAPACITY * 2:
-				return
-			found_peers_count += 1
-			node_id, host, port = min(nodes_to_ask, key=lambda n: distance(info_hash, n[0]))
-			nodes_to_ask.remove((node_id, host, port))
-			if node_id in done_nodes:
-				continue
+		while True:
+			# TODO: move to config
+			if found_peers_count > 20:
+				break
+
+			# find nodes
+			pending_nodes: Set = set(all_nodes.keys()).difference(done_nodes)
+			if not pending_nodes:
+				break
+
+			# select the closest node to process next
+			node_id = min(pending_nodes, key=lambda n: distance(info_hash, n))
 			done_nodes.add(node_id)
-			res = await dht_connection.get_peers(self._my_node_id, info_hash, host, port)
-			if not res:
-				if node_id in self._routing_table.nodes:
-					self._routing_table.nodes[node_id].mark_fail()
+			request_node = all_nodes[node_id]
+
+			# make a request to peer
+			result: Optional[KRPCMessage] = await dht_connection.get_peers(
+				self._my_node_id, info_hash, request_node.host, request_node.port)
+
+			# skip in case of errors
+			if not result or result.error:
+				# TODO: mark node as bad
 				continue
 
-			r = res.response
-			token: bytes = r.get("token", bytes())
+			# mark this node as good
+			self._routing_table.touch(request_node.node_id, request_node.host, request_node.port)
 
+			r = result.response
+
+			# store token for future use
+			request_node.token = r.get("token", bytes())
+
+			# update nodes to search in
 			nodes: bytes = r.get("nodes", bytes())
-			if nodes:
-				for node_id, host, port in read_compact_node_info(nodes):
-					nodes_to_ask.add((node_id, host, port))
-					self._add_node(node_id, host, port)
+			for node_id, host, port in read_compact_node_info(nodes):
+				if node_id not in all_nodes:
+					all_nodes[node_id] = RequestNode(node_id, host, port)
 
-			values: List[bytes] = r.get("values", [])
 			# update peers info for this torrent
+			values: List[bytes] = r.get("values", [])
 			if values:
 				logger.info(f'found {values} peers for {info_hash}')
 				found_peers_count += len(values)
@@ -204,6 +214,19 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		# return torrent to the pending list
 		if not found_peers_count:
 			self.pending_torrents.append(info_hash)
+		# join a swarm
+		else:
+			join_nodes = sorted((node for node in all_nodes.values() if node.token),
+			                    key=lambda n: distance(info_hash, n.node_id))[:self.BUCKET_CAPACITY]
+			for node in join_nodes:
+				res = await dht_connection.announce_peer(
+					self._my_node_id,
+					info_hash,
+					node.host,
+					node.port,
+					token=node.token,
+					implied_port=0)
+				logger.info(f'announce peer result: {res}')
 
 	# async def update_node_state(self, node: DHTNode):
 	# 	logger.info(f'update state of {node}')
@@ -240,6 +263,21 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		else:
 			self.extra_good_nodes.add((remote_node_id, host, port))
 			logger.debug(f'no place for new node: {remote_node_id}|{host}:{port}')
+
+	def process_query(self, message: KRPCMessage, addr: tuple[str | Any, int]) -> Dict[str, Any]:
+		query_type = message.query_type
+		arguments = message.arguments
+		if query_type == KRPCQueryType.PING:
+			return message.make_response(self._my_node_id, self.query_ping_response(arguments, addr))
+		elif query_type == KRPCQueryType.FIND_NODE:
+			return message.make_response(self._my_node_id, self.query_find_node_response(arguments, addr))
+		elif query_type == KRPCQueryType.GET_PEERS:
+			return message.make_response(self._my_node_id, self.query_get_peers_response(arguments, addr))
+		elif query_type == KRPCQueryType.ANNOUNCE_PEER:
+			if not self._tokens.check(addr[0], arguments["token"]):
+				return message.make_error(203, "Bad token")
+			return message.make_response(self._my_node_id, self.query_announce_peer_response(arguments, addr))
+		return message.make_error(203, "Unknown query type")
 
 	def query_find_node_response(self, arguments: Dict[str, Any], addr: tuple[str | Any, int]) -> Dict[str, Any]:
 		target = arguments["target"]

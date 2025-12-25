@@ -84,7 +84,7 @@ class KRPCMessage:
 		return self._data.get("a", {})
 
 	@property
-	def response(self):
+	def response(self) -> Dict[str, Any]:
 		if self.message_type != KRPCMessageType.RESPONSE:
 			raise ValueError("This message is not a response.")
 		return self._data.get("r", {})
@@ -201,23 +201,27 @@ def __get_transaction_id() -> str:
 
 async def announce_peer(
 		node_id: bytes,
-		implied_port: bool,
 		info_hash: bytes,
-		p: int,
-		token: bytes,
 		host: str,
-		port: int) -> Optional[KRPCMessage]:
+		port: int,
+		token: bytes,
+		implied_port: int = 0,
+) -> Optional[KRPCMessage]:
+	args: Dict[str, Any] = {
+			"id": node_id,
+			"info_hash": info_hash,
+			"token": token,
+		}
+
+	if implied_port:
+		args["implied_port"] = 1
+		args["port"] = implied_port
+
 	return await __send_message({
 		"t": __get_transaction_id(),
 		"y": "q",
 		"q": "announce_peer",
-		"a": {
-			"id": node_id,
-			"implied_port": int(implied_port),
-			"info_hash": info_hash,
-			"port": p,
-			"token": token,
-		}
+		"a": args
 	}, host, port)
 
 
