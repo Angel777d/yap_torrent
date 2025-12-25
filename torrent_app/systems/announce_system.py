@@ -4,7 +4,6 @@ import time
 from angelovichcore.DataStorage import Entity
 from torrent_app import System
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import PeerInfoEC, PeerPendingEC, KnownPeersEC, KnownPeersUpdateEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC
 from torrent_app.protocol.tracker import make_announce
@@ -18,17 +17,6 @@ class AnnounceSystem(System):
 		event = "started"  # "started", "completed", "stopped"
 		current_time = time.monotonic()
 		ds = self.env.data_storage
-
-		# process updated trackers
-		updates_collection = ds.get_collection(KnownPeersUpdateEC).entities
-		for torrent_entity in updates_collection:
-			torrent_entity.remove_component(KnownPeersUpdateEC)
-			info_hash: bytes = torrent_entity.get_component(TorrentHashEC).info_hash
-			peers = torrent_entity.get_component(KnownPeersEC).peers
-			for peer in peers:
-				if not ds.get_collection(PeerInfoEC).find(PeerInfoEC.make_hash(info_hash, peer)):
-					ds.create_entity().add_component(PeerInfoEC(info_hash, peer)).add_component(
-						PeerPendingEC())
 
 		# make announcement
 		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
@@ -85,9 +73,7 @@ class AnnounceSystem(System):
 						logger.warning(f"announce warning: {result.warning_message}")
 					tracker_ec.save_announce(result)
 
-					torrent_entity.get_component(KnownPeersEC).update_peers(result.peers)
-					torrent_entity.add_component(KnownPeersUpdateEC())
-
+					self.env.event_bus.dispatch("peers.update", info_hash, result.peers)
 					return
 
 		# TODO: make it better

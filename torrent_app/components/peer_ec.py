@@ -104,7 +104,7 @@ class PeerConnectionEC(EntityComponent):
 class KnownPeersEC(EntityComponent):
 	def __init__(self):
 		super().__init__()
-		self.peers: set[PeerInfo] = set()
+		self.peers: Set[PeerInfo] = set()
 
 	def update_peers(self, peers: Iterable[PeerInfo]) -> "KnownPeersEC":
 		self.peers.update(peers)

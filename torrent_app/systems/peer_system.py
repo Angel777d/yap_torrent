@@ -1,11 +1,12 @@
 import asyncio
 import logging
 from asyncio import StreamReader, StreamWriter
+from typing import Iterable
 
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC
+from torrent_app.components.peer_ec import PeerPendingEC, PeerInfoEC, PeerConnectionEC, KnownPeersEC, KnownPeersUpdateEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, ValidateTorrentEC
 from torrent_app.protocol import extensions
 from torrent_app.protocol.bt_main_messages import bitfield
@@ -27,12 +28,26 @@ class PeerSystem(System):
 	def close(self):
 		ds = self.env.data_storage
 		ds.clear_collection(PeerConnectionEC)
+
+		self.env.event_bus.remove_all_listeners(scope=self)
 		super().close()
 
 	async def start(self):
+		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
+
 		port = self.env.config.port
 		host = self.env.ip
 		await asyncio.start_server(self._server_callback, host, port)
+
+	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
+		ds = self.env.data_storage
+
+		torrent_entity = ds.get_collection(TorrentHashEC).find(info_hash)
+		if not torrent_entity:
+			return
+
+		torrent_entity.get_component(KnownPeersEC).update_peers(peers)
+		torrent_entity.add_component(KnownPeersUpdateEC())
 
 	async def _server_callback(self, reader: StreamReader, writer: StreamWriter):
 		logger.debug('some peer connected to us')
@@ -60,6 +75,17 @@ class PeerSystem(System):
 
 	async def _update(self, delta_time: float):
 		ds = self.env.data_storage
+
+		# update new peers first
+		update_collection = ds.get_collection(KnownPeersUpdateEC)
+		for torrent_entity in update_collection.entities:
+			torrent_entity.remove_component(KnownPeersUpdateEC)
+			info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+			for peer in torrent_entity.get_component(KnownPeersEC).peers:
+				if not ds.get_collection(PeerInfoEC).find(PeerInfoEC.make_hash(info_hash, peer)):
+					ds.create_entity().add_component(PeerInfoEC(info_hash, peer)).add_component(
+						PeerPendingEC())
+
 
 		active_collection = ds.get_collection(PeerConnectionEC)
 

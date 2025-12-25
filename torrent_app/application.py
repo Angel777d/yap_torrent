@@ -50,17 +50,17 @@ class Application:
 
 		env = Env(create_peer_id(), ip, external_ip, config)
 		self.systems: List[System] = [
-			WatcherSystem(env),
-			ValidationSystem(env),
-			LocalDataSystem(env),
-			AnnounceSystem(env),
 			PeerSystem(env),
-			PieceSystem(env),
 			BTMainSystem(env),
+			PieceSystem(env),
+			ValidationSystem(env),
 			BTExtensionSystem(env),
 			BTExtMetadataSystem(env),
 			BTDHTSystem(env),
 			MagnetSystem(env),
+			AnnounceSystem(env),
+			LocalDataSystem(env),
+			WatcherSystem(env),
 		]
 
 		self.plugins: List[TorrentPlugin] = plugins.discover_plugins(env.config)
