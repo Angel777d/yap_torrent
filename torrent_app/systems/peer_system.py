@@ -63,7 +63,7 @@ class PeerSystem(System):
 		host, port = writer.transport.get_extra_info('peername')
 		peer_entity = self.env.data_storage.create_entity().add_component(PeerInfoEC(info_hash, PeerInfo(host, port)))
 
-		logger.info(f'peer {remote_peer_id} is connected to us')
+		logger.debug(f'peer {remote_peer_id} is connected to us')
 
 		torrent_entity = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)
 		if torrent_entity:
@@ -71,7 +71,10 @@ class PeerSystem(System):
 
 			await self._add_peer(peer_entity, remote_peer_id, reader, writer, reserved)
 		else:
-			logger.warning(f"no torrent for info hash [{info_hash}]. handshake: {result}")
+			# TODO: handle no torrent for info hash
+			# logger.warning(f"no torrent for info hash [{info_hash}]. handshake: {result}")
+			writer.close()
+			pass
 
 	async def _update(self, delta_time: float):
 		ds = self.env.data_storage
@@ -154,12 +157,12 @@ async def _listen(env: Env, peer_entity: Entity) -> None:
 	peer_id = connection.remote_peer_id
 	try:
 		while not connection.is_dead():
-			# read next message
+			# read the next message
 			message, error = await connection.read()
 
-			# in case of error just log and exit
+			# in case of error, just log and exit
 			if error:
-				logger.error(error)
+				logger.debug(error)
 				break
 			# process messages
 			elif message:

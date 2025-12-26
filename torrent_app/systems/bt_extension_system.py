@@ -32,7 +32,7 @@ class BTExtensionSystem(System):
 		# ext id = 0 is a handshake message
 		if ext_id == 0:
 			peer_id = peer_connection_ec.connection.remote_peer_id
-			logger.info(f"Got extension handshake {payload} from peer {peer_id}")
+			logger.debug(f"Got extension handshake {payload} from peer {peer_id}")
 
 			remote_ext_to_id = payload.get("m", {})
 			peer_entity.add_component(PeerExtensionsEC(remote_ext_to_id))
