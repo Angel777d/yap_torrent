@@ -14,7 +14,9 @@ router = APIRouter(
 @router.get("/")
 async def read_users():
 	ds = get_env().data_storage
-	return [{"hash_info": str(e.get_component(TorrentHashEC).info_hash)} for e in ds.get_collection(TorrentHashEC).entities]
+	return [{"hash_info": str(e.get_component(TorrentHashEC).info_hash)} for e in
+	        ds.get_collection(TorrentHashEC).entities]
+
 
 @router.get("/{hash_info}")
 async def read_user(hash_info: str):

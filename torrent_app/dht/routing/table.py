@@ -26,10 +26,10 @@ class DHTRoutingTable:
 		return self.buckets[0]
 
 	def _cleanup(self, bucket: DHTBucket):
-		to_remove = list(node_id for node_id in bucket.nodes if self.nodes[node_id].get_state() == DHTNodeState.BAD)
-		for node_id in to_remove:
-			bucket.nodes.remove(node_id)
-			del self.nodes[node_id]
+		for node_id in bucket.nodes:
+			if self.nodes[node_id].get_state() == DHTNodeState.BAD:
+				bucket.nodes.remove(node_id)
+				del self.nodes[node_id]
 
 	def touch(self, node_id: bytes, host: str, port: int) -> bool:
 		if node_id in self.nodes:

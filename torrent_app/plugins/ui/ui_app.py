@@ -1,4 +1,4 @@
-from asyncio import AbstractEventLoop, Task
+from asyncio import AbstractEventLoop
 from typing import Optional
 
 from textual.app import App, ComposeResult

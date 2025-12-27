@@ -6,7 +6,7 @@ from typing import Optional, Callable, TypeVar, TypeVarTuple
 from angelovichcore.DataStorage import Entity
 from torrent_app import Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import KnownPeersEC, PeerConnectionEC, PeerInfoEC
+from torrent_app.components.peer_ec import KnownPeersEC, PeerConnectionEC, PeerInfoEC, PeerDisconnectedEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentPathEC, ValidateTorrentEC
 from torrent_app.protocol import TorrentInfo
 
@@ -23,8 +23,8 @@ def disconnect_all_peers_for(env: Env, info_hash: bytes):
 	for peer_entity in all_connected_peers:
 		# find peers for this torrent
 		if peer_entity.get_component(PeerInfoEC).info_hash == info_hash:
-			# remove peer
-			env.data_storage.remove_entity(peer_entity)
+			peer_entity.get_component(PeerConnectionEC).disconnect()
+			peer_entity.add_component(PeerDisconnectedEC())
 
 
 def create_torrent_entity(

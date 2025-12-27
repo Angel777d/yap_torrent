@@ -52,7 +52,12 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 		async with asyncio.timeout(timeout):
 			reader, writer = await asyncio.open_connection(peer_info.host, peer_info.port, local_addr=local_addr)
 	except TimeoutError:
-		logger.debug(f"Connection to {peer_info} Failed")
+		logger.debug(f"Connection to {peer_info} failed by timeout")
+		writer.close()
+		return None
+	except Exception as ex:
+		logger.error(f"TODO: Connection to {peer_info} failed by {ex}")
+		writer.close()
 		return None
 
 	message = __create_handshake_message(info_hash, local_peer_id, reserved)
@@ -64,8 +69,16 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 		async with asyncio.timeout(timeout):
 			handshake_response = await __read_handshake_message(reader)
 	except TimeoutError:
-		logger.debug(f"Handshake to {peer_info} Failed")
+		logger.debug(f"Handshake to {peer_info} failed by timeout")
 		writer.close()
+		return None
+	except IncompleteReadError:
+		logger.debug(f"Peer {peer_info} closed the connection.")
+		writer.close()
+		return None
+	except OSError as ex:
+		# looks like simple connectin lost.
+		logger.debug(f"OSError on {peer_info}. Exception {ex}")
 		return None
 	except Exception as ex:
 		logger.error(f"Handshake to {peer_info} failed by {ex}")
@@ -126,14 +139,15 @@ class Connection:
 		self.writer: StreamWriter = writer
 
 	def is_dead(self) -> bool:
-		return time.monotonic() - self.last_message_time > self.timeout
+		is_timeout = time.monotonic() - self.last_message_time > self.timeout
+		return self.reader.at_eof() or self.writer.is_closing() or is_timeout
 
 	def close(self) -> None:
-		logger.debug(f"Close connection {self.remote_peer_id}")
+		logger.debug(f"Close connection to {self.remote_peer_id}")
 		self.last_message_time = .0
 		self.writer.close()
 
-	async def read(self) -> tuple[Optional[Message], str]:
+	async def read(self, message_callback) -> bool:
 		try:
 			buffer = await self.reader.readexactly(4)
 			length = struct.unpack("!I", buffer)[0]
@@ -141,15 +155,25 @@ class Connection:
 			if length:
 				buffer = await self.reader.readexactly(length)
 				self.last_message_time = time.monotonic()
-				return Message(buffer), ""
+				message_callback(Message(buffer))
+				return True
 			else:
 				self.last_message_time = time.monotonic()
-				return None, ""  # KEEP ALIVE
+				return True  # KEEP ALIVE
 
 		except IncompleteReadError as ex:
-			return None, f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}"
+			logger.debug(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
+			return False
 		except ConnectionResetError as ex:
-			return None, f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}"
+			logger.debug(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
+			return False
+		except OSError as ex:
+			# looks like simple connectin lost.
+			logger.debug(f"OSError on {self.remote_peer_id}. Exception {ex}")
+			return False
+		except Exception as ex:
+			logger.error(f"Unexpected error on {self.remote_peer_id}. Exception {ex}")
+			return False
 
 	async def keep_alive(self) -> None:
 		if time.monotonic() - self.last_out_time < 10:
