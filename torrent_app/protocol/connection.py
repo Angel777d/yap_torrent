@@ -52,10 +52,12 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 		async with asyncio.timeout(timeout):
 			reader, writer = await asyncio.open_connection(peer_info.host, peer_info.port, local_addr=local_addr)
 	except TimeoutError:
-		logger.debug(f"Connection to {peer_info} Failed")
+		logger.debug(f"Connection to {peer_info} failed by timeout")
+		writer.close()
 		return None
 	except Exception as ex:
 		logger.error(f"TODO: Connection to {peer_info} failed by {ex}")
+		writer.close()
 		return None
 
 	message = __create_handshake_message(info_hash, local_peer_id, reserved)
@@ -67,8 +69,16 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 		async with asyncio.timeout(timeout):
 			handshake_response = await __read_handshake_message(reader)
 	except TimeoutError:
-		logger.debug(f"Handshake to {peer_info} Failed")
+		logger.debug(f"Handshake to {peer_info} failed by timeout")
 		writer.close()
+		return None
+	except IncompleteReadError:
+		logger.debug(f"Peer {peer_info} closed the connection.")
+		writer.close()
+		return None
+	except OSError as ex:
+		# looks like simple connectin lost.
+		logger.debug(f"OSError on {peer_info}. Exception {ex}")
 		return None
 	except Exception as ex:
 		logger.error(f"Handshake to {peer_info} failed by {ex}")
@@ -152,10 +162,14 @@ class Connection:
 				return True  # KEEP ALIVE
 
 		except IncompleteReadError as ex:
-			logger.warning(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
+			logger.debug(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
 			return False
 		except ConnectionResetError as ex:
-			logger.warning(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
+			logger.debug(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
+			return False
+		except OSError as ex:
+			# looks like simple connectin lost.
+			logger.debug(f"OSError on {self.remote_peer_id}. Exception {ex}")
 			return False
 		except Exception as ex:
 			logger.error(f"Unexpected error on {self.remote_peer_id}. Exception {ex}")

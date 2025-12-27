@@ -170,7 +170,7 @@ class DHTClientProtocol(DatagramProtocol):
 		logger.debug(f"Error received: {exc}")
 
 	def connection_lost(self, exc):
-		logger.warning("Connection closed")
+		logger.debug("Connection closed")
 		self.on_con_lost.set_result(True)
 
 

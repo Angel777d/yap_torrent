@@ -169,7 +169,7 @@ async def _read_messages(env, torrent_entity: Entity, peer_entity: Entity):
 	# main peer loop
 	while True:
 		if connection.is_dead():
-			logger.info(f"Peer diconnected by other side or timeout")
+			logger.debug("Peer diconnected by other side or timeout")
 			break
 
 		# read the next message. break if no message
