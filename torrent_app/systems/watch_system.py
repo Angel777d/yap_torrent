@@ -5,7 +5,7 @@ from shutil import move
 
 from torrent_app import System, Env
 from torrent_app.components.torrent_ec import ValidateTorrentEC, TorrentHashEC, SaveTorrentEC
-from torrent_app.components.tracker_ec import TorrentTrackerDataEC
+from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from torrent_app.protocol import load_torrent_file
 from torrent_app.systems import create_torrent_entity
 
@@ -51,12 +51,19 @@ class WatcherSystem(System):
 					continue
 
 				# create a new torrent entity
-				torrent_entity = create_torrent_entity(self.env, info_hash, torrent_file_data.info)
+				path = Path(self.env.config.download_folder)
+				torrent_entity = create_torrent_entity(self.env, info_hash, path, {}, torrent_file_data.info)
+
 				# add tracker info
-				torrent_entity.add_component(TorrentTrackerDataEC(torrent_file_data.announce_list))
+				announce_list = torrent_file_data.announce_list
+				if announce_list:
+					torrent_entity.add_component(TorrentTrackerEC(announce_list))
+					torrent_entity.add_component(TorrentTrackerDataEC())
+
 				# save torrent to local data
 				torrent_entity.add_component(SaveTorrentEC())
-				# mark for validation
+
+				# mark for files validation in case there are already downloaded files
 				torrent_entity.add_component(ValidateTorrentEC())
 
 				logger.info(f"New torrent added from {file_path}")

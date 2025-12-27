@@ -1,8 +1,9 @@
 import logging
+from pathlib import Path
 
 from torrent_app import System
 from torrent_app.components.torrent_ec import SaveTorrentEC
-from torrent_app.components.tracker_ec import TorrentTrackerDataEC
+from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from torrent_app.protocol.magnet import MagnetInfo
 from torrent_app.systems import create_torrent_entity
 
@@ -25,9 +26,11 @@ class MagnetSystem(System):
 			logger.info(f"magnet: {value} is invalid")
 			return
 
-		torrent_entity = create_torrent_entity(self.env, magnet.info_hash)
+		path = Path(self.env.config.download_folder)
+		torrent_entity = create_torrent_entity(self.env, magnet.info_hash, path, {})
 		if magnet.trackers:
-			torrent_entity.add_component(TorrentTrackerDataEC([magnet.trackers]))
+			torrent_entity.add_component(TorrentTrackerEC([magnet.trackers]))
+			torrent_entity.add_component(TorrentTrackerDataEC())
 		# save torrent to local data
 		torrent_entity.add_component(SaveTorrentEC())
 

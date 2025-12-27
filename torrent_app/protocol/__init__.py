@@ -12,7 +12,7 @@ def load_torrent_file(path) -> Optional[TorrentFileInfo]:
 		with open(path, "rb") as f:
 			data = decode(f.read())
 	except Exception as ex:
-		logger.warning(f"wrong torrent file format. exception: {ex}")
+		logger.error(f"wrong torrent '{path}' file format. exception: {ex}")
 		return None
 
 	return TorrentFileInfo(data)
