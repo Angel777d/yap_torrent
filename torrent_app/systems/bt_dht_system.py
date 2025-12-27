@@ -119,7 +119,6 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 			self.add_task(self._find_peers(info_hash))
 		return await System._update(self, delta_time)
 
-
 	async def __on_peer_connected(self, _: Entity, peer_entity: Entity) -> None:
 		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
 		reserved = peer_connection_ec.reserved

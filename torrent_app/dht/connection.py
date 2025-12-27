@@ -170,7 +170,7 @@ class DHTClientProtocol(DatagramProtocol):
 		logger.debug(f"Error received: {exc}")
 
 	def connection_lost(self, exc):
-		logger.debug("Connection closed")
+		logger.warning("Connection closed")
 		self.on_con_lost.set_result(True)
 
 
@@ -208,10 +208,10 @@ async def announce_peer(
 		implied_port: int = 0,
 ) -> Optional[KRPCMessage]:
 	args: Dict[str, Any] = {
-			"id": node_id,
-			"info_hash": info_hash,
-			"token": token,
-		}
+		"id": node_id,
+		"info_hash": info_hash,
+		"token": token,
+	}
 
 	if implied_port:
 		args["implied_port"] = 1
@@ -258,5 +258,3 @@ async def ping(node_id: bytes, host: str, port: int) -> Optional[KRPCMessage]:
 			"id": node_id,
 		}
 	}, host, port)
-
-

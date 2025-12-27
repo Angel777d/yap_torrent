@@ -54,6 +54,9 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 	except TimeoutError:
 		logger.debug(f"Connection to {peer_info} Failed")
 		return None
+	except Exception as ex:
+		logger.error(f"TODO: Connection to {peer_info} failed by {ex}")
+		return None
 
 	message = __create_handshake_message(info_hash, local_peer_id, reserved)
 	logger.debug(f"Send handshake to: {peer_info}, message: {message}")
@@ -126,14 +129,15 @@ class Connection:
 		self.writer: StreamWriter = writer
 
 	def is_dead(self) -> bool:
-		return time.monotonic() - self.last_message_time > self.timeout
+		is_timeout = time.monotonic() - self.last_message_time > self.timeout
+		return self.reader.at_eof() or self.writer.is_closing() or is_timeout
 
 	def close(self) -> None:
-		logger.debug(f"Close connection {self.remote_peer_id}")
+		logger.debug(f"Close connection to {self.remote_peer_id}")
 		self.last_message_time = .0
 		self.writer.close()
 
-	async def read(self) -> tuple[Optional[Message], str]:
+	async def read(self, message_callback) -> bool:
 		try:
 			buffer = await self.reader.readexactly(4)
 			length = struct.unpack("!I", buffer)[0]
@@ -141,15 +145,21 @@ class Connection:
 			if length:
 				buffer = await self.reader.readexactly(length)
 				self.last_message_time = time.monotonic()
-				return Message(buffer), ""
+				message_callback(Message(buffer))
+				return True
 			else:
 				self.last_message_time = time.monotonic()
-				return None, ""  # KEEP ALIVE
+				return True  # KEEP ALIVE
 
 		except IncompleteReadError as ex:
-			return None, f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}"
+			logger.warning(f"IncompleteReadError on {self.remote_peer_id}. Exception {ex}")
+			return False
 		except ConnectionResetError as ex:
-			return None, f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}"
+			logger.warning(f"ConnectionResetError on {self.remote_peer_id}. Exception {ex}")
+			return False
+		except Exception as ex:
+			logger.error(f"Unexpected error on {self.remote_peer_id}. Exception {ex}")
+			return False
 
 	async def keep_alive(self) -> None:
 		if time.monotonic() - self.last_out_time < 10:

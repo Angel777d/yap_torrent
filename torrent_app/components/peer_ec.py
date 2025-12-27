@@ -49,9 +49,13 @@ class PeerConnectionEC(EntityComponent):
 		# TODO: move queue size to config
 		self.__queue_size: int = queue_size
 
-	def _reset(self):
-		self.connection.close()
+	def disconnect(self):
 		self.task.cancel()
+		self.connection.close()
+
+	def _reset(self):
+		self.task.cancel()
+		self.connection.close()
 
 		super()._reset()
 
@@ -110,9 +114,14 @@ class KnownPeersEC(EntityComponent):
 		self.peers.update(peers)
 		return self
 
+
 class KnownPeersUpdateEC(EntityComponent):
 	pass
 
 
 class PeerPendingEC(EntityComponent):
+	pass
+
+
+class PeerDisconnectedEC(EntityComponent):
 	pass

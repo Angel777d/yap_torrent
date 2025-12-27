@@ -62,6 +62,7 @@ class TrackerAnnounceResponse:
 	def warning_message(self) -> str:
 		return self.__tracker_response.get("warning message", b'').decode("utf-8")
 
+
 class Pieces:
 	def __init__(self, piece_length: int, pieces: bytes):
 		self.__piece_length: int = piece_length
@@ -175,7 +176,6 @@ class TorrentFileInfo:
 
 	def is_valid(self) -> bool:
 		return len(self.__info_hash) > 0
-
 
 	@property
 	def info_hash(self) -> bytes:
