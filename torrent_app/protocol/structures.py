@@ -184,8 +184,15 @@ class TorrentFileInfo:
 	# announce: The announcement URL of the tracker (string)
 	# announce-list: (optional) this is an extension to the official specification, offering backwards-compatibility. (list of lists of strings).
 	@property
-	def announce_list(self) -> List[List[bytes]]:
-		return self.__data.get('announce-list', [[self.__data.get("announce", b"WTF")]])
+	def announce_list(self) -> List[List[str]]:
+		if 'announce-list' in self.__data:
+			result: List[List[str]] = []
+			for tier in self.__data['announce-list']:
+				result.append([announce.decode("utf-8") for announce in tier])
+			return result
+		elif 'announce' in self.__data:
+			return [[self.__data["announce"].decode("utf-8")]]
+		return []
 
 	# creation date: (optional) the creation time of the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
 	@property

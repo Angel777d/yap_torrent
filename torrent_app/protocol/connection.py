@@ -53,11 +53,9 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 			reader, writer = await asyncio.open_connection(peer_info.host, peer_info.port, local_addr=local_addr)
 	except TimeoutError:
 		logger.debug(f"Connection to {peer_info} failed by timeout")
-		writer.close()
 		return None
 	except Exception as ex:
 		logger.error(f"TODO: Connection to {peer_info} failed by {ex}")
-		writer.close()
 		return None
 
 	message = __create_handshake_message(info_hash, local_peer_id, reserved)
@@ -105,6 +103,9 @@ async def on_connect(
 	except TimeoutError:
 		logger.debug(f"Incoming handshake timeout error")
 		writer.close()
+		return None
+	except ConnectionResetError as ex:
+		logger.debug(f"Incoming handshake connection error {ex}")
 		return None
 	except Exception as ex:
 		logger.error(f"Incoming handshake unexpected error {ex}")
@@ -187,5 +188,7 @@ class Connection:
 			self.writer.write(struct.pack("!I", len(message)))
 			self.writer.write(message)
 			await self.writer.drain()
+		except ConnectionResetError as ex:
+			logger.debug(f"Connection lost {ex}")
 		except Exception as ex:
-			logger.warning(f"got send error on {self.remote_peer_id}: {ex}")
+			logger.error(f"got send error on {self.remote_peer_id}: {ex}")

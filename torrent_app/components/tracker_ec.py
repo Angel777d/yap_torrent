@@ -1,33 +1,33 @@
+import random
 import time
-from typing import List
+from typing import List, Dict, Any
 
 from angelovichcore.DataStorage import EntityComponent
-from torrent_app.protocol.structures import TrackerAnnounceResponse, PeerInfo
+from torrent_app.protocol.structures import TrackerAnnounceResponse
 
 
-class SaveData:
-	def __init__(self) -> None:
-		self.tracker_id: bytes = b''
-		self.last_update_time: float = 0
-		self.interval: float = 0
-		self.min_interval: float = 0
-		self.peers: tuple[PeerInfo, ...] = tuple()
-		self.uploaded: int = 0
-		self.announce_list: List[List[bytes]] = []
+class TorrentTrackerEC(EntityComponent):
+	def __init__(self, announce_list: List[List[str]]):
+		super().__init__()
+
+		self.announce_list: List[List[str]] = announce_list
+
+		# according to https://bittorrent.org/beps/bep_0012.html
+		for announce_tier in self.announce_list:
+			random.shuffle(announce_tier)
 
 
 class TorrentTrackerDataEC(EntityComponent):
-	def __init__(self, announce_list: List[List[bytes]]):
+	def __init__(self, **kwargs):
 		super().__init__()
 
-		self.announce_list: List = announce_list
+		self.last_update_time: float = kwargs.get("last_update_time", 0)
+		self.interval: float = kwargs.get("interval", 0)
+		self.min_interval: float = kwargs.get("min_interval", 0)
+		self.tracker_id: bytes = kwargs.get("tracker_id", b'')
 
-		self.last_update_time: float = 0
-		self.interval: float = 0
-		self.min_interval: float = 0
-		self.tracker_id: bytes = b''
-
-		self.uploaded = 0
+		self.failure_reason: str = ""
+		self.warning_message: str = ""
 
 	def save_announce(self, response: TrackerAnnounceResponse):
 		self.last_update_time = time.monotonic()
@@ -35,23 +35,13 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.min_interval = response.min_interval
 		self.tracker_id = response.tracker_id
 
-	def update_uploaded(self, length: int) -> None:
-		self.uploaded += length
+		self.failure_reason = response.failure_reason
+		self.warning_message = response.warning_message
 
-	def import_save(self, data: SaveData):
-		self.tracker_id = data.tracker_id
-		self.last_update_time = data.last_update_time
-		self.interval = data.interval
-		self.min_interval = data.min_interval
-		self.uploaded = data.uploaded
-		return self
-
-	def export_save(self) -> SaveData:
-		result = SaveData()
-		result.tracker_id = self.tracker_id
-		result.last_update_time = self.last_update_time
-		result.interval = self.interval
-		result.min_interval = self.min_interval
-		result.uploaded = self.uploaded
-		result.announce_list = self.announce_list
-		return result
+	def export(self) -> Dict[str, Any]:
+		return {
+			"tracker_id": self.tracker_id,
+			"last_update_time": self.last_update_time,
+			"interval": self.interval,
+			"min_interval": self.min_interval,
+		}

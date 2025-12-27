@@ -7,8 +7,7 @@ from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerConnectionEC, PeerInfoEC
 from torrent_app.components.piece_ec import PieceEC, PiecePendingRemoveEC
-from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC
-from torrent_app.components.tracker_ec import TorrentTrackerDataEC
+from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.connection import Message, Connection
 from torrent_app.utils import load_piece, check_hash
@@ -159,6 +158,7 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 	if begin in peer_connection_ec.get_blocks(index):
 		# add data to piece
 		piece_ec.append(begin, block)
+		torrent_entity.get_component(TorrentStatsEC).update_downloaded(len(block))
 
 		# remove block from connection queue
 		peer_connection_ec.reset_block(index, begin)
@@ -220,5 +220,5 @@ async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity
 
 	data = piece_ec.get_block(begin, length)
 	piece_entity.get_component(PiecePendingRemoveEC).update()
-	torrent_entity.get_component(TorrentTrackerDataEC).update_uploaded(length)
+	torrent_entity.get_component(TorrentStatsEC).update_uploaded(length)
 	await connection.send(msg.piece(index, begin, data))
