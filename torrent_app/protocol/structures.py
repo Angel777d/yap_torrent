@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List, Generator, Tuple, Dict, Any, Iterable
 
 from torrent_app.protocol import encode
-from torrent_app.protocol.parser import decode
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,47 +42,6 @@ class FileInfo:
 		# path.utf-8 is not in BEP-03. But uses widely
 		path = data.get("path.utf-8", data.get("path", []))
 		return FileInfo(path, data.get("length", 0), data.get("md5sum", b''), start)
-
-
-class TrackerAnnounceResponse:
-	def __init__(self, response, compact: int = 1):
-		self.__compact: int = compact
-		self.__tracker_response: dict = decode(response)
-
-	@property
-	def interval(self) -> int:
-		return self.__tracker_response.get('interval', -1)
-
-	@property
-	def min_interval(self) -> int:
-		return self.__tracker_response.get('min interval', 60 * 30)
-
-	@property
-	def complete(self) -> int:
-		return self.__tracker_response.get('complete', 0)
-
-	@property
-	def incomplete(self) -> int:
-		return self.__tracker_response.get('incomplete', 0)
-
-	@property
-	def peers(self) -> tuple[PeerInfo, ...]:
-		peers: bytes = self.__tracker_response.get("peers", b'')
-		if self.__compact:
-			return tuple(PeerInfo.from_bytes(peers[i: i + 6]) for i in range(0, len(peers), 6))
-		raise NotImplementedError()
-
-	@property
-	def tracker_id(self) -> bytes:
-		return self.__tracker_response.get("tracker id", b'')
-
-	@property
-	def failure_reason(self) -> str:
-		return self.__tracker_response.get("failure reason", b'').decode("utf-8")
-
-	@property
-	def warning_message(self) -> str:
-		return self.__tracker_response.get("warning message", b'').decode("utf-8")
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,9 +145,6 @@ class TorrentFileInfo:
 	def info(self):
 		return TorrentInfo(self._data.get("info", {}))
 
-	def is_valid(self) -> bool:
-		return "info" in self._data
-
 	def make_info_hash(self) -> bytes:
 		return hashlib.sha1(self.info.get_metadata()).digest()
 
@@ -225,3 +180,44 @@ class TorrentFileInfo:
 	@property
 	def encoding(self):
 		return self._data.get("encoding")
+
+
+@dataclass(eq=False, frozen=True, slots=True)
+class TrackerAnnounceResponse:
+	_tracker_response: dict
+	_compact: int
+
+	@property
+	def interval(self) -> int:
+		return self._tracker_response.get('interval', -1)
+
+	@property
+	def min_interval(self) -> int:
+		return self._tracker_response.get('min interval', 60 * 30)
+
+	@property
+	def complete(self) -> int:
+		return self._tracker_response.get('complete', 0)
+
+	@property
+	def incomplete(self) -> int:
+		return self._tracker_response.get('incomplete', 0)
+
+	@property
+	def peers(self) -> tuple[PeerInfo, ...]:
+		peers: bytes = self._tracker_response.get("peers", b'')
+		if self._compact:
+			return tuple(PeerInfo.from_bytes(peers[i: i + 6]) for i in range(0, len(peers), 6))
+		raise NotImplementedError()
+
+	@property
+	def tracker_id(self) -> bytes:
+		return self._tracker_response.get("tracker id", b'')
+
+	@property
+	def failure_reason(self) -> str:
+		return self._tracker_response.get("failure reason", b'').decode("utf-8")
+
+	@property
+	def warning_message(self) -> str:
+		return self._tracker_response.get("warning message", b'').decode("utf-8")
