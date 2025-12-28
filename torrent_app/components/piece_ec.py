@@ -3,7 +3,7 @@ import time
 from typing import Hashable, Set
 
 from angelovichcore.DataStorage import EntityComponent
-from torrent_app.protocol.structures import PieceInfo, PieceBlock
+from torrent_app.protocol.structures import PieceInfo, PieceBlockInfo
 from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
@@ -61,13 +61,13 @@ class PieceBlocksEC(EntityComponent):
 		return PieceBlocksEC._BLOCK_SIZE
 
 	@staticmethod
-	def create_blocks(piece: PieceInfo) -> Set[PieceBlock]:
+	def create_blocks(piece: PieceInfo) -> Set[PieceBlockInfo]:
 		begin = 0
 		block_size = PieceBlocksEC._block_size()
-		result: Set[PieceBlock] = set()
+		result: Set[PieceBlockInfo] = set()
 		while begin < piece.size:
 			result.add(
-				PieceBlock(piece.index, begin, PieceBlocksEC._calculate_block_size(piece.size, begin)))
+				PieceBlockInfo(piece.index, begin, PieceBlocksEC._calculate_block_size(piece.size, begin)))
 			begin += block_size
 		return result
 
@@ -78,7 +78,7 @@ class PieceBlocksEC(EntityComponent):
 			return size % block_size
 		return block_size
 
-	def add_block(self, block: PieceBlock, data: bytes) -> bool:
+	def add_block(self, block: PieceBlockInfo, data: bytes) -> bool:
 		# basic validation of block
 		if block.length != len(data):
 			logger.warning(f"Invalid {block} length.")

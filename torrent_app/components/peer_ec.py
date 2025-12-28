@@ -5,7 +5,7 @@ from typing import Hashable, Set, Iterable, Optional
 from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.connection import Connection
-from torrent_app.protocol.structures import PeerInfo, PieceBlock
+from torrent_app.protocol.structures import PeerInfo, PieceBlockInfo
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class PeerConnectionEC(EntityComponent):
 		self.remote_choked = True
 		self.remote_interested = False
 
-		self.__in_progress: Set[PieceBlock] = set()
+		self.__in_progress: Set[PieceBlockInfo] = set()
 
 		# TODO: move queue size to config
 		self.__queue_size: int = queue_size
@@ -86,27 +86,27 @@ class PeerConnectionEC(EntityComponent):
 		await self.connection.send(msg.unchoke())
 		self.remote_choked = False
 
-	async def request(self, block: PieceBlock) -> None:
+	async def request(self, block: PieceBlockInfo) -> None:
 		self.__in_progress.add(block)
 		await self.connection.send(msg.request(block.index, block.begin, block.length))
 
-	async def cancel(self, block: PieceBlock) -> None:
+	async def cancel(self, block: PieceBlockInfo) -> None:
 		self.__in_progress.remove(block)
 		await self.connection.send(msg.cancel(block.index, block.begin, block.length))
 
-	def find_block(self, index, begin) -> Optional[PieceBlock]:
+	def find_block(self, index, begin) -> Optional[PieceBlockInfo]:
 		for block in self.__in_progress:
 			if block.index == index and block.begin == begin:
 				return block
 		return None
 
-	def complete(self, block: PieceBlock) -> None:
+	def complete(self, block: PieceBlockInfo) -> None:
 		self.__in_progress.remove(block)
 
 	def can_request(self) -> bool:
 		return len(self.__in_progress) < self.__queue_size
 
-	def reset_downloads(self) -> Set[PieceBlock]:
+	def reset_downloads(self) -> Set[PieceBlockInfo]:
 		result = self.__in_progress.copy()
 		self.__in_progress.clear()
 		return result

@@ -3,7 +3,7 @@ from typing import Hashable, Dict, Set, Iterable, Generator
 
 from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import TorrentInfo
-from torrent_app.protocol.structures import PieceBlock
+from torrent_app.protocol.structures import PieceBlockInfo
 
 
 class TorrentHashEC(EntityComponent):
@@ -54,10 +54,10 @@ class TorrentStatsEC(EntityComponent):
 class TorrentDownloadEC(EntityComponent):
 	def __init__(self):
 		super().__init__()
-		self._map: Dict[int, Set[PieceBlock]] = {}
-		self._in_progress: Set[PieceBlock] = set()
+		self._map: Dict[int, Set[PieceBlockInfo]] = {}
+		self._in_progress: Set[PieceBlockInfo] = set()
 
-	def _iter_blocks(self, interested_in: Set[int]) -> Generator[PieceBlock]:
+	def _iter_blocks(self, interested_in: Set[int]) -> Generator[PieceBlockInfo]:
 		keys = interested_in.intersection(set(self._map.keys()))
 		for key in keys:
 			for block in self._map[key]:
@@ -66,23 +66,23 @@ class TorrentDownloadEC(EntityComponent):
 	def new_pieces(self, interested_in: Set[int]) -> Set[int]:
 		return interested_in.difference(self._map.keys())
 
-	def add_blocks(self, blocks: Iterable[PieceBlock]):
+	def add_blocks(self, blocks: Iterable[PieceBlockInfo]):
 		for block in blocks:
 			self._map.setdefault(block.index, set()).add(block)
 
 	def has_blocks(self, interested_in: Set[int]) -> bool:
 		return any(self._iter_blocks(interested_in))
 
-	def next_block(self, interested_in: Set[int]) -> PieceBlock:
+	def next_block(self, interested_in: Set[int]) -> PieceBlockInfo:
 		block = next(self._iter_blocks(interested_in), None)
 		self._map[block.index].remove(block)
 		self._in_progress.add(block)
 		return block
 
-	def complete(self, block: PieceBlock):
+	def complete(self, block: PieceBlockInfo):
 		self._in_progress.remove(block)
 
-	def cancel(self, block: PieceBlock):
+	def cancel(self, block: PieceBlockInfo):
 		if block not in self._in_progress:
 			return
 		self._in_progress.remove(block)

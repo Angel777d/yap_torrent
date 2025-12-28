@@ -18,7 +18,7 @@ class PeerInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class PieceBlock:
+class PieceBlockInfo:
 	index: int
 	begin: int
 	length: int
