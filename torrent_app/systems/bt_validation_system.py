@@ -75,7 +75,6 @@ def _check_torrent(torrent_info: TorrentInfo, download_path: Path) -> Set[int]:
 		try:
 			path = torrent_info.get_file_path(download_path, file)
 			if not path.exists():
-				logger.debug(f"File {path} does not exist. skipping")
 				buffer.clear()
 				continue
 
@@ -97,10 +96,7 @@ def _check_torrent(torrent_info: TorrentInfo, download_path: Path) -> Set[int]:
 						continue
 
 					if check_hash(bytes(buffer), torrent_info.pieces.get_piece_hash(index)):
-						logger.debug(f"piece {index} is YES")
 						bitfield_data.add(index)
-					else:
-						logger.debug(f"piece {index} is NO")
 
 					buffer.clear()
 					index += 1

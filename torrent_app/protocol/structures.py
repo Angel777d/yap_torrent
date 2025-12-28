@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Generator, Tuple
 
@@ -6,16 +7,10 @@ from torrent_app.protocol import encode
 from torrent_app.protocol.parser import decode
 
 
+@dataclass(unsafe_hash=True)
 class PeerInfo:
-	def __init__(self, host: str, port: int) -> None:
-		self.host: str = host
-		self.port: int = port
-
-	def __repr__(self):
-		return self.__str__()
-
-	def __str__(self):
-		return f'PeerInfo: {self.host}:{self.port}'
+	host: str
+	port: int
 
 	@classmethod
 	def from_bytes(cls, data: bytes) -> "PeerInfo":
@@ -213,3 +208,21 @@ class TorrentFileInfo:
 	@property
 	def encoding(self):
 		return self.__data.get("encoding")
+
+
+@dataclass(unsafe_hash=True)
+class PieceBlock:
+	index: int
+	begin: int
+	length: int
+
+
+@dataclass
+class PieceInfo:
+	size: int
+	index: int
+	piece_hash: bytes
+
+	@staticmethod
+	def from_torrent(info: TorrentInfo, index: int) -> "PieceInfo":
+		return PieceInfo(info.calculate_piece_size(index), index, info.pieces.get_piece_hash(index))

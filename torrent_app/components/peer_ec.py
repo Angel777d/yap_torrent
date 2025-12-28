@@ -1,11 +1,11 @@
 import logging
 from asyncio import Task
-from typing import Hashable, Set, Tuple, Iterable
+from typing import Hashable, Set, Iterable, Optional
 
 from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.connection import Connection
-from torrent_app.protocol.structures import PeerInfo
+from torrent_app.protocol.structures import PeerInfo, PieceBlock
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +23,14 @@ class PeerInfoEC(EntityComponent):
 
 	@staticmethod
 	def make_hash(info_hash: bytes, peer_info: PeerInfo) -> Hashable:
-		return f"{peer_info}_{info_hash}"
+		return peer_info, info_hash
 
 	def get_hash(self) -> Hashable:
 		return self.make_hash(self.info_hash, self.peer_info)
 
 
 class PeerConnectionEC(EntityComponent):
-	def __init__(self, connection: Connection, reserved: bytes, queue_size: int = 10) -> None:
+	def __init__(self, connection: Connection, reserved: bytes, queue_size: int = 15) -> None:
 		super().__init__()
 
 		self.connection: Connection = connection
@@ -45,7 +45,8 @@ class PeerConnectionEC(EntityComponent):
 		self.remote_choked = True
 		self.remote_interested = False
 
-		self.__in_progress: Set[Tuple[int, int]] = set()
+		self.__in_progress: Set[PieceBlock] = set()
+
 		# TODO: move queue size to config
 		self.__queue_size: int = queue_size
 
@@ -85,25 +86,33 @@ class PeerConnectionEC(EntityComponent):
 		await self.connection.send(msg.unchoke())
 		self.remote_choked = False
 
-	async def request(self, index: int, begin: int, length: int) -> None:
-		self.__in_progress.add((index, begin))
-		await self.connection.send(msg.request(index, begin, length))
+	async def request(self, block: PieceBlock) -> None:
+		self.__in_progress.add(block)
+		await self.connection.send(msg.request(block.index, block.begin, block.length))
 
-	def get_blocks(self, index: int) -> Set[int]:
-		return set(block[1] for block in self.__in_progress if block[0] == index)
+	async def cancel(self, block: PieceBlock) -> None:
+		self.__in_progress.remove(block)
+		await self.connection.send(msg.cancel(block.index, block.begin, block.length))
+
+	def find_block(self, index, begin) -> Optional[PieceBlock]:
+		for block in self.__in_progress:
+			if block.index == index and block.begin == begin:
+				return block
+		return None
+
+	def complete(self, block: PieceBlock) -> None:
+		self.__in_progress.remove(block)
 
 	def can_request(self) -> bool:
 		return len(self.__in_progress) < self.__queue_size
 
-	def reset_block(self, index, begin) -> None:
-		try:
-			self.__in_progress.remove((index, begin))
-		except KeyError as ex:
-			print(ex)
+	def reset_downloads(self) -> Set[PieceBlock]:
+		result = self.__in_progress.copy()
+		self.__in_progress.clear()
+		return result
 
-	def is_free_to_download(self) -> bool:
-		return not self.__in_progress
-
+	def __repr__(self):
+		return f"Peer [{self.connection.remote_peer_id}]"
 
 class KnownPeersEC(EntityComponent):
 	def __init__(self):

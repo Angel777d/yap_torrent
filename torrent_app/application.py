@@ -7,12 +7,15 @@ import torrent_app.plugins as plugins
 from torrent_app import Env, System, Config, upnp
 from torrent_app.plugins import TorrentPlugin
 from torrent_app.systems.announce_system import AnnounceSystem
+from torrent_app.systems.bt_choke_system import BTChokeSystem
 from torrent_app.systems.bt_dht_system import BTDHTSystem
+from torrent_app.systems.bt_download_system import BTDownloadSystem
 from torrent_app.systems.bt_ext_metadata_system import BTExtMetadataSystem
 from torrent_app.systems.bt_extension_system import BTExtensionSystem
+from torrent_app.systems.bt_intrest_system import BTInterestedSystem
 from torrent_app.systems.bt_local_data_system import LocalDataSystem
 from torrent_app.systems.bt_magnet_system import MagnetSystem
-from torrent_app.systems.bt_main_system import BTMainSystem
+from torrent_app.systems.bt_upload_system import BTUploadSystem
 from torrent_app.systems.bt_validation_system import ValidationSystem
 from torrent_app.systems.peer_system import PeerSystem
 from torrent_app.systems.piece_system import PieceSystem
@@ -51,7 +54,10 @@ class Application:
 		env = Env(create_peer_id(), ip, external_ip, config)
 		self.systems: List[System] = [
 			PeerSystem(env),
-			BTMainSystem(env),
+			BTChokeSystem(env),
+			BTInterestedSystem(env),
+			BTDownloadSystem(env),
+			BTUploadSystem(env),
 			PieceSystem(env),
 			ValidationSystem(env),
 			BTExtensionSystem(env),
