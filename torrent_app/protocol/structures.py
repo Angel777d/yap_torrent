@@ -1,13 +1,13 @@
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Generator, Tuple
+from typing import List, Generator, Tuple, Dict, Any, Iterable
 
 from torrent_app.protocol import encode
 from torrent_app.protocol.parser import decode
 
 
-@dataclass(unsafe_hash=True)
+@dataclass(frozen=True, slots=True)
 class PeerInfo:
 	host: str
 	port: int
@@ -15,6 +15,34 @@ class PeerInfo:
 	@classmethod
 	def from_bytes(cls, data: bytes) -> "PeerInfo":
 		return PeerInfo(f"{data[0]}.{data[1]}.{data[2]}.{data[3]}", int.from_bytes(data[4:], "big"))
+
+
+@dataclass(frozen=True, slots=True)
+class PieceBlock:
+	index: int
+	begin: int
+	length: int
+
+
+@dataclass(frozen=True, slots=True)
+class PieceInfo:
+	size: int
+	index: int
+	piece_hash: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class FileInfo:
+	path: List[bytes]
+	length: int
+	md5sum: bytes
+	start: int = 0
+
+	@classmethod
+	def from_dict(cls, data: dict, start: int):
+		# path.utf-8 is not in BEP-03. But uses widely
+		path = data.get("path.utf-8", data.get("path", []))
+		return FileInfo(path, data.get("length", 0), data.get("md5sum", b''), start)
 
 
 class TrackerAnnounceResponse:
@@ -58,44 +86,12 @@ class TrackerAnnounceResponse:
 		return self.__tracker_response.get("warning message", b'').decode("utf-8")
 
 
-class Pieces:
-	def __init__(self, piece_length: int, pieces: bytes):
-		self.__piece_length: int = piece_length
-		self.__pieces: bytes = pieces
-
-	def get_piece_hash(self, index: int) -> bytes:
-		return self.__pieces[index * 20:(index + 1) * 20]
-
-	@property
-	def num(self) -> int:
-		# pieces: string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e., not urlencoded)
-		return int(len(self.__pieces) / 20)
-
-	@property
-	def piece_length(self) -> int:
-		return self.__piece_length
-
-
-class FileInfo:
-	def __init__(self, path: List[bytes], length: int, md5sum: bytes, start: int = 0):
-		self.path: List[bytes] = path
-		self.length: int = length
-		self.md5sum: bytes = md5sum
-		self.start: int = start
-
-	@classmethod
-	def from_dict(cls, data: dict, start: int):
-		# path.utf-8 is not in BEP-03. But uses widely
-		path = data.get("path.utf-8", data.get("path", []))
-		return FileInfo(path, data.get("length", 0), data.get("md5sum", b''), start)
-
-
+@dataclass(frozen=True, slots=True)
 class TorrentInfo:
-	def __init__(self, info: dict) -> None:
-		self.__info: dict = info
+	_data: Dict[str, Any]
 
 	def get_metadata(self) -> bytes:
-		return encode(self.__info)
+		return encode(self._data)
 
 	@property
 	def name(self) -> str:
@@ -103,7 +99,8 @@ class TorrentInfo:
 
 	@property
 	def raw_name(self) -> bytes:
-		return self.__info.get('name.utf-8', self.__info.get("name", b''))
+		# name.utf-8 is not in BEP-03. But uses widely
+		return self._data.get('name.utf-8', self._data.get("name", b''))
 
 	@staticmethod
 	def __files_generator(files_field: List[dict]):
@@ -114,30 +111,49 @@ class TorrentInfo:
 			start += info.length
 
 	@property
-	def files(self) -> tuple[FileInfo]:
-		files_field: List[dict] = self.__info.get('files', [])
+	def files(self) -> Iterable[FileInfo]:
+		files_field: List[dict] = self._data.get('files', [])
 		if files_field:
-			return *(self.__files_generator(files_field)),
+			return tuple(self.__files_generator(files_field))
 		else:
-			return (FileInfo([self.raw_name], self.__info.get("length", 0), self.__info.get("md5sum", b'')),)
+			return [FileInfo([self.raw_name], self._data.get("length", 0), self._data.get("md5sum", b''))]
+
+	def get_file_path(self, root: Path, file: FileInfo) -> Path:
+		# add folder for multifile protocol
+		path = root.joinpath(self.name) if 'files' in self._data else root
+		for file_path in file.path:
+			path = path.joinpath(file_path.decode("utf-8"))
+		return path
 
 	@property
 	def size(self) -> int:
 		return sum(f.length for f in self.files)
 
-	@property
-	def pieces(self) -> Pieces:
-		return Pieces(self.__info.get('piece length', 1), self.__info.get('pieces', b""))
+	def calculate_downloaded(self, pieces_num):
+		downloaded = pieces_num * self.piece_length
+		return min(downloaded, self.size) / self.size
 
-	def get_file_path(self, root: Path, file: FileInfo) -> Path:
-		# add folder for multifile protocol
-		path = root.joinpath(self.name) if 'files' in self.__info else root
-		for file_path in file.path:
-			path = path.joinpath(file_path.decode("utf-8"))
-		return path
+	@property
+	def _pieces(self) -> bytes:
+		return self._data.get('pieces', b"")
+
+	@property
+	def piece_length(self) -> int:
+		return self._data.get('piece length', 0)
+
+	@property
+	def pieces_num(self) -> int:
+		# pieces: string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e., not urlencoded)
+		return int(len(self._pieces) / 20)
+
+	def get_piece_hash(self, index: int) -> bytes:
+		return self._pieces[index * 20:(index + 1) * 20]
+
+	def get_piece_info(self, index: int) -> PieceInfo:
+		return PieceInfo(self.calculate_piece_size(index), index, self.get_piece_hash(index))
 
 	def calculate_piece_size(self, index: int) -> int:
-		piece_length = self.pieces.piece_length
+		piece_length = self.piece_length
 		torrent_full_size = self.size
 		if (index + 1) * piece_length > torrent_full_size:
 			size = torrent_full_size % piece_length
@@ -146,7 +162,7 @@ class TorrentInfo:
 		return size
 
 	def piece_to_files(self, index: int) -> Generator[Tuple[FileInfo, int, int]]:
-		piece_length = self.pieces.piece_length
+		piece_length = self.piece_length
 		piece_start = index * piece_length
 		piece_end = piece_start + self.calculate_piece_size(index)
 		for file in self.files:
@@ -163,66 +179,49 @@ class TorrentInfo:
 			yield file, start_pos, end_pos
 
 
+@dataclass(frozen=True, slots=True)
 class TorrentFileInfo:
-	def __init__(self, data: dict):
-		self.__data = data
-		self.info = TorrentInfo(self.__data.get("info", {}))
-		self.__info_hash = hashlib.sha1(self.info.get_metadata()).digest()
-
-	def is_valid(self) -> bool:
-		return len(self.__info_hash) > 0
+	_data: Dict[str, Any]
 
 	@property
-	def info_hash(self) -> bytes:
-		return self.__info_hash
+	def info(self):
+		return TorrentInfo(self._data.get("info", {}))
+
+	def is_valid(self) -> bool:
+		return "info" in self._data
+
+	def make_info_hash(self) -> bytes:
+		return hashlib.sha1(self.info.get_metadata()).digest()
 
 	# announce: The announcement URL of the tracker (string)
 	# announce-list: (optional) this is an extension to the official specification, offering backwards-compatibility. (list of lists of strings).
 	@property
 	def announce_list(self) -> List[List[str]]:
-		if 'announce-list' in self.__data:
+		if 'announce-list' in self._data:
 			result: List[List[str]] = []
-			for tier in self.__data['announce-list']:
+			for tier in self._data['announce-list']:
 				result.append([announce.decode("utf-8") for announce in tier])
 			return result
-		elif 'announce' in self.__data:
-			return [[self.__data["announce"].decode("utf-8")]]
+		elif 'announce' in self._data:
+			return [[self._data["announce"].decode("utf-8")]]
 		return []
 
 	# creation date: (optional) the creation time of the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
 	@property
 	def creation_date(self):
-		return self.__data.get("creation date")
+		return self._data.get("creation date")
 
 	# comment: (optional) free-form textual comments of the author (string)
 	@property
 	def comment(self):
-		return self.__data.get("comment")
+		return self._data.get("comment")
 
 	# created by: (optional) name and version of the program used to create the .torrent (string)
 	@property
 	def created_by(self):
-		return self.__data.get("created by")
+		return self._data.get("created by")
 
 	# encoding: (optional) the string encoding format used to generate the pieces part of the info dictionary in the .torrent metafile (string)
 	@property
 	def encoding(self):
-		return self.__data.get("encoding")
-
-
-@dataclass(unsafe_hash=True)
-class PieceBlock:
-	index: int
-	begin: int
-	length: int
-
-
-@dataclass
-class PieceInfo:
-	size: int
-	index: int
-	piece_hash: bytes
-
-	@staticmethod
-	def from_torrent(info: TorrentInfo, index: int) -> "PieceInfo":
-		return PieceInfo(info.calculate_piece_size(index), index, info.pieces.get_piece_hash(index))
+		return self._data.get("encoding")

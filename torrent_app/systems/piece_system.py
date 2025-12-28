@@ -5,7 +5,7 @@ from pathlib import Path
 from angelovichcore.DataStorage import Entity
 from torrent_app import Env, TimeSystem
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC, PieceBlocksEC
+from torrent_app.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentHashEC
 from torrent_app.utils import save_piece
 
@@ -53,9 +53,8 @@ class PieceSystem(TimeSystem):
 				torrent_entity.add_component(SaveTorrentEC())
 
 			# logs
-			downloaded = torrent_entity.get_component(BitfieldEC).have_num * torrent_info.pieces.piece_length
-			logger.info(
-				f"{min(downloaded, torrent_info.size) / torrent_info.size * 100:.2f}% progress {torrent_info.name}")
+			have_num = torrent_entity.get_component(BitfieldEC).have_num
+			logger.info(f"{torrent_info.calculate_downloaded(have_num):.2%} progress {torrent_info.name}")
 
 	async def cleanup(self):
 		MAX_PIECES = 100  # TODO: move to config
@@ -68,8 +67,7 @@ class PieceSystem(TimeSystem):
 		collection = ds.get_collection(PiecePendingRemoveEC).entities
 		# filter pieces can be removed
 		collection = [e for e in collection if e.get_component(PieceEC).completed and e.get_component(
-			PiecePendingRemoveEC).can_remove() and not e.has_component(PieceToSaveEC) and not e.has_component(
-			PieceBlocksEC)]
+			PiecePendingRemoveEC).can_remove() and not e.has_component(PieceToSaveEC)]
 		collection.sort(key=lambda e: e.get_component(PiecePendingRemoveEC).last_update)
 
 		to_remove = collection[:all_pieces - MAX_PIECES]

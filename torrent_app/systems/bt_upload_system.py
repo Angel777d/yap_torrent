@@ -8,7 +8,6 @@ from torrent_app.components.piece_ec import PieceEC, PiecePendingRemoveEC
 from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.message import Message
-from torrent_app.protocol.structures import PieceInfo
 from torrent_app.utils import load_piece, check_hash
 
 logger = logging.getLogger(__name__)
@@ -52,7 +51,7 @@ async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity
 		root = Path(config.download_folder)
 		data = load_piece(root, torrent_info, index)
 
-		piece_info = PieceInfo.from_torrent(torrent_entity.get_component(TorrentInfoEC).info, index)
+		piece_info = torrent_entity.get_component(TorrentInfoEC).info.get_piece_info(index)
 		piece_ec = PieceEC(info_hash, piece_info)
 		piece_ec.set_data(data)
 		piece_entity = ds.create_entity().add_component(piece_ec)
@@ -64,7 +63,7 @@ async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity
 		# TODO: how did we get here?
 		return
 
-	if not check_hash(piece_ec.data, torrent_info.pieces.get_piece_hash(index)):
+	if not check_hash(piece_ec.data, torrent_info.get_piece_hash(index)):
 		logger.error(f"Piece {index} in {torrent_info.name} torrent is broken")
 		# TODO: check files, reload piece
 		return

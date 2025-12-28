@@ -45,7 +45,7 @@ class WatcherSystem(System):
 					logger.info(f"Torrent file {file_path} is invalid")
 					continue
 
-				info_hash = torrent_file_data.info_hash
+				info_hash = torrent_file_data.make_info_hash()
 				if self.env.data_storage.get_collection(TorrentHashEC).find(info_hash):
 					logger.info(f"Torrent from {file_path} is already exist")
 					continue

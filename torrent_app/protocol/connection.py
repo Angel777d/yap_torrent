@@ -196,5 +196,7 @@ class Connection:
 			await self.writer.drain()
 		except ConnectionResetError as ex:
 			logger.debug(f"Connection lost {ex}")
+		except ConnectionAbortedError as ex:
+			logger.debug(f"Connection lost {ex}")
 		except Exception as ex:
 			logger.error(f"got send error on {self.remote_peer_id}: {ex}")

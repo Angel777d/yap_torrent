@@ -83,7 +83,7 @@ def _export_torrent_data(torrent_entity: Entity) -> dict[str, Any]:
 	if torrent_entity.has_component(TorrentInfoEC):
 		torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 		result['torrent_info'] = torrent_info
-		result['bitfield'] = torrent_entity.get_component(BitfieldEC).dump(torrent_info.pieces.num)
+		result['bitfield'] = torrent_entity.get_component(BitfieldEC).dump(torrent_info.pieces_num)
 
 	if torrent_entity.has_component(TorrentTrackerEC):
 		result['announce_list'] = torrent_entity.get_component(TorrentTrackerEC).announce_list

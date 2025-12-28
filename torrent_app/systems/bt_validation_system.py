@@ -43,8 +43,8 @@ class ValidationSystem(System):
 				if _task.cancelled():
 					return
 
-				bitfield_data: Set[int] = _task.result()
-				torrent_entity.get_component(BitfieldEC).reset(bitfield_data)
+				bitfield_ec = torrent_entity.get_component(BitfieldEC)
+				bitfield_ec.reset(_task.result())
 
 				# save torrent to local data
 				torrent_entity.add_component(SaveTorrentEC())
@@ -55,7 +55,7 @@ class ValidationSystem(System):
 				# restore peers, removed before validation
 				torrent_entity.add_component(KnownPeersUpdateEC())
 
-				logger.info(f"Validating complete: {torrent_info.name}")
+				logger.info(f"Validating complete: {torrent_info.name}. {torrent_info.calculate_downloaded(bitfield_ec.have_num):.2%} downloaded")
 
 			logger.info(f"Validate start: {torrent_info.name}")
 
@@ -67,7 +67,7 @@ class ValidationSystem(System):
 
 
 def _check_torrent(torrent_info: TorrentInfo, download_path: Path) -> Set[int]:
-	piece_length: int = torrent_info.pieces.piece_length
+	piece_length: int = torrent_info.piece_length
 	bitfield_data: Set[int] = set()
 
 	buffer: bytearray = bytearray()
@@ -95,7 +95,7 @@ def _check_torrent(torrent_info: TorrentInfo, download_path: Path) -> Set[int]:
 					if current_piece_length > 0:
 						continue
 
-					if check_hash(bytes(buffer), torrent_info.pieces.get_piece_hash(index)):
+					if check_hash(bytes(buffer), torrent_info.get_piece_hash(index)):
 						bitfield_data.add(index)
 
 					buffer.clear()

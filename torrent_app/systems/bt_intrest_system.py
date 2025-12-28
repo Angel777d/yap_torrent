@@ -32,9 +32,6 @@ class BTInterestedSystem(System):
 		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
 		index = piece_entity.get_component(PieceEC).info.index
 
-		# update bitfield
-		torrent_entity.get_component(BitfieldEC).set_index(index)
-
 		# notify all
 		peers_collection = self.env.data_storage.get_collection(PeerConnectionEC).entities
 		for peer_entity in peers_collection:
