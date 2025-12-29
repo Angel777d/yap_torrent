@@ -126,11 +126,18 @@ class DHTServerProtocol(DatagramProtocol):
 
 	def connection_made(self, transport: transports.DatagramTransport):
 		self.transport = transport
-		logger.info('some DHT node connected to us')
+		logger.debug('some DHT node connected to us')
 
 	def datagram_received(self, data: bytes, addr: tuple[str | Any, int]):
-		logger.debug(f'got some DHT message {data} from addr {addr}')
-		message = KRPCMessage(decode(data))
+		# logger.debug(f'got KRPCMessage {data} from addr {addr}')
+		try:
+			decoded = decode(data)
+		except Exception as ex:
+			logger.error(f'DHT message {data} from addr {addr} failed to decode. {ex}')
+			self.transport.close()
+			return
+
+		message = KRPCMessage(decoded)
 		if message.error:
 			send_data = encode(message.error)
 		else:
@@ -191,7 +198,10 @@ async def __send_message(message: Dict[str, Any], host: str, port: int, timeout=
 		return None
 
 	if protocol.response:
-		return KRPCMessage(decode(protocol.response))
+		try:
+			return KRPCMessage(decode(protocol.response))
+		except Exception as ex:
+			logger.error(f"Failed to decode response from {host}:{port}. {protocol.response} {ex}")
 	return None
 
 

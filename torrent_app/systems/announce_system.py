@@ -46,7 +46,7 @@ class AnnounceSystem(System):
 		left = 0
 		if torrent_entity.has_component(TorrentInfoEC):
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
-			downloaded = bitfield_ec.have_num * torrent_info.pieces.piece_length
+			downloaded = bitfield_ec.have_num * torrent_info.piece_length
 			left = max(torrent_info.size - downloaded, 0)
 
 		uploaded = torrent_entity.get_component(TorrentStatsEC).uploaded

@@ -5,7 +5,7 @@ from torrent_app.protocol import TorrentInfo
 
 
 def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
-	piece_length = info.pieces.piece_length
+	piece_length = info.piece_length
 	data = bytearray()
 	for file, start_pos, end_pos in info.piece_to_files(index):
 		path = info.get_file_path(root, file)
@@ -21,7 +21,7 @@ def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
 
 
 def save_piece(root: Path, info: TorrentInfo, index: int, data: bytes) -> None:
-	piece_length = info.pieces.piece_length
+	piece_length = info.piece_length
 	for file, start_pos, end_pos in info.piece_to_files(index):
 		path = info.get_file_path(root, file)
 

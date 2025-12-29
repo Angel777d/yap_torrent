@@ -2,6 +2,7 @@ import logging
 
 import requests
 
+from torrent_app.protocol import decode
 from torrent_app.protocol.structures import TrackerAnnounceResponse
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def make_announce(
 		if response.status_code != 200:
 			return None
 
-		return TrackerAnnounceResponse(response.content, compact=compact)
+		return TrackerAnnounceResponse(decode(response.content), compact)
 
 	except ConnectionError as ex:
 		logger.warning(f"got error on announce: {ex}")

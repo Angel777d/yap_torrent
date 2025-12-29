@@ -56,11 +56,11 @@ class BTExtMetadataSystem(System):
 		# use metadata from handshake if any
 		elif metadata_size > 0:
 			metadata_ec.metadata_size = metadata_size
-		# early exit in case peer don't have metadata info
+		# early exit in case the peer doesn't have metadata info
 		else:
 			return
 
-		# just wait for request of metadata
+		# just wait for a metadata request
 		if metadata_ec.is_complete():
 			return
 
@@ -98,7 +98,7 @@ class BTExtMetadataSystem(System):
 		piece = payload["piece"]
 
 		if msg_type == 0:  # request
-			# send piece
+			# send a piece
 			if metadata_ec.is_complete():
 				start = piece * METADATA_PIECE_SIZE
 				last_piece = metadata_ec.metadata_size // METADATA_PIECE_SIZE

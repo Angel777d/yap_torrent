@@ -2,6 +2,7 @@ import asyncio
 import logging
 import pickle
 import secrets
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Iterable, Set, Optional
 
@@ -151,12 +152,12 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		self.pending_nodes.append((node_id, host, port))
 
 	async def _find_peers(self, info_hash):
+		@dataclass(slots=True)
 		class RequestNode:
-			def __init__(self, _id: bytes, _host: str, _port: int):
-				self.node_id: bytes = _id
-				self.host: str = _host
-				self.port: int = _port
-				self.token: bytes = bytes()
+			node_id: bytes
+			host: str
+			port: int
+			token: bytes = bytes()
 
 		all_nodes: Dict[bytes: RequestNode] = {
 			node.id: RequestNode(node.id, node.host, node.port) for node in

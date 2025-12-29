@@ -147,7 +147,7 @@ class PeerSystem(System):
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
 		if local_bitfield.have_num > 0:
 			torrent_info_ec = torrent_entity.get_component(TorrentInfoEC)
-			await connection.send(bitfield(local_bitfield.dump(torrent_info_ec.info.pieces.num)))
+			await connection.send(bitfield(local_bitfield.dump(torrent_info_ec.info.pieces_num)))
 
 		connection_ec = PeerConnectionEC(connection, reserved)
 		peer_entity.add_component(connection_ec)

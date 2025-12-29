@@ -1,92 +1,52 @@
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Generator, Tuple
+from typing import List, Generator, Tuple, Dict, Any, Iterable, Set
 
 from torrent_app.protocol import encode
-from torrent_app.protocol.parser import decode
 
 
+def _block_size():
+	return 2 ** 14  # (16kb)
+
+
+def _calculate_block_size(size: int, begin: int) -> int:
+	block_size = _block_size()
+	if begin + block_size > size:
+		return size % block_size
+	return block_size
+
+
+@dataclass(frozen=True, slots=True)
 class PeerInfo:
-	def __init__(self, host: str, port: int) -> None:
-		self.host: str = host
-		self.port: int = port
-
-	def __repr__(self):
-		return self.__str__()
-
-	def __str__(self):
-		return f'PeerInfo: {self.host}:{self.port}'
+	host: str
+	port: int
 
 	@classmethod
 	def from_bytes(cls, data: bytes) -> "PeerInfo":
 		return PeerInfo(f"{data[0]}.{data[1]}.{data[2]}.{data[3]}", int.from_bytes(data[4:], "big"))
 
 
-class TrackerAnnounceResponse:
-	def __init__(self, response, compact: int = 1):
-		self.__compact: int = compact
-		self.__tracker_response: dict = decode(response)
-
-	@property
-	def interval(self) -> int:
-		return self.__tracker_response.get('interval', -1)
-
-	@property
-	def min_interval(self) -> int:
-		return self.__tracker_response.get('min interval', 60 * 30)
-
-	@property
-	def complete(self) -> int:
-		return self.__tracker_response.get('complete', 0)
-
-	@property
-	def incomplete(self) -> int:
-		return self.__tracker_response.get('incomplete', 0)
-
-	@property
-	def peers(self) -> tuple[PeerInfo, ...]:
-		peers: bytes = self.__tracker_response.get("peers", b'')
-		if self.__compact:
-			return tuple(PeerInfo.from_bytes(peers[i: i + 6]) for i in range(0, len(peers), 6))
-		raise NotImplementedError()
-
-	@property
-	def tracker_id(self) -> bytes:
-		return self.__tracker_response.get("tracker id", b'')
-
-	@property
-	def failure_reason(self) -> str:
-		return self.__tracker_response.get("failure reason", b'').decode("utf-8")
-
-	@property
-	def warning_message(self) -> str:
-		return self.__tracker_response.get("warning message", b'').decode("utf-8")
+@dataclass(frozen=True, slots=True)
+class PieceBlockInfo:
+	index: int
+	begin: int
+	length: int
 
 
-class Pieces:
-	def __init__(self, piece_length: int, pieces: bytes):
-		self.__piece_length: int = piece_length
-		self.__pieces: bytes = pieces
-
-	def get_piece_hash(self, index: int) -> bytes:
-		return self.__pieces[index * 20:(index + 1) * 20]
-
-	@property
-	def num(self) -> int:
-		# pieces: string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e., not urlencoded)
-		return int(len(self.__pieces) / 20)
-
-	@property
-	def piece_length(self) -> int:
-		return self.__piece_length
+@dataclass(frozen=True, slots=True)
+class PieceInfo:
+	size: int
+	index: int
+	piece_hash: bytes
 
 
+@dataclass(frozen=True, slots=True)
 class FileInfo:
-	def __init__(self, path: List[bytes], length: int, md5sum: bytes, start: int = 0):
-		self.path: List[bytes] = path
-		self.length: int = length
-		self.md5sum: bytes = md5sum
-		self.start: int = start
+	path: List[bytes]
+	length: int
+	md5sum: bytes
+	start: int = 0
 
 	@classmethod
 	def from_dict(cls, data: dict, start: int):
@@ -95,12 +55,12 @@ class FileInfo:
 		return FileInfo(path, data.get("length", 0), data.get("md5sum", b''), start)
 
 
+@dataclass(frozen=True, slots=True)
 class TorrentInfo:
-	def __init__(self, info: dict) -> None:
-		self.__info: dict = info
+	_data: Dict[str, Any]
 
 	def get_metadata(self) -> bytes:
-		return encode(self.__info)
+		return encode(self._data)
 
 	@property
 	def name(self) -> str:
@@ -108,7 +68,8 @@ class TorrentInfo:
 
 	@property
 	def raw_name(self) -> bytes:
-		return self.__info.get('name.utf-8', self.__info.get("name", b''))
+		# name.utf-8 is not in BEP-03. But uses widely
+		return self._data.get('name.utf-8', self._data.get("name", b''))
 
 	@staticmethod
 	def __files_generator(files_field: List[dict]):
@@ -119,30 +80,48 @@ class TorrentInfo:
 			start += info.length
 
 	@property
-	def files(self) -> tuple[FileInfo]:
-		files_field: List[dict] = self.__info.get('files', [])
-		if files_field:
-			return *(self.__files_generator(files_field)),
+	def files(self) -> Iterable[FileInfo]:
+		if 'files' in self._data:
+			return tuple(self.__files_generator(self._data["files"]))
 		else:
-			return (FileInfo([self.raw_name], self.__info.get("length", 0), self.__info.get("md5sum", b'')),)
+			return (FileInfo([self.raw_name], self._data.get("length", 0), self._data.get("md5sum", b'')),)
+
+	def get_file_path(self, root: Path, file: FileInfo) -> Path:
+		# add folder for multifile protocol
+		path = root.joinpath(self.name) if 'files' in self._data else root
+		for file_path in file.path:
+			path = path.joinpath(file_path.decode("utf-8"))
+		return path
 
 	@property
 	def size(self) -> int:
 		return sum(f.length for f in self.files)
 
-	@property
-	def pieces(self) -> Pieces:
-		return Pieces(self.__info.get('piece length', 1), self.__info.get('pieces', b""))
+	def calculate_downloaded(self, pieces_num):
+		downloaded = pieces_num * self.piece_length
+		return min(downloaded, self.size) / self.size
 
-	def get_file_path(self, root: Path, file: FileInfo) -> Path:
-		# add folder for multifile protocol
-		path = root.joinpath(self.name) if 'files' in self.__info else root
-		for file_path in file.path:
-			path = path.joinpath(file_path.decode("utf-8"))
-		return path
+	@property
+	def _pieces(self) -> bytes:
+		return self._data.get('pieces', b"")
+
+	@property
+	def piece_length(self) -> int:
+		return self._data.get('piece length', 0)
+
+	@property
+	def pieces_num(self) -> int:
+		# pieces: string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece (byte string, i.e., not urlencoded)
+		return int(len(self._pieces) / 20)
+
+	def get_piece_hash(self, index: int) -> bytes:
+		return self._pieces[index * 20:(index + 1) * 20]
+
+	def get_piece_info(self, index: int) -> PieceInfo:
+		return PieceInfo(self.calculate_piece_size(index), index, self.get_piece_hash(index))
 
 	def calculate_piece_size(self, index: int) -> int:
-		piece_length = self.pieces.piece_length
+		piece_length = self.piece_length
 		torrent_full_size = self.size
 		if (index + 1) * piece_length > torrent_full_size:
 			size = torrent_full_size % piece_length
@@ -151,7 +130,7 @@ class TorrentInfo:
 		return size
 
 	def piece_to_files(self, index: int) -> Generator[Tuple[FileInfo, int, int]]:
-		piece_length = self.pieces.piece_length
+		piece_length = self.piece_length
 		piece_start = index * piece_length
 		piece_end = piece_start + self.calculate_piece_size(index)
 		for file in self.files:
@@ -167,49 +146,99 @@ class TorrentInfo:
 
 			yield file, start_pos, end_pos
 
+	def create_blocks(self, index: int) -> Set[PieceBlockInfo]:
+		piece = self.get_piece_info(index)
+		begin = 0
+		block_size = _block_size()
+		result: Set[PieceBlockInfo] = set()
+		while begin < piece.size:
+			result.add(
+				PieceBlockInfo(piece.index, begin, _calculate_block_size(piece.size, begin)))
+			begin += block_size
+		return result
 
+
+@dataclass(frozen=True, slots=True)
 class TorrentFileInfo:
-	def __init__(self, data: dict):
-		self.__data = data
-		self.info = TorrentInfo(self.__data.get("info", {}))
-		self.__info_hash = hashlib.sha1(self.info.get_metadata()).digest()
-
-	def is_valid(self) -> bool:
-		return len(self.__info_hash) > 0
+	_data: Dict[str, Any]
 
 	@property
-	def info_hash(self) -> bytes:
-		return self.__info_hash
+	def info(self):
+		return TorrentInfo(self._data.get("info", {}))
+
+	def make_info_hash(self) -> bytes:
+		return hashlib.sha1(self.info.get_metadata()).digest()
 
 	# announce: The announcement URL of the tracker (string)
 	# announce-list: (optional) this is an extension to the official specification, offering backwards-compatibility. (list of lists of strings).
 	@property
 	def announce_list(self) -> List[List[str]]:
-		if 'announce-list' in self.__data:
+		if 'announce-list' in self._data:
 			result: List[List[str]] = []
-			for tier in self.__data['announce-list']:
+			for tier in self._data['announce-list']:
 				result.append([announce.decode("utf-8") for announce in tier])
 			return result
-		elif 'announce' in self.__data:
-			return [[self.__data["announce"].decode("utf-8")]]
+		elif 'announce' in self._data:
+			return [[self._data["announce"].decode("utf-8")]]
 		return []
 
 	# creation date: (optional) the creation time of the torrent, in standard UNIX epoch format (integer, seconds since 1-Jan-1970 00:00:00 UTC)
 	@property
 	def creation_date(self):
-		return self.__data.get("creation date")
+		return self._data.get("creation date")
 
 	# comment: (optional) free-form textual comments of the author (string)
 	@property
 	def comment(self):
-		return self.__data.get("comment")
+		return self._data.get("comment")
 
 	# created by: (optional) name and version of the program used to create the .torrent (string)
 	@property
 	def created_by(self):
-		return self.__data.get("created by")
+		return self._data.get("created by")
 
 	# encoding: (optional) the string encoding format used to generate the pieces part of the info dictionary in the .torrent metafile (string)
 	@property
 	def encoding(self):
-		return self.__data.get("encoding")
+		return self._data.get("encoding")
+
+
+@dataclass(eq=False, frozen=True, slots=True)
+class TrackerAnnounceResponse:
+	_tracker_response: dict
+	_compact: int
+
+	@property
+	def interval(self) -> int:
+		return self._tracker_response.get('interval', -1)
+
+	@property
+	def min_interval(self) -> int:
+		return self._tracker_response.get('min interval', 60 * 30)
+
+	@property
+	def complete(self) -> int:
+		return self._tracker_response.get('complete', 0)
+
+	@property
+	def incomplete(self) -> int:
+		return self._tracker_response.get('incomplete', 0)
+
+	@property
+	def peers(self) -> tuple[PeerInfo, ...]:
+		peers: bytes = self._tracker_response.get("peers", b'')
+		if self._compact:
+			return tuple(PeerInfo.from_bytes(peers[i: i + 6]) for i in range(0, len(peers), 6))
+		raise NotImplementedError()
+
+	@property
+	def tracker_id(self) -> bytes:
+		return self._tracker_response.get("tracker id", b'')
+
+	@property
+	def failure_reason(self) -> str:
+		return self._tracker_response.get("failure reason", b'').decode("utf-8")
+
+	@property
+	def warning_message(self) -> str:
+		return self._tracker_response.get("warning message", b'').decode("utf-8")
