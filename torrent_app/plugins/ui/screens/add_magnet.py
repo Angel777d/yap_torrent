@@ -46,12 +46,14 @@ class AddMagnetDialog(ModalScreen):
 				yield Button("Add", id="add_magnet_button", variant="primary")
 
 	@on(Button.Pressed, "#add_magnet_button")
-	def add_magnet(self):
-		value = self.query_one(Input).value
+	def on_add_magnet_button(self):
+		_input = self.query_one(Input)
 		env: Env = self.app.env
-		env.event_bus.dispatch("request.magnet.add", value=value)
+		env.event_bus.dispatch("request.magnet.add", value=_input.value)
+
+		_input.value = ""
 		self.app.pop_screen()
 
 	@on(Button.Pressed, "#cancel_button")
-	def add_magnet(self):
+	def on_cancel_button(self):
 		self.app.pop_screen()
