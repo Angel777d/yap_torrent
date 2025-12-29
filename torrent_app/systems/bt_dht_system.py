@@ -80,6 +80,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 	async def start(self):
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
+		self.env.event_bus.add_listener("request.dht.more_peers", self.__on_request_more_peers, scope=self)
 
 		# subscribe to torrents added event
 		collection = self.env.data_storage.get_collection(TorrentHashEC)
@@ -110,6 +111,9 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		save_nodes(self.env.config, self._routing_table.export_nodes() + self.pending_nodes)
 
 		super().close()
+
+	async def __on_request_more_peers(self, info_hash: bytes):
+		self.pending_torrents.append(info_hash)
 
 	async def _update(self, delta_time: float):
 		if self.pending_nodes:
@@ -207,7 +211,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 			# update peers info for this torrent
 			values: List[bytes] = r.get("values", [])
 			if values:
-				logger.info(f'found {values} peers for {info_hash}')
+				logger.info(f'found {len(values)} peers for {info_hash}')
 				found_peers_count += len(values)
 				self._update_peers(info_hash, set(PeerInfo.from_bytes(v) for v in values))
 
@@ -218,14 +222,16 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		else:
 			join_nodes = sorted((node for node in all_nodes.values() if node.token),
 			                    key=lambda n: distance(info_hash, n.node_id))[:self.BUCKET_CAPACITY]
+			my_port = self.env.config.dht_port
 			for node in join_nodes:
 				res = await dht_connection.announce_peer(
 					self._my_node_id,
 					info_hash,
+					node.token,
+					my_port,
 					node.host,
-					node.port,
-					token=node.token,
-					implied_port=0)
+					node.port
+				)
 				logger.info(f'announce peer result: {res}')
 
 	# async def update_node_state(self, node: DHTNode):
