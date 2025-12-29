@@ -62,15 +62,15 @@ class TorrentDownloadEC(EntityComponent):
 			self._downloaded = 0
 			self.data = bytearray(info.size)
 
-		def add_block(self, block: PieceBlockInfo, data: bytes) -> "TorrentDownloadEC.PieceData":
-			# basic validation of block
-			if block.length != len(data):
-				logger.debug(f"Invalid {block} length.")
-				return self
+			self._blocks: Set[int] = set()
+
+		def add_block(self, block: PieceBlockInfo, data: bytes):
+			if block.begin in self._blocks:
+				return
+			self._blocks.add(block.begin)
 
 			self.data[block.begin:block.begin + block.length] = data
 			self._downloaded += block.length
-			return self
 
 		def is_full(self) -> bool:
 			return self._size == self._downloaded
@@ -107,7 +107,6 @@ class TorrentDownloadEC(EntityComponent):
 		return True
 
 	def request_blocks(self, interested_in: Set[int], peer_hash: Hashable) -> Generator[PieceBlockInfo]:
-
 		# TODO: move from here
 		max_downloads_per_peer = 10
 
@@ -125,23 +124,19 @@ class TorrentDownloadEC(EntityComponent):
 				# second attempt to get from a new-added piece
 				block = next(self._iter_blocks(interested_in), None)
 
-			logger.info(f"LOG: {peer_hash} requested {block}.")
 			self._peers.setdefault(peer_hash, set()).add(block)
 			self._blocks[block.index].remove(block)
 			yield block
 
 	def set_block_data(self, block: PieceBlockInfo, data: bytes, peer_hash: Hashable):
-		if block.index not in self._pieces:
-			# unexpected block. maybe already downloaded
-			logger.error(f"Unexpected block {block}.")
-			return
-
-		self._pieces[block.index].add_block(block, data)
-
-		logger.info(f"LOG: {peer_hash} downloaded block {block}.")
-		if block not in self._peers[peer_hash]:
-			logger.error(f"LOG: Unexpected block {block} for {peer_hash}.")
+		if block.index in self._pieces:
+			self._pieces[block.index].add_block(block, data)
 		else:
+			# unexpected block. maybe already downloaded
+			logger.debug(f"Unexpected block {block}.")
+
+		# clear download queue
+		if block in self._peers[peer_hash]:
 			self._peers[peer_hash].remove(block)
 
 	def get_piece_data(self, index: int) -> bytes:
@@ -171,8 +166,14 @@ class TorrentDownloadEC(EntityComponent):
 		return self._pieces[index].is_full()
 
 	def cancel(self, peer_hash: Hashable):
-		logger.warning(f"LOG: {peer_hash} canceled.")
-		self._peers[peer_hash] = set()
+		logger.debug(f"{peer_hash} cleaned up.")
+
+		# return blocks to the queue
+		for block in self._peers.get(peer_hash, set()):
+			if block.index not in self._blocks:
+				logger.error(f"{block} is not in blocks manager!")
+				continue
+			self._blocks[block.index].add(block)
 
 
 class SaveTorrentEC(EntityComponent):

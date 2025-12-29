@@ -8,7 +8,7 @@ from angelovichcore.DataStorage import Entity, DataStorage
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerConnectionEC, PeerInfoEC
-from torrent_app.components.piece_ec import PieceEC, PiecePendingRemoveEC, PieceToSaveEC
+from torrent_app.components.piece_ec import PieceEC, PiecePendingRemoveEC
 from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.message import Message
@@ -41,20 +41,22 @@ class BTDownloadSystem(System):
 			await self._stop_download(torrent_entity, peer_entity)
 
 	async def _start_download(self, torrent_entity: Entity, peer_entity: Entity):
-		logger.info(f"Peer {peer_entity.get_component(PeerConnectionEC).connection.remote_peer_id} start download")
+		logger.info(f"{peer_entity.get_component(PeerConnectionEC)} start download")
+
+		if not torrent_entity.has_component(TorrentInfoEC):
+			return
 
 		if not torrent_entity.has_component(TorrentDownloadEC):
-			torrent_entity.add_component(TorrentDownloadEC(
-				torrent_entity.get_component(TorrentInfoEC).info,
-				partial(_find_rarest, self.env, torrent_entity)
-			))
+			info = torrent_entity.get_component(TorrentInfoEC).info
+			callback = partial(_find_rarest, self.env, torrent_entity)
+			torrent_entity.add_component(TorrentDownloadEC(info, callback))
 
 		await _request_next(torrent_entity, peer_entity)
 
 	async def _stop_download(self, torrent_entity: Entity, peer_entity: Entity):
 		if torrent_entity.has_component(TorrentDownloadEC):
 			torrent_entity.get_component(TorrentDownloadEC).cancel(peer_entity.get_component(PeerInfoEC).get_hash())
-		logger.info(f"Peer {peer_entity.get_component(PeerConnectionEC)} stop download")
+		logger.info(f"{peer_entity.get_component(PeerConnectionEC)} stop download")
 
 
 def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> Entity:
@@ -67,7 +69,7 @@ def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> En
 
 
 def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -> Entity:
-	logger.debug(f"Piece {index} completed")
+	logger.info(f"Piece {index} completed")
 
 	# crate piece entity
 	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
@@ -77,7 +79,6 @@ def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -
 	piece_entity = env.data_storage.create_entity()
 	piece_entity.add_component(piece_ec)
 	piece_entity.add_component(PiecePendingRemoveEC())
-	piece_entity.add_component(PieceToSaveEC())
 
 	# update bitfield
 	torrent_entity.get_component(BitfieldEC).set_index(index)
@@ -100,7 +101,6 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 	# ready to save a piece
 	if blocks_manager.is_completed(index):
 		data = blocks_manager.get_piece_data(index)
-		logger.info(f"Piece {index} downloaded ({len(data)} bytes)")
 		if data:
 			piece_entity = _complete_piece(env, torrent_entity, index, data)
 			# wait for all systems to finish
