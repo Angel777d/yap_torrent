@@ -38,7 +38,7 @@ class BTExtensionSystem(System):
 			peer_entity.add_component(PeerExtensionsEC(remote_ext_to_id))
 			self.env.event_bus.dispatch("protocol.extensions.got_handshake", torrent_entity, peer_entity, payload)
 		else:
-			# check is metadata message
+			# check is a metadata message
 			ext_ec = peer_entity.get_component(PeerExtensionsEC)
 			ext_name = ext_ec.get_extension_name(ext_id)
 			logger.info(f"Got extension message {ext_name} from peer {peer_connection_ec.connection.remote_peer_id}")
@@ -60,7 +60,7 @@ class BTExtensionSystem(System):
 			"reqq": 250,  # TODO: check what is it
 		}
 
-		# some extensions write data to handshake message as well
+		# some extensions write data to the handshake message as well
 		tasks = self.env.event_bus.dispatch(
 			"protocol.extensions.create_handshake",
 			torrent_entity=torrent_entity,
