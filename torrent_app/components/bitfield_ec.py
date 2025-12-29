@@ -33,8 +33,8 @@ class BitfieldEC(EntityComponent):
 	def have_index(self, index: int) -> bool:
 		return index in self._have
 
-	def interested_in(self, remote: "BitfieldEC", exclude: Set[int]) -> Set[int]:
-		return remote._have.difference(self._have).difference(exclude)
+	def interested_in(self, remote: "BitfieldEC") -> Set[int]:
+		return remote._have.difference(self._have)
 
 	@property
 	def have_num(self) -> int:

@@ -71,7 +71,7 @@ class BTInterestedSystem(System):
 		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
 
 		old_interested = peer_connection_ec.local_interested
-		if local_bitfield.interested_in(remote_bitfield, exclude=set()):
+		if local_bitfield.interested_in(remote_bitfield):
 			await peer_connection_ec.interested()
 		else:
 			await peer_connection_ec.not_interested()

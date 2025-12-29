@@ -1,6 +1,6 @@
 import logging
 from asyncio import Task
-from typing import Hashable, Set, Iterable, Optional
+from typing import Hashable, Set, Iterable
 
 from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import bt_main_messages as msg
@@ -34,7 +34,7 @@ class PeerConnectionEC(EntityComponent):
 		super().__init__()
 
 		self.connection: Connection = connection
-		# TODO: move connection listener task somewhere else
+
 		self.task: Task = None
 
 		self.reserved: bytes = reserved
@@ -44,11 +44,6 @@ class PeerConnectionEC(EntityComponent):
 
 		self.remote_choked = True
 		self.remote_interested = False
-
-		self.__in_progress: Set[PieceBlockInfo] = set()
-
-		# TODO: move queue size to config
-		self.__queue_size: int = queue_size
 
 	def disconnect(self):
 		self.task.cancel()
@@ -87,32 +82,11 @@ class PeerConnectionEC(EntityComponent):
 		self.remote_choked = False
 
 	async def request(self, block: PieceBlockInfo) -> None:
-		self.__in_progress.add(block)
 		await self.connection.send(msg.request(block.index, block.begin, block.length))
-
-	async def cancel(self, block: PieceBlockInfo) -> None:
-		self.__in_progress.remove(block)
-		await self.connection.send(msg.cancel(block.index, block.begin, block.length))
-
-	def find_block(self, index, begin) -> Optional[PieceBlockInfo]:
-		for block in self.__in_progress:
-			if block.index == index and block.begin == begin:
-				return block
-		return None
-
-	def complete(self, block: PieceBlockInfo) -> None:
-		self.__in_progress.remove(block)
-
-	def can_request(self) -> bool:
-		return len(self.__in_progress) < self.__queue_size
-
-	def reset_downloads(self) -> Set[PieceBlockInfo]:
-		result = self.__in_progress.copy()
-		self.__in_progress.clear()
-		return result
 
 	def __repr__(self):
 		return f"Peer [{self.connection.remote_peer_id}]"
+
 
 class KnownPeersEC(EntityComponent):
 	def __init__(self):

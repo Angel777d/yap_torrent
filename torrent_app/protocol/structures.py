@@ -1,9 +1,20 @@
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Generator, Tuple, Dict, Any, Iterable
+from typing import List, Generator, Tuple, Dict, Any, Iterable, Set
 
 from torrent_app.protocol import encode
+
+
+def _block_size():
+	return 2 ** 14  # (16kb)
+
+
+def _calculate_block_size(size: int, begin: int) -> int:
+	block_size = _block_size()
+	if begin + block_size > size:
+		return size % block_size
+	return block_size
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,11 +81,10 @@ class TorrentInfo:
 
 	@property
 	def files(self) -> Iterable[FileInfo]:
-		files_field: List[dict] = self._data.get('files', [])
-		if files_field:
-			return tuple(self.__files_generator(files_field))
+		if 'files' in self._data:
+			return tuple(self.__files_generator(self._data["files"]))
 		else:
-			return [FileInfo([self.raw_name], self._data.get("length", 0), self._data.get("md5sum", b''))]
+			return (FileInfo([self.raw_name], self._data.get("length", 0), self._data.get("md5sum", b'')),)
 
 	def get_file_path(self, root: Path, file: FileInfo) -> Path:
 		# add folder for multifile protocol
@@ -135,6 +145,17 @@ class TorrentInfo:
 			end_pos = min(piece_end, file_end)
 
 			yield file, start_pos, end_pos
+
+	def create_blocks(self, index: int) -> Set[PieceBlockInfo]:
+		piece = self.get_piece_info(index)
+		begin = 0
+		block_size = _block_size()
+		result: Set[PieceBlockInfo] = set()
+		while begin < piece.size:
+			result.add(
+				PieceBlockInfo(piece.index, begin, _calculate_block_size(piece.size, begin)))
+			begin += block_size
+		return result
 
 
 @dataclass(frozen=True, slots=True)

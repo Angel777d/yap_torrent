@@ -1,9 +1,13 @@
+import logging
 from pathlib import Path
-from typing import Hashable, Dict, Set, Iterable, Generator
+from typing import Hashable, Dict, Set, Generator, Callable
 
 from angelovichcore.DataStorage import EntityComponent
 from torrent_app.protocol import TorrentInfo
-from torrent_app.protocol.structures import PieceBlockInfo
+from torrent_app.protocol.structures import PieceBlockInfo, PieceInfo
+from torrent_app.utils import check_hash
+
+logger = logging.getLogger(__name__)
 
 
 class TorrentHashEC(EntityComponent):
@@ -52,44 +56,123 @@ class TorrentStatsEC(EntityComponent):
 
 
 class TorrentDownloadEC(EntityComponent):
-	def __init__(self):
+	class PieceData:
+		def __init__(self, info: PieceInfo):
+			self._size = info.size
+			self._downloaded = 0
+			self.data = bytearray(info.size)
+
+		def add_block(self, block: PieceBlockInfo, data: bytes) -> "TorrentDownloadEC.PieceData":
+			# basic validation of block
+			if block.length != len(data):
+				logger.debug(f"Invalid {block} length.")
+				return self
+
+			self.data[block.begin:block.begin + block.length] = data
+			self._downloaded += block.length
+			return self
+
+		def is_full(self) -> bool:
+			return self._size == self._downloaded
+
+	def __init__(self, info: TorrentInfo, find_next_piece: Callable[[Set[int]], int]):
+		self._info: TorrentInfo = info
+		self._find_next_piece: Callable[[Set[int]], int] = find_next_piece
+
+		self._blocks: Dict[int, Set[PieceBlockInfo]] = {}
+		self._pieces: Dict[int, TorrentDownloadEC.PieceData] = {}
+
+		self._peers: Dict[Hashable, Set[PieceBlockInfo]] = {}
+
 		super().__init__()
-		self._map: Dict[int, Set[PieceBlockInfo]] = {}
-		self._in_progress: Set[PieceBlockInfo] = set()
 
 	def _iter_blocks(self, interested_in: Set[int]) -> Generator[PieceBlockInfo]:
-		keys = interested_in.intersection(set(self._map.keys()))
+		keys = interested_in.intersection(set(self._blocks.keys()))
 		for key in keys:
-			for block in self._map[key]:
+			for block in self._blocks[key]:
 				yield block
 
-	def new_pieces(self, interested_in: Set[int]) -> Set[int]:
-		return interested_in.difference(self._map.keys())
+	def _add_blocks(self, interested_in: Set[int]):
+		# check there are any other pieces to download
+		new_pieces = interested_in.difference(self._blocks.keys())
+		if not new_pieces:
+			return False
 
-	def add_blocks(self, blocks: Iterable[PieceBlockInfo]):
-		for block in blocks:
-			self._map.setdefault(block.index, set()).add(block)
+		# add a new piece to the blocks_manager
+		index = self._find_next_piece(new_pieces)
 
-	def has_blocks(self, interested_in: Set[int]) -> bool:
-		return any(self._iter_blocks(interested_in))
+		self._blocks.setdefault(index, set()).update(self._info.create_blocks(index))
+		self._pieces[index] = TorrentDownloadEC.PieceData(self._info.get_piece_info(index))
 
-	def next_block(self, interested_in: Set[int]) -> PieceBlockInfo:
-		block = next(self._iter_blocks(interested_in), None)
-		self._map[block.index].remove(block)
-		self._in_progress.add(block)
-		return block
+		return True
 
-	def complete(self, block: PieceBlockInfo):
-		self._in_progress.remove(block)
+	def request_blocks(self, interested_in: Set[int], peer_hash: Hashable) -> Generator[PieceBlockInfo]:
 
-	def cancel(self, block: PieceBlockInfo):
-		if block not in self._in_progress:
+		# TODO: move from here
+		max_downloads_per_peer = 10
+
+		while True:
+			# check this peer can have more
+			if len(self._peers.get(peer_hash, set())) >= max_downloads_per_peer:
+				return
+
+			# attempt to get block from peers
+			block = next(self._iter_blocks(interested_in), None)
+			if not block:
+				# try to add a new piece
+				if not self._add_blocks(interested_in):
+					return
+				# second attempt to get from a new-added piece
+				block = next(self._iter_blocks(interested_in), None)
+
+			logger.info(f"LOG: {peer_hash} requested {block}.")
+			self._peers.setdefault(peer_hash, set()).add(block)
+			self._blocks[block.index].remove(block)
+			yield block
+
+	def set_block_data(self, block: PieceBlockInfo, data: bytes, peer_hash: Hashable):
+		if block.index not in self._pieces:
+			# unexpected block. maybe already downloaded
+			logger.error(f"Unexpected block {block}.")
 			return
-		self._in_progress.remove(block)
-		self._map.setdefault(block.index, set()).add(block)
 
-	def reset_index(self, index: int):
-		self._map.pop(index, None)
+		self._pieces[block.index].add_block(block, data)
+
+		logger.info(f"LOG: {peer_hash} downloaded block {block}.")
+		if block not in self._peers[peer_hash]:
+			logger.error(f"LOG: Unexpected block {block} for {peer_hash}.")
+		else:
+			self._peers[peer_hash].remove(block)
+
+	def get_piece_data(self, index: int) -> bytes:
+		if index not in self._pieces:
+			logger.error(f"Invalid piece index: {index}.")
+			return bytes()
+
+		piece = self._pieces[index]
+		if not piece.is_full():
+			logger.error("Try to pull data from not full piece.")
+			return bytes()
+
+		result = bytes(piece.data)
+		del self._pieces[index]
+
+		if not check_hash(result, self._info.get_piece_hash(index)):
+			logger.error(f"Piece {index} is invalid.")
+			# clean blocks to download again
+			self._blocks.pop(index, None)
+			return bytes()
+
+		return result
+
+	def is_completed(self, index: int) -> bool:
+		if index not in self._pieces:
+			return False
+		return self._pieces[index].is_full()
+
+	def cancel(self, peer_hash: Hashable):
+		logger.warning(f"LOG: {peer_hash} canceled.")
+		self._peers[peer_hash] = set()
 
 
 class SaveTorrentEC(EntityComponent):
