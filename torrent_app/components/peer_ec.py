@@ -94,6 +94,7 @@ class KnownPeersEC(EntityComponent):
 		self.peers: Set[PeerInfo] = set()
 
 	def update_peers(self, peers: Iterable[PeerInfo]) -> "KnownPeersEC":
+		logger.debug(f"New peers: {set(peers) - self.peers}")
 		self.peers.update(peers)
 		return self
 

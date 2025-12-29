@@ -1,9 +1,10 @@
+from textual import on
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Label, Input, Button
 
-from angelovichcore.Dispatcher import Dispatcher
+from torrent_app import Env
 
 
 class AddMagnetDialog(ModalScreen):
@@ -27,22 +28,32 @@ class AddMagnetDialog(ModalScreen):
 	    width: 100%;
 	    content-align: center middle;
 	}
-	Button {
-	    width: 100%;
+	#add_magnet_button {
+	    width: 70%;
+	}
+	#cancel_button {
+	    width: 30%;
 	}
 	"""
 	BINDINGS = [("escape", "app.pop_screen", "Close")]
 
 	def compose(self) -> ComposeResult:
-		yield Vertical(
-			Label("Add magnet link:", id="label"),
-			Input(),
-			Button("Add magnet", variant="primary", id="add_magnet_button"),
-			id="dialog"
-		)
+		with Vertical(id="dialog"):
+			yield Label("Add magnet link:", id="label")
+			yield Input()
+			with Horizontal():
+				yield Button("Cancel", id="cancel_button", variant="error")
+				yield Button("Add", id="add_magnet_button", variant="primary")
 
-	def on_button_pressed(self, event: Button.Pressed) -> None:
-		value = self.query_one(Input).value
-		event_bus: Dispatcher = self.app.env.event_bus
-		event_bus.dispatch("magnet.add", value=value)
+	@on(Button.Pressed, "#add_magnet_button")
+	def on_add_magnet_button(self):
+		_input = self.query_one(Input)
+		env: Env = self.app.env
+		env.event_bus.dispatch("request.magnet.add", value=_input.value)
+
+		_input.value = ""
+		self.app.pop_screen()
+
+	@on(Button.Pressed, "#cancel_button")
+	def on_cancel_button(self):
 		self.app.pop_screen()

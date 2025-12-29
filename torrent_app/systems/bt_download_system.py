@@ -27,6 +27,19 @@ class BTDownloadSystem(System):
 		self.env.event_bus.add_listener("peer.local.interested_changed", self._on_local_peer_changed, scope=self)
 		self.env.event_bus.add_listener("peer.local.choked_changed", self._on_local_peer_changed, scope=self)
 
+		collection = self.env.data_storage.get_collection(PeerConnectionEC)
+		collection.add_listener(collection.EVENT_REMOVED, self._on_peer_removed, scope=self)
+
+	def close(self) -> None:
+		self.env.event_bus.remove_all_listeners(scope=self)
+		self.env.data_storage.get_collection(PeerConnectionEC).remove_all_listeners(scope=self)
+
+	async def _on_peer_removed(self, peer_entity: Entity):
+		peer_ec = peer_entity.get_component(PeerInfoEC)
+		torrent_entity = self.env.data_storage.get_collection(TorrentHashEC).find(peer_ec.info_hash)
+		if torrent_entity.has_component(TorrentDownloadEC):
+			torrent_entity.get_component(TorrentDownloadEC).cancel(peer_ec.get_hash())
+
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
 		if message.message_id != msg.MessageId.PIECE.value:
 			return
@@ -41,7 +54,7 @@ class BTDownloadSystem(System):
 			await self._stop_download(torrent_entity, peer_entity)
 
 	async def _start_download(self, torrent_entity: Entity, peer_entity: Entity):
-		logger.info(f"{peer_entity.get_component(PeerConnectionEC)} start download")
+		logger.debug(f"{peer_entity.get_component(PeerConnectionEC)} start download")
 
 		if not torrent_entity.has_component(TorrentInfoEC):
 			return
@@ -56,7 +69,7 @@ class BTDownloadSystem(System):
 	async def _stop_download(self, torrent_entity: Entity, peer_entity: Entity):
 		if torrent_entity.has_component(TorrentDownloadEC):
 			torrent_entity.get_component(TorrentDownloadEC).cancel(peer_entity.get_component(PeerInfoEC).get_hash())
-		logger.info(f"{peer_entity.get_component(PeerConnectionEC)} stop download")
+		logger.debug(f"{peer_entity.get_component(PeerConnectionEC)} stop download")
 
 
 def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> Entity:
@@ -69,7 +82,7 @@ def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> En
 
 
 def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -> Entity:
-	logger.info(f"Piece {index} completed")
+	logger.debug(f"Piece {index} completed")
 
 	# crate piece entity
 	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash

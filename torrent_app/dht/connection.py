@@ -113,6 +113,9 @@ class KRPCMessage:
 			"e": (code, error_message)
 		}
 
+	def __repr__(self):
+		return f"KRPCMessage({self.message_type}, {self._data}, {self.error})"
+
 
 class DHTServerProtocolHandler:
 	def process_query(self, message: KRPCMessage, addr: tuple[str | Any, int]) -> Dict[str, Any]:
@@ -212,20 +215,20 @@ def __get_transaction_id() -> str:
 async def announce_peer(
 		node_id: bytes,
 		info_hash: bytes,
+		token: bytes,
+		my_port: int,
 		host: str,
 		port: int,
-		token: bytes,
-		implied_port: int = 0,
 ) -> Optional[KRPCMessage]:
 	args: Dict[str, Any] = {
 		"id": node_id,
 		"info_hash": info_hash,
 		"token": token,
+		"port": my_port
 	}
 
-	if implied_port:
+	if not my_port:
 		args["implied_port"] = 1
-		args["port"] = implied_port
 
 	return await __send_message({
 		"t": __get_transaction_id(),
