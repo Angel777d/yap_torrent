@@ -98,6 +98,5 @@ class KnownPeersEC(EntityComponent):
 		return self
 
 
-
 class PeerDisconnectedEC(EntityComponent):
 	pass
