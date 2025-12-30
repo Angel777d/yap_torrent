@@ -243,13 +243,13 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 	# 		node.mark_fail()
 
 	async def _ping_new_host(self, host: str, port: int) -> None:
-		logger.debug(f'ping sent to {host}:{port}')
+		logger.debug('ping sent to %s:%s', host, port)
 		ping_response = await dht_connection.ping(self._my_node_id, host, port)
 
 		# no connection to the host or message is broken
 		if not ping_response or ping_response.error:
 			self.bad_nodes.add((host, port))
-			logger.debug(f'ping failed {host}:{port}')
+			logger.debug('ping failed %s:%s', host, port)
 			return
 
 		# the message is broken. retry
@@ -265,10 +265,10 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 
 		remote_node_id = ping_response.response.get("id", bytes())
 		if self._routing_table.touch(remote_node_id, host, port):
-			logger.debug(f'new node added: {self._routing_table.nodes[remote_node_id]}')
+			logger.debug('new node added: %s', self._routing_table.nodes[remote_node_id])
 		else:
 			self.extra_good_nodes.add((remote_node_id, host, port))
-			logger.debug(f'no place for new node: {remote_node_id}|{host}:{port}')
+			logger.debug('no place for new node: %s|%s:%s', remote_node_id, host, port)
 
 	def process_query(self, message: KRPCMessage, addr: tuple[str | Any, int]) -> Dict[str, Any]:
 		query_type = message.query_type

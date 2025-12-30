@@ -9,10 +9,12 @@ from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerConnectionEC, PeerInfoEC
 from torrent_app.components.piece_ec import PieceEC, PiecePendingRemoveEC
-from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC
+from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC, \
+	TorrentCompletedEC
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.message import Message
 from torrent_app.protocol.structures import PieceBlockInfo
+from torrent_app.systems import is_torrent_complete
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,7 @@ class BTDownloadSystem(System):
 			await self._stop_download(torrent_entity, peer_entity)
 
 	async def _start_download(self, torrent_entity: Entity, peer_entity: Entity):
-		logger.debug(f"{peer_entity.get_component(PeerConnectionEC)} start download")
+		logger.debug("%s start download", peer_entity.get_component(PeerConnectionEC))
 
 		if not torrent_entity.has_component(TorrentInfoEC):
 			return
@@ -69,7 +71,7 @@ class BTDownloadSystem(System):
 	async def _stop_download(self, torrent_entity: Entity, peer_entity: Entity):
 		if torrent_entity.has_component(TorrentDownloadEC):
 			torrent_entity.get_component(TorrentDownloadEC).cancel(peer_entity.get_component(PeerInfoEC).get_hash())
-		logger.debug(f"{peer_entity.get_component(PeerConnectionEC)} stop download")
+		logger.debug("%s stop download", peer_entity.get_component(PeerConnectionEC))
 
 
 def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> Entity:
@@ -82,7 +84,7 @@ def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> En
 
 
 def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -> Entity:
-	logger.debug(f"Piece {index} completed")
+	logger.debug("Piece %s completed", index)
 
 	# crate piece entity
 	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
@@ -122,11 +124,11 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 			# nothing at the moment
 			pass
 
-	# TODO: finish the torrent
-	# if torrent.is_complete():
-	# 	torrent_entity.remove_component(TorrentDownloadEC)
-	# 	env.event_bus.dispatch("torrent.complete", torrent_entity, piece_entity)
-	# 	return
+	if is_torrent_complete(torrent_entity):
+		torrent_entity.remove_component(TorrentDownloadEC)
+		torrent_entity.add_component(TorrentCompletedEC())
+		env.event_bus.dispatch("torrent.complete", torrent_entity)
+		return
 
 	# load next blocks
 	await _request_next(torrent_entity, peer_entity)

@@ -11,11 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 class PeerInfoEC(EntityComponent):
-	def __init__(self, info_hash: bytes, peer_info: PeerInfo, attempt: int = 0):
+	def __init__(self, info_hash: bytes, peer_info: PeerInfo):
 		super().__init__()
 		self.info_hash: bytes = info_hash
 		self.peer_info: PeerInfo = peer_info
-		self.attempt = 0
 
 	@classmethod
 	def is_hashable(cls) -> bool:
@@ -97,14 +96,6 @@ class KnownPeersEC(EntityComponent):
 		logger.debug(f"New peers: {set(peers) - self.peers}")
 		self.peers.update(peers)
 		return self
-
-
-class KnownPeersUpdateEC(EntityComponent):
-	pass
-
-
-class PeerPendingEC(EntityComponent):
-	pass
 
 
 class PeerDisconnectedEC(EntityComponent):

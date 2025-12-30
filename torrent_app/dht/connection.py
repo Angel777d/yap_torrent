@@ -197,7 +197,7 @@ async def __send_message(message: Dict[str, Any], host: str, port: int, timeout=
 		async with asyncio.timeout(timeout):
 			await on_con_lost
 	except TimeoutError:
-		logger.debug(f"Message {message} to {host}:{port} failed by timeout")
+		logger.debug("Message %s to %s:%s failed by timeout", message, host, port)
 		return None
 
 	if protocol.response:

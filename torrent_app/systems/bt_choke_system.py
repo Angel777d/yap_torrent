@@ -24,13 +24,12 @@ class BTChokeSystem(System):
 			return
 
 		message_id = msg.MessageId(message.message_id)
-		peer_id = peer_entity.get_component(PeerConnectionEC).connection.remote_peer_id
 
 		if message_id == msg.MessageId.CHOKE:
-			logger.debug(f"peer {peer_id} choked us")
+			logger.debug("%s choked us", peer_entity.get_component(PeerConnectionEC))
 			await self.update_local_choked(torrent_entity, peer_entity, True)
 		elif message_id == msg.MessageId.UNCHOKE:
-			logger.debug(f"peer {peer_id} unchoked us")
+			logger.debug("%s unchoked us", peer_entity.get_component(PeerConnectionEC))
 			await self.update_local_choked(torrent_entity, peer_entity, False)
 
 	async def update_local_choked(self, torrent_entity: Entity, peer_entity: Entity, new_value: bool):

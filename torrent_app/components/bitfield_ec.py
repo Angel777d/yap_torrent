@@ -7,7 +7,6 @@ from angelovichcore.DataStorage import EntityComponent
 class BitfieldEC(EntityComponent):
 	def __init__(self):
 		super().__init__()
-		# TODO: replace with bitarray
 		self._have: Set[int] = set()
 
 	@staticmethod
