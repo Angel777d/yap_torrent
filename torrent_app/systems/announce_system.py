@@ -4,10 +4,10 @@ import time
 from angelovichcore.DataStorage import Entity
 from torrent_app import System
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC, TorrentCompletedEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from torrent_app.protocol.tracker import make_announce
-from torrent_app.systems import get_torrent_name, is_torrent_complete
+from torrent_app.systems import get_torrent_name
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +17,19 @@ class AnnounceSystem(System):
 	async def start(self):
 		await super().start()
 		self.env.event_bus.add_listener("torrent.complete", self._on_torrent_complete, scope=self)
+		self.env.event_bus.add_listener("torrent.stop", self._on_torrent_stop, scope=self)
 
 	def close(self) -> None:
 		self.env.event_bus.remove_all_listeners(scope=self)
 
 	async def _on_torrent_complete(self, torrent_entity: Entity):
-		event = "completed"  # "started", "completed", "stopped"
-		await self.__tracker_announce(torrent_entity, event)
+		await self.__tracker_announce(torrent_entity, "completed")
+
+	async def _on_torrent_stop(self, torrent_entity: Entity):
+		torrent_entity.get_component(TorrentTrackerDataEC).started = False
+		await self.__tracker_announce(torrent_entity, "stopped")
 
 	async def _update(self, delta_time: float):
-		event = "started"  # "started", "completed", "stopped"
 		current_time = time.monotonic()
 		ds = self.env.data_storage
 
@@ -34,7 +37,7 @@ class AnnounceSystem(System):
 		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
 		for torrent_entity in trackers_collection:
 			# skip completed torrents
-			if is_torrent_complete(torrent_entity):
+			if torrent_entity.has_component(TorrentCompletedEC):
 				continue
 
 			tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
@@ -42,6 +45,11 @@ class AnnounceSystem(System):
 			# skip failed trackers
 			if tracker_data_ec.failure_reason:
 				continue
+
+			event = ""  # empty, "started", "completed", "stopped"
+			if not tracker_data_ec.started:
+				tracker_data_ec.started = True
+				event = "started"
 
 			interval = min(tracker_data_ec.interval, tracker_data_ec.min_interval)
 			if tracker_data_ec.last_update_time + interval <= current_time:
@@ -57,14 +65,13 @@ class AnnounceSystem(System):
 		bitfield_ec = torrent_entity.get_component(BitfieldEC)
 		torrent_name = get_torrent_name(torrent_entity)
 
-		downloaded = 0
 		left = 0
 		if torrent_entity.has_component(TorrentInfoEC):
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
-			downloaded = bitfield_ec.have_num * torrent_info.piece_length
-			left = max(torrent_info.size - downloaded, 0)
+			left = max(torrent_info.size - bitfield_ec.have_num * torrent_info.piece_length, 0)
 
 		uploaded = torrent_entity.get_component(TorrentStatsEC).uploaded
+		downloaded = torrent_entity.get_component(TorrentStatsEC).downloaded
 
 		# https://bittorrent.org/beps/bep_0012.html
 		for announce_tier in tracker_ec.announce_list:
@@ -112,6 +119,4 @@ class AnnounceSystem(System):
 
 		# we couldn't get any data from trackers.
 		logger.warning(f"No announce results for {torrent_name}")
-		tracker_data_ec.last_update_time = time.monotonic()
-		# TODO: give up after several attempts
-		tracker_data_ec.min_interval = tracker_data_ec.interval = 60 * 5  # retry in 5 min
+		tracker_data_ec.fail_announce()

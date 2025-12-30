@@ -25,9 +25,20 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.interval: float = kwargs.get("interval", 0)
 		self.min_interval: float = kwargs.get("min_interval", 0)
 		self.tracker_id: bytes = kwargs.get("tracker_id", b'')
+		self.started: bool = kwargs.get("started", False)
 
 		self.failure_reason: str = ""
 		self.warning_message: str = ""
+
+		self._failed_attempts: int = 0
+
+	def fail_announce(self):
+		self.last_update_time = time.monotonic()
+		self.min_interval = self.interval = 60 * 5  # retry in 5 min
+
+		self._failed_attempts += 1
+		if self._failed_attempts >= 5:
+			self.failure_reason = "Too many failed announces"
 
 	def save_announce(self, response: TrackerAnnounceResponse):
 		self.last_update_time = time.monotonic()
@@ -44,4 +55,5 @@ class TorrentTrackerDataEC(EntityComponent):
 			"last_update_time": self.last_update_time,
 			"interval": self.interval,
 			"min_interval": self.min_interval,
+			"started": self.started,
 		}

@@ -176,6 +176,10 @@ class TorrentDownloadEC(EntityComponent):
 			self._blocks[block.index].add(block)
 
 
+class TorrentCompletedEC(EntityComponent):
+	pass
+
+
 class SaveTorrentEC(EntityComponent):
 	pass
 

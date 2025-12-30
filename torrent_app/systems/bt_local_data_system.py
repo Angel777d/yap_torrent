@@ -10,10 +10,10 @@ from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import KnownPeersEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, SaveTorrentEC, ValidateTorrentEC, \
-	TorrentPathEC, TorrentStatsEC
+	TorrentPathEC, TorrentStatsEC, TorrentCompletedEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from torrent_app.protocol.structures import PeerInfo
-from torrent_app.systems import create_torrent_entity
+from torrent_app.systems import create_torrent_entity, is_torrent_complete
 
 logger = logging.getLogger(__name__)
 
@@ -121,3 +121,5 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	validate = save_data.get('validate', False)
 	if validate:
 		torrent_entity.add_component(ValidateTorrentEC())
+	elif is_torrent_complete(torrent_entity):
+		torrent_entity.add_component(TorrentCompletedEC())

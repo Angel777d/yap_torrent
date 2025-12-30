@@ -7,9 +7,10 @@ from typing import Set, Optional
 
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC
+from torrent_app.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC, \
+	TorrentCompletedEC
 from torrent_app.protocol import TorrentInfo
-from torrent_app.systems import execute_in_pool, calculate_downloaded
+from torrent_app.systems import execute_in_pool, calculate_downloaded, is_torrent_complete
 from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,9 @@ class ValidationSystem(System):
 
 				bitfield_ec = torrent_entity.get_component(BitfieldEC)
 				bitfield_ec.reset(_task.result())
+
+				if is_torrent_complete(torrent_entity):
+					torrent_entity.add_component(TorrentCompletedEC())
 
 				# save torrent to local data
 				torrent_entity.add_component(SaveTorrentEC())
