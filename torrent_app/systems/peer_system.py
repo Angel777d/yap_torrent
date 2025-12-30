@@ -134,8 +134,7 @@ class PeerSystem(System):
 					continue
 
 				self.manager.use(host.peer)
-				peer_entity = ds.create_entity().add_component(PeerInfoEC(info_hash, host.peer))
-				self.add_task(self._connect(peer_entity, my_peer_id))
+				self.add_task(self._connect(my_peer_id, info_hash, host.peer))
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
@@ -175,16 +174,16 @@ class PeerSystem(System):
 			writer.close()
 			pass
 
-	async def _connect(self, peer_entity: Entity, my_peer_id: bytes):
-		peer_ec: PeerInfoEC = peer_entity.get_component(PeerInfoEC)
-		result = await net.connect(peer_ec.peer_info, peer_ec.info_hash, my_peer_id, reserved=LOCAL_RESERVED)
+	async def _connect(self, my_peer_id: bytes, info_hash: bytes, peer_info: PeerInfo, ):
+		result = await net.connect(peer_info, info_hash, my_peer_id, reserved=LOCAL_RESERVED)
 		if not result:
-			peer_entity.add_component(PeerDisconnectedEC())
-			self.manager.mark_failed(peer_ec.peer_info)
+			self.manager.mark_failed(peer_info)
 			return
+
 		remote_peer_id, reader, writer, remote_reserved = result
 		reserved = merge_reserved(LOCAL_RESERVED, remote_reserved)
 
+		peer_entity = self.env.data_storage.create_entity().add_component(PeerInfoEC(info_hash, peer_info))
 		await self._add_peer(peer_entity, remote_peer_id, reader, writer, reserved)
 
 	async def _add_peer(self, peer_entity: Entity, remote_peer_id: bytes, reader: StreamReader, writer: StreamWriter,
@@ -227,10 +226,12 @@ class PeerSystem(System):
 				break
 
 			# read the next message. return False in case of error
-			if not await connection.read(message_callback):
-				peer_info = peer_entity.get_component(PeerInfoEC).peer_info
-				self.manager.mark_failed(peer_info)
-				break
+			if await connection.read(message_callback):
+				continue
+
+			peer_info = peer_entity.get_component(PeerInfoEC).peer_info
+			self.manager.mark_failed(peer_info)
+			break
 
 		peer_entity.get_component(PeerConnectionEC).disconnect()
 		peer_entity.add_component(PeerDisconnectedEC())
