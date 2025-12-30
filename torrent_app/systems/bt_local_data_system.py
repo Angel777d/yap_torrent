@@ -3,15 +3,16 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Set
 
 from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import KnownPeersEC, KnownPeersUpdateEC
+from torrent_app.components.peer_ec import KnownPeersEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, SaveTorrentEC, ValidateTorrentEC, \
 	TorrentPathEC, TorrentStatsEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
+from torrent_app.protocol.structures import PeerInfo
 from torrent_app.systems import create_torrent_entity
 
 logger = logging.getLogger(__name__)
@@ -105,9 +106,9 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	torrent_entity.get_component(BitfieldEC).update(bitfield)
 
 	# update peers
-	peers = save_data.get('peers', [])
+	peers: Set[PeerInfo] = save_data.get('peers', {})
 	torrent_entity.get_component(KnownPeersEC).update_peers(peers)
-	torrent_entity.add_component(KnownPeersUpdateEC())
+	env.event_bus.dispatch("peers.update", info_hash, peers)
 
 	# update tracker data if any
 	if 'announce_list' in save_data:

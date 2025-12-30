@@ -7,7 +7,6 @@ from typing import Set, Optional
 
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import KnownPeersUpdateEC
 from torrent_app.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC
 from torrent_app.protocol import TorrentInfo
 from torrent_app.systems import execute_in_pool
@@ -52,12 +51,10 @@ class ValidationSystem(System):
 				# reset validate flag
 				torrent_entity.remove_component(ValidateTorrentEC)
 
-				# restore peers, removed before validation
-				torrent_entity.add_component(KnownPeersUpdateEC())
+				logger.info(
+					f"Validation complete: {torrent_info.name}. {torrent_info.calculate_downloaded(bitfield_ec.have_num):.2%} downloaded")
 
-				logger.info(f"Validating complete: {torrent_info.name}. {torrent_info.calculate_downloaded(bitfield_ec.have_num):.2%} downloaded")
-
-			logger.info(f"Validate start: {torrent_info.name}")
+			logger.info(f"Validation start: {torrent_info.name}")
 
 			task = asyncio.create_task(execute_in_pool(_check_torrent, torrent_info, download_path))
 			task.add_done_callback(reset_task)
