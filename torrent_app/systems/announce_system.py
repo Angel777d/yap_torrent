@@ -76,7 +76,7 @@ class AnnounceSystem(System):
 		# https://bittorrent.org/beps/bep_0012.html
 		for announce_tier in tracker_ec.announce_list:
 			for announce in announce_tier:
-				logger.info(f"make announce to: {announce}")
+				logger.info(f"make announce '{event}' to: {announce}")
 				result = make_announce(
 					announce,
 					info_hash,
