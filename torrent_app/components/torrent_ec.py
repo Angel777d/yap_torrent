@@ -79,7 +79,7 @@ class TorrentDownloadEC(EntityComponent):
 		self._info: TorrentInfo = info
 		self._find_next_piece: Callable[[Set[int]], int] = find_next_piece
 
-		self._blocks: Dict[int, Set[PieceBlockInfo]] = {}
+		self._blocks_queue: Set[PieceBlockInfo] = set()
 		self._pieces: Dict[int, TorrentDownloadEC.PieceData] = {}
 
 		self._peers: Dict[Hashable, Set[PieceBlockInfo]] = {}
@@ -87,21 +87,19 @@ class TorrentDownloadEC(EntityComponent):
 		super().__init__()
 
 	def _iter_blocks(self, interested_in: Set[int]) -> Generator[PieceBlockInfo]:
-		keys = interested_in.intersection(set(self._blocks.keys()))
-		for key in keys:
-			for block in self._blocks[key]:
+		for block in self._blocks_queue:
+			if block.index in interested_in:
 				yield block
 
 	def _add_blocks(self, interested_in: Set[int]):
 		# check there are any other pieces to download
-		new_pieces = interested_in.difference(self._blocks.keys())
-		if not new_pieces:
+		if not interested_in:
 			return False
 
 		# add a new piece to the blocks_manager
-		index = self._find_next_piece(new_pieces)
+		index = self._find_next_piece(interested_in)
 
-		self._blocks.setdefault(index, set()).update(self._info.create_blocks(index))
+		self._blocks_queue.update(self._info.create_blocks(index))
 		self._pieces[index] = TorrentDownloadEC.PieceData(self._info.get_piece_info(index))
 
 		return True
@@ -125,7 +123,7 @@ class TorrentDownloadEC(EntityComponent):
 				block = next(self._iter_blocks(interested_in), None)
 
 			self._peers.setdefault(peer_hash, set()).add(block)
-			self._blocks[block.index].remove(block)
+			self._blocks_queue.remove(block)
 			yield block
 
 	def set_block_data(self, block: PieceBlockInfo, data: bytes, peer_hash: Hashable):
@@ -133,11 +131,14 @@ class TorrentDownloadEC(EntityComponent):
 			self._pieces[block.index].add_block(block, data)
 		else:
 			# unexpected block. maybe already downloaded
-			logger.debug(f"Unexpected block {block}.")
+			logger.warning("Unexpected block in pieces: %s", block)
 
 		# clear download queue
-		if block in self._peers[peer_hash]:
-			self._peers[peer_hash].remove(block)
+		peer_blocks = self._peers.get(peer_hash, set())
+		if block in peer_blocks:
+			peer_blocks.remove(block)
+		else:
+			logger.warning("Unexpected block in peers: %s", block)
 
 	def get_piece_data(self, index: int) -> bytes:
 		if index not in self._pieces:
@@ -155,7 +156,6 @@ class TorrentDownloadEC(EntityComponent):
 		if not check_hash(result, self._info.get_piece_hash(index)):
 			logger.error(f"Piece {index} is invalid.")
 			# clean blocks to download again
-			self._blocks.pop(index, None)
 			return bytes()
 
 		return result
@@ -166,14 +166,11 @@ class TorrentDownloadEC(EntityComponent):
 		return self._pieces[index].is_full()
 
 	def cancel(self, peer_hash: Hashable):
-		logger.debug(f"{peer_hash} cleaned up.")
+		logger.info("%s cleaned up.", peer_hash)
 
 		# return blocks to the queue
-		for block in self._peers.get(peer_hash, set()):
-			if block.index not in self._blocks:
-				logger.error(f"{block} is not in blocks manager!")
-				continue
-			self._blocks[block.index].add(block)
+		self._blocks_queue.update(self._peers.get(peer_hash, set()))
+		self._peers[peer_hash] = set()
 
 
 class TorrentCompletedEC(EntityComponent):
