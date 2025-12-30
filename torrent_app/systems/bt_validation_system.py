@@ -9,7 +9,7 @@ from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC
 from torrent_app.protocol import TorrentInfo
-from torrent_app.systems import execute_in_pool
+from torrent_app.systems import execute_in_pool, calculate_downloaded
 from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ class ValidationSystem(System):
 				torrent_entity.remove_component(ValidateTorrentEC)
 
 				logger.info(
-					f"Validation complete: {torrent_info.name}. {torrent_info.calculate_downloaded(bitfield_ec.have_num):.2%} downloaded")
+					f"Validation complete: {torrent_info.name}. {calculate_downloaded(torrent_entity):.2%} downloaded")
 
 			logger.info(f"Validation start: {torrent_info.name}")
 

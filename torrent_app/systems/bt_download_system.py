@@ -13,6 +13,7 @@ from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, Torr
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.message import Message
 from torrent_app.protocol.structures import PieceBlockInfo
+from torrent_app.systems import is_torrent_complete
 
 logger = logging.getLogger(__name__)
 
@@ -122,11 +123,10 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 			# nothing at the moment
 			pass
 
-	# TODO: finish the torrent
-	# if torrent.is_complete():
-	# 	torrent_entity.remove_component(TorrentDownloadEC)
-	# 	env.event_bus.dispatch("torrent.complete", torrent_entity, piece_entity)
-	# 	return
+	if is_torrent_complete(torrent_entity):
+		torrent_entity.remove_component(TorrentDownloadEC)
+		env.event_bus.dispatch("torrent.complete", torrent_entity)
+		return
 
 	# load next blocks
 	await _request_next(torrent_entity, peer_entity)

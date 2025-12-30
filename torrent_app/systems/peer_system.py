@@ -92,6 +92,7 @@ class PeerSystem(System):
 		await asyncio.start_server(self._server_callback, host, port)
 
 		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
+		self.env.event_bus.add_listener("torrent.complete", self._on_torrent_complete, scope=self)
 
 		for torrent_entity in self.env.data_storage.get_collection(KnownPeersEC).entities:
 			info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
@@ -137,6 +138,10 @@ class PeerSystem(System):
 
 				self.manager.use(host.peer)
 				self.add_task(self._connect(my_peer_id, info_hash, host.peer))
+
+	async def _on_torrent_complete(self, torrent_entity: Entity):
+		# TODO: cleanup connections for torrent
+		pass
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
@@ -191,7 +196,7 @@ class PeerSystem(System):
 		connection = net.Connection(remote_peer_id, reader, writer)
 
 		# send a BITFIELD message first
-		torrent_entity = ds.get_collection(TorrentHashEC).find(info_hash)
+		torrent_entity: Entity = ds.get_collection(TorrentHashEC).find(info_hash)
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
 		if local_bitfield.have_num > 0:
 			torrent_info_ec = torrent_entity.get_component(TorrentInfoEC)

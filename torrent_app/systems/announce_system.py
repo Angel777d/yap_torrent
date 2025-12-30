@@ -7,12 +7,23 @@ from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from torrent_app.protocol.tracker import make_announce
-from torrent_app.systems import get_torrent_name
+from torrent_app.systems import get_torrent_name, is_torrent_complete
 
 logger = logging.getLogger(__name__)
 
 
 class AnnounceSystem(System):
+
+	async def start(self):
+		await super().start()
+		self.env.event_bus.add_listener("torrent.complete", self._on_torrent_complete, scope=self)
+
+	def close(self) -> None:
+		self.env.event_bus.remove_all_listeners(scope=self)
+
+	async def _on_torrent_complete(self, torrent_entity: Entity):
+		event = "completed"  # "started", "completed", "stopped"
+		await self.__tracker_announce(torrent_entity, event)
 
 	async def _update(self, delta_time: float):
 		event = "started"  # "started", "completed", "stopped"
@@ -22,6 +33,10 @@ class AnnounceSystem(System):
 		# make announcement
 		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
 		for torrent_entity in trackers_collection:
+			# skip completed torrents
+			if is_torrent_complete(torrent_entity):
+				continue
+
 			tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
 
 			# skip failed trackers

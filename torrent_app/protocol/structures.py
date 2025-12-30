@@ -97,9 +97,13 @@ class TorrentInfo:
 	def size(self) -> int:
 		return sum(f.length for f in self.files)
 
-	def calculate_downloaded(self, pieces_num):
+	def calculate_downloaded(self, pieces_num: int):
 		downloaded = pieces_num * self.piece_length
 		return min(downloaded, self.size) / self.size
+
+	def is_complete(self, pieces_num: int) -> bool:
+		downloaded = pieces_num * self.piece_length
+		return downloaded >= self.size
 
 	@property
 	def _pieces(self) -> bytes:

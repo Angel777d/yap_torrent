@@ -14,6 +14,18 @@ from torrent_app.protocol import TorrentInfo
 _pool = concurrent.futures.ProcessPoolExecutor()
 
 
+def is_torrent_complete(torrent_entity: Entity) -> bool:
+	info = torrent_entity.get_component(TorrentInfoEC).info
+	bitfield = torrent_entity.get_component(BitfieldEC)
+	return info.is_complete(bitfield.have_num)
+
+
+def calculate_downloaded(torrent_entity: Entity) -> float:
+	info = torrent_entity.get_component(TorrentInfoEC).info
+	bitfield = torrent_entity.get_component(BitfieldEC)
+	return info.calculate_downloaded(bitfield.have_num)
+
+
 def invalidate_torrent(env: Env, torrent_entity: Entity):
 	disconnect_all_peers_for(env, torrent_entity.get_component(TorrentHashEC).info_hash)
 	torrent_entity.add_component(ValidateTorrentEC())

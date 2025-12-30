@@ -10,9 +10,9 @@ from textual.widgets import ListView, Footer, ListItem, Label, Button
 
 from angelovichcore.DataStorage import Entity
 from torrent_app import Env
-from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC
+from torrent_app.components.torrent_ec import TorrentHashEC
 from torrent_app.plugins.ui.utils import get_torrent_name
+from torrent_app.systems import calculate_downloaded
 
 
 class TorrentInfo(Widget):
@@ -55,9 +55,7 @@ class TorrentInfo(Widget):
 	def update_time(self):
 		value = ""
 		if self._entity:
-			bitfield_ec = self._entity.get_component(BitfieldEC)
-			info = self._entity.get_component(TorrentInfoEC).info
-			value = info.calculate_downloaded(bitfield_ec.have_num)
+			value = calculate_downloaded(self._entity)
 		self.query_one("#torrent-downloaded", expect_type=Label).update(f"Complete: {value:.2%}")
 
 	@on(Button.Pressed, "#add-peers-button")

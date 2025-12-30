@@ -4,9 +4,9 @@ from pathlib import Path
 
 from angelovichcore.DataStorage import Entity
 from torrent_app import Env, TimeSystem
-from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC
 from torrent_app.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentHashEC
+from torrent_app.systems import calculate_downloaded
 from torrent_app.utils import save_piece
 
 logger = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ class PieceSystem(TimeSystem):
 
 	async def start(self):
 		self.env.event_bus.add_listener("piece.complete", self.__on_piece_complete, scope=self)
+		self.env.event_bus.add_listener("torrent.complete", self.__on_torrent_complete, scope=self)
 
 	def close(self) -> None:
 		super().close()
@@ -29,10 +30,16 @@ class PieceSystem(TimeSystem):
 	async def __on_piece_complete(self, _: Entity, piece_entity: Entity):
 		piece_entity.add_component(PieceToSaveEC())
 
+	async def __on_torrent_complete(self, _: Entity):
+		await self._save()
+
 	async def _update(self, delta_time: float):
+		await self._save()
+		await self.cleanup()
+
+	async def _save(self):
 		loop = asyncio.get_running_loop()
 		await loop.run_in_executor(None, self.save_pieces)
-		await self.cleanup()
 
 	def save_pieces(self):
 		ds = self.env.data_storage
@@ -53,8 +60,7 @@ class PieceSystem(TimeSystem):
 				torrent_entity.add_component(SaveTorrentEC())
 
 			# logs
-			have_num = torrent_entity.get_component(BitfieldEC).have_num
-			logger.info(f"{torrent_info.calculate_downloaded(have_num):.2%} progress {torrent_info.name}")
+			logger.info(f"{calculate_downloaded(torrent_entity):.2%} progress {torrent_info.name}")
 
 	async def cleanup(self):
 		MAX_PIECES = 100  # TODO: move to config
