@@ -45,24 +45,24 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
                   reserved: bytes = bytes(8), local_addr: Optional[Tuple[str, int]] = None,
                   # ('127.0.0.1', 9999)
                   ) -> Optional[Tuple[bytes, StreamReader, StreamWriter, bytes]]:
-	logger.debug(f"try connect to {peer_info}")
+	logger.debug("try connect to %s", peer_info)
 	assert len(reserved) == 8
 	assert len(info_hash) == 20
 	try:
 		async with asyncio.timeout(timeout):
 			reader, writer = await asyncio.open_connection(peer_info.host, peer_info.port, local_addr=local_addr)
 	except TimeoutError:
-		logger.debug(f"Connection to {peer_info} failed by timeout")
+		logger.debug("Connection to %s failed by timeout", peer_info)
 		return None
 	except ConnectionRefusedError as ex:
-		logger.debug(f"Connection to {peer_info} Refused. {ex}")
+		logger.debug("Connection to %s Refused. %s", peer_info, ex)
 		return None
 	except Exception as ex:
-		logger.error(f"TODO: Connection to {peer_info} failed by {ex}")
+		logger.error("TODO: Connection to %s failed by %s", peer_info, ex)
 		return None
 
 	message = __create_handshake_message(info_hash, local_peer_id, reserved)
-	logger.debug(f"Send handshake to: {peer_info}, message: {message}")
+	logger.debug("Send handshake to: %s, message: %s", peer_info, message)
 
 	writer.write(message)
 	await writer.drain()
@@ -70,25 +70,25 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 		async with asyncio.timeout(timeout):
 			handshake_response = await __read_handshake_message(reader)
 	except TimeoutError:
-		logger.debug(f"Handshake to {peer_info} failed by timeout")
+		logger.debug("Handshake to %s failed by timeout", peer_info)
 		return None
 	except IncompleteReadError:
-		logger.debug(f"Peer {peer_info} closed the connection.")
+		logger.debug("Peer %s closed the connection.", peer_info)
 		return None
 	except OSError as ex:
 		# looks like simple connectin lost.
-		logger.debug(f"OSError on {peer_info}. Exception {ex}")
+		logger.debug("OSError on %s. Exception %s", peer_info, ex)
 		return None
 	except Exception as ex:
-		logger.error(f"Unexpected: Handshake to {peer_info} failed by {ex}")
+		logger.error("Unexpected: Handshake to %s failed by %s", peer_info, ex)
 		return None
 	# finally:
 	# 	writer.close()
 
 	pstrlen, pstr, reserved, remote_info_hash, remote_peer_id = handshake_response
-	logger.debug(f"Received handshake from: {remote_peer_id} {peer_info}, message: {handshake_response}")
+	logger.debug("Received handshake from: %s %s, message: %s", remote_peer_id, peer_info, handshake_response)
 
-	logger.info(f"Connected to peer: {peer_info}. Peer id: {remote_peer_id}")
+	logger.info("Connected to peer: %s. Peer id: %s", peer_info, remote_peer_id)
 	return remote_peer_id, reader, writer, reserved
 
 
@@ -103,27 +103,27 @@ async def on_connect(
 		async with asyncio.timeout(timeout):
 			pstrlen, pstr, remote_reserved, info_hash, remote_peer_id = await __read_handshake_message(reader)
 	except TimeoutError:
-		logger.debug(f"Incoming handshake timeout error")
+		logger.debug("Incoming handshake timeout error")
 		return None
 	except IncompleteReadError as ex:
-		logger.debug(f"Incoming handshake connection error {ex}")
+		logger.debug("Incoming handshake connection error %s", ex)
 		return None
 	except ConnectionResetError as ex:
-		logger.debug(f"Incoming handshake connection error {ex}")
+		logger.debug("Incoming handshake connection error %s", ex)
 		return None
 	except Exception as ex:
-		logger.error(f"Incoming handshake unexpected error {ex}")
+		logger.error("Incoming handshake unexpected error %s", ex)
 		return None
 	# finally:
 	# 	writer.close()
 
 	try:
 		message = __create_handshake_message(info_hash, local_peer_id, reserved)
-		logger.debug(f"Send handshake back to: {remote_peer_id}, message: {message}")
+		logger.debug("Send handshake back to: %s, message: %s", remote_peer_id, message)
 		writer.write(message)
 		await writer.drain()
 	except Exception as ex:
-		logger.error(f"Handshake to {remote_peer_id} failed by {ex}")
+		logger.error("Handshake to %s failed by %s", remote_peer_id, ex)
 		return None
 	# finally:
 	# 	writer.close()
@@ -150,7 +150,7 @@ class Connection:
 		return self.reader.at_eof() or self.writer.is_closing() or is_timeout
 
 	def close(self) -> None:
-		logger.debug(f"Close connection to {self.remote_peer_id}")
+		logger.debug("Close connection to %s", self.remote_peer_id)
 		self.last_message_time = .0
 		self.writer.close()
 
@@ -169,17 +169,17 @@ class Connection:
 				return True  # KEEP ALIVE
 
 		except IncompleteReadError as ex:
-			logger.debug(f"Message read failed on Peer [{self.remote_peer_id}]. Exception {ex}")
+			logger.debug("Message read failed on Peer [%s]. Exception %s", self.remote_peer_id, ex)
 			return False
 		except ConnectionResetError as ex:
-			logger.debug(f"Message read failed on Peer [{self.remote_peer_id}]. Exception {ex}")
+			logger.debug("Message read failed on Peer [%s]. Exception %s", self.remote_peer_id, ex)
 			return False
 		except OSError as ex:
 			# looks like simple connectin lost.
-			logger.debug(f"Message read failed on Peer [{self.remote_peer_id}]. Exception {ex}")
+			logger.debug("Message read failed on Peer [%s]. Exception %s", self.remote_peer_id, ex)
 			return False
 		except Exception as ex:
-			logger.error(f"Unexpected error on Peer [{self.remote_peer_id}]. Exception {ex}")
+			logger.error("Unexpected error on Peer [%s]. Exception %s", self.remote_peer_id, ex)
 			return False
 
 	async def keep_alive(self) -> None:
@@ -188,15 +188,15 @@ class Connection:
 		await self.send(bytes())
 
 	async def send(self, message: bytes) -> None:
-		logger.debug(f"send {Message(message)} message to {self.remote_peer_id}")
+		logger.debug("send %s message to %s", Message(message), self.remote_peer_id)
 		try:
 			self.last_out_time = time.monotonic()
 			self.writer.write(struct.pack("!I", len(message)))
 			self.writer.write(message)
 			await self.writer.drain()
 		except ConnectionResetError as ex:
-			logger.debug(f"Connection lost {ex}")
+			logger.debug("Connection lost %s", ex)
 		except ConnectionAbortedError as ex:
-			logger.debug(f"Connection lost {ex}")
+			logger.debug("Connection lost %s", ex)
 		except Exception as ex:
-			logger.error(f"got send error on {self.remote_peer_id}: {ex}")
+			logger.error("got send error on %s: %s", self.remote_peer_id, ex)

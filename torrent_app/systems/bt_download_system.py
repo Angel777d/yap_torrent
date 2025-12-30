@@ -56,7 +56,7 @@ class BTDownloadSystem(System):
 			await self._stop_download(torrent_entity, peer_entity)
 
 	async def _start_download(self, torrent_entity: Entity, peer_entity: Entity):
-		logger.debug(f"{peer_entity.get_component(PeerConnectionEC)} start download")
+		logger.debug("%s start download", peer_entity.get_component(PeerConnectionEC))
 
 		if not torrent_entity.has_component(TorrentInfoEC):
 			return
@@ -71,7 +71,7 @@ class BTDownloadSystem(System):
 	async def _stop_download(self, torrent_entity: Entity, peer_entity: Entity):
 		if torrent_entity.has_component(TorrentDownloadEC):
 			torrent_entity.get_component(TorrentDownloadEC).cancel(peer_entity.get_component(PeerInfoEC).get_hash())
-		logger.debug(f"{peer_entity.get_component(PeerConnectionEC)} stop download")
+		logger.debug("%s stop download", peer_entity.get_component(PeerConnectionEC))
 
 
 def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> Entity:
@@ -84,7 +84,7 @@ def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> En
 
 
 def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -> Entity:
-	logger.debug(f"Piece {index} completed")
+	logger.debug("Piece %s completed", index)
 
 	# crate piece entity
 	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash

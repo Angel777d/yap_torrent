@@ -22,7 +22,7 @@ class DHTRoutingTable:
 		for bucket in self.buckets:
 			if bucket.is_suitable(node_id):
 				return bucket
-		logger.debug(f'There is no bucket for node {node_id}.')
+		logger.debug('There is no bucket for node %s.', node_id)
 		return self.buckets[0]
 
 	def _cleanup(self, bucket: DHTBucket):
@@ -72,7 +72,7 @@ class DHTRoutingTable:
 				self.nodes[node.id] = node
 				buckets = []
 
-		logger.debug(f'add {node} to routing table')
+		logger.debug('Add %s to routing table', node)
 		return True
 
 	def get_closest_nodes(self, target_node: bytes, k: int) -> List[DHTNode]:
