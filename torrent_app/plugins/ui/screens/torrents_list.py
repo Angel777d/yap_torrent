@@ -3,6 +3,7 @@ from typing import Optional
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal
+from textual.events import ScreenResume, ScreenSuspend
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.widget import Widget
@@ -36,7 +37,7 @@ class TorrentInfo(Widget):
 		yield Label(id="torrent-downloaded")
 		with Horizontal():
 			yield Button("+peers", id="add-peers-button")
-			yield Button("Button2", id="button2")
+			yield Button("Check", id="check-torrent-button")
 
 	def on_mount(self):
 		self.update()
@@ -63,6 +64,11 @@ class TorrentInfo(Widget):
 		env: Env = self.app.env
 		env.event_bus.dispatch("request.dht.more_peers", self._entity.get_component(TorrentHashEC).info_hash)
 
+	@on(Button.Pressed, "#add-peers-button")
+	def invalidate(self):
+		env: Env = self.app.env
+		env.event_bus.dispatch("request.torrent.invalidate", self._entity.get_component(TorrentHashEC).info_hash)
+
 
 class TorrentsList(Screen):
 	CSS = """
@@ -81,7 +87,8 @@ class TorrentsList(Screen):
 
 	def __init__(self):
 		super().__init__()
-		self.collection = self.app.env.data_storage.get_collection(TorrentHashEC)
+		env: Env = self.app.env
+		self.collection = env.data_storage.get_collection(TorrentHashEC)
 		self.selected_index = 0
 
 	def get_selected_entity(self) -> Optional[Entity]:
@@ -92,17 +99,31 @@ class TorrentsList(Screen):
 
 	def compose(self) -> ComposeResult:
 		yield ListView(
-			*[TorrentListItem(entity) for entity in self.collection.entities],
+			*(TorrentListItem(entity) for entity in self.collection.entities),
 			initial_index=self.selected_index,
 		)
 
 		yield TorrentInfo(self.get_selected_entity())
 		yield Footer()
 
+	@on(ScreenResume)
+	def on_resume(self, event: ScreenResume) -> None:
+		self.collection.add_listener(self.collection.EVENT_ADDED, self._on_collection_changed, scope=self)
+		self.collection.add_listener(self.collection.EVENT_REMOVED, self._on_collection_changed, scope=self)
+		self.refresh(recompose=True)
+
+	@on(ScreenSuspend)
+	def on_suspend(self, event: ScreenSuspend) -> None:
+		self.collection.remove_all_listeners(scope=self)
+
+	async def _on_collection_changed(self, *_):
+		self.refresh(recompose=True)
+
 	def render(self):
 		return super().render()
 
-	def on_list_view_selected(self, event: ListView.Selected) -> None:
+	@on(ListView.Selected)
+	def on_selected(self, event: ListView.Selected) -> None:
 		self.selected_index = event.index
 		self.query_one(TorrentInfo).update_entity(self.get_selected_entity())
 
