@@ -9,7 +9,6 @@ from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC
 from torrent_app.protocol import bt_ext_messages as msg
 from torrent_app.protocol import encode, decode, TorrentInfo
 from torrent_app.protocol.connection import Message
-from torrent_app.systems import invalidate_torrent
 from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
@@ -146,9 +145,7 @@ class BTExtMetadataSystem(System):
 					torrent_entity.add_component(TorrentInfoEC(torrent_info))
 
 					# disconnect all peers and start validation
-					invalidate_torrent(self.env, torrent_entity)
-
-					# TODO: update interested to connected peers and start download torrent
+					self.env.event_bus.dispatch("request.torrent.invalidate", info_hash)
 					logger.info(f"Successfully loaded metadata for torrent {torrent_info.name}")
 				else:
 					metadata_ec.pieces.clear()

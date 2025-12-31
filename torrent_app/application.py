@@ -19,6 +19,7 @@ from torrent_app.systems.bt_upload_system import BTUploadSystem
 from torrent_app.systems.bt_validation_system import ValidationSystem
 from torrent_app.systems.peer_system import PeerSystem
 from torrent_app.systems.piece_system import PieceSystem
+from torrent_app.systems.torrents_system import TorrentSystem
 from torrent_app.systems.watch_system import WatcherSystem
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class Application:
 			BTDHTSystem(env),
 			MagnetSystem(env),
 			AnnounceSystem(env),
+			TorrentSystem(env),
 			LocalDataSystem(env),
 			WatcherSystem(env),
 		]

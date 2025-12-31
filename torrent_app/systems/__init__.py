@@ -6,9 +6,8 @@ from typing import Optional, Callable, TypeVar, TypeVarTuple, Dict
 from angelovichcore.DataStorage import Entity
 from torrent_app import Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.peer_ec import KnownPeersEC, PeerConnectionEC, PeerInfoEC, PeerDisconnectedEC
-from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentPathEC, ValidateTorrentEC, \
-	TorrentStatsEC
+from torrent_app.components.peer_ec import KnownPeersEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentPathEC, TorrentStatsEC
 from torrent_app.protocol import TorrentInfo
 
 _pool = concurrent.futures.ProcessPoolExecutor()
@@ -24,20 +23,6 @@ def calculate_downloaded(torrent_entity: Entity) -> float:
 	info = torrent_entity.get_component(TorrentInfoEC).info
 	bitfield = torrent_entity.get_component(BitfieldEC)
 	return info.calculate_downloaded(bitfield.have_num)
-
-
-def invalidate_torrent(env: Env, torrent_entity: Entity):
-	disconnect_all_peers_for(env, torrent_entity.get_component(TorrentHashEC).info_hash)
-	torrent_entity.add_component(ValidateTorrentEC())
-
-
-def disconnect_all_peers_for(env: Env, info_hash: bytes):
-	all_connected_peers = env.data_storage.get_collection(PeerConnectionEC).entities
-	for peer_entity in all_connected_peers:
-		# find peers for this torrent
-		if peer_entity.get_component(PeerInfoEC).info_hash == info_hash:
-			peer_entity.get_component(PeerConnectionEC).disconnect()
-			peer_entity.add_component(PeerDisconnectedEC())
 
 
 def create_torrent_entity(

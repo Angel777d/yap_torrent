@@ -4,7 +4,7 @@ import time
 from asyncio import StreamReader, StreamWriter
 from dataclasses import dataclass
 from functools import partial
-from typing import Iterable, Set, Dict
+from typing import Iterable, Set, Dict, Iterator
 
 import torrent_app.protocol.connection as net
 from angelovichcore.DataStorage import Entity
@@ -93,6 +93,9 @@ class PeerSystem(System):
 
 		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
 		self.env.event_bus.add_listener("torrent.complete", self._on_torrent_complete, scope=self)
+		self.env.event_bus.add_listener("request.torrent.invalidate", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("request.torrent.remove", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("request.torrent.stop", self._on_torrent_stop, scope=self)
 
 		for torrent_entity in self.env.data_storage.get_collection(KnownPeersEC).entities:
 			info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
@@ -149,13 +152,13 @@ class PeerSystem(System):
 
 	async def _on_torrent_complete(self, torrent_entity: Entity):
 		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
-		for peer_entity in self.env.data_storage.get_collection(PeerInfoEC).entities:
-			if peer_entity.get_component(PeerInfoEC).info_hash == info_hash:
-				connection_ec = peer_entity.get_component(PeerConnectionEC)
-				if connection_ec.remote_interested:
-					continue
-				connection_ec.disconnect()
-				peer_entity.add_component(PeerDisconnectedEC())
+		_disconnect_peers(
+			p for p in _iter_peers(self.env, info_hash) if
+			p.get_component(PeerConnectionEC).remote_interested
+		)
+
+	async def _on_torrent_stop(self, info_hash: bytes):
+		_disconnect_peers(p for p in _iter_peers(self.env, info_hash))
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
@@ -249,8 +252,19 @@ class PeerSystem(System):
 			if await connection.read(message_callback):
 				continue
 
-			self.manager.mark_failed(peer_info)
 			break
 
+		self.manager.mark_failed(peer_info)
+		peer_entity.add_component(PeerDisconnectedEC())
+
+
+def _iter_peers(env: Env, info_hash: bytes):
+	for peer_entity in env.data_storage.get_collection(PeerInfoEC).entities:
+		if peer_entity.get_component(TorrentHashEC).info_hash == info_hash:
+			yield peer_entity
+
+
+def _disconnect_peers(peers: Iterator[Entity]):
+	for peer_entity in peers:
 		peer_entity.get_component(PeerConnectionEC).disconnect()
 		peer_entity.add_component(PeerDisconnectedEC())

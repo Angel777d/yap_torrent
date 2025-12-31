@@ -34,7 +34,7 @@ class ValidationSystem(System):
 			return
 
 		for torrent_entity in self._collection.entities:
-			# TODO: cancel all pieces uploads / downloads
+
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 			download_path = torrent_entity.get_component(TorrentPathEC).root_path
 
