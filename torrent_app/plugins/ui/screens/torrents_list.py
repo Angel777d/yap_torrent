@@ -11,7 +11,7 @@ from textual.widgets import ListView, Footer, ListItem, Label, Button
 
 from angelovichcore.DataStorage import Entity
 from torrent_app import Env
-from torrent_app.components.torrent_ec import TorrentHashEC
+from torrent_app.components.torrent_ec import TorrentHashEC, TorrentStatsEC
 from torrent_app.plugins.ui.utils import get_torrent_name
 from torrent_app.systems import calculate_downloaded
 
@@ -34,7 +34,9 @@ class TorrentInfo(Widget):
 
 	def compose(self) -> ComposeResult:
 		yield Label(id="torrent-name")
+		yield Label(id="torrent-completed")
 		yield Label(id="torrent-downloaded")
+		yield Label(id="torrent-uploaded")
 		with Horizontal():
 			yield Button("+peers", id="add-peers-button")
 			yield Button("Check", id="check-torrent-button")
@@ -54,10 +56,15 @@ class TorrentInfo(Widget):
 			self._update_timer.pause()
 
 	def update_time(self):
-		value = ""
+		downloaded = uploaded = completed = ""
 		if self._entity:
-			value = calculate_downloaded(self._entity)
-		self.query_one("#torrent-downloaded", expect_type=Label).update(f"Complete: {value:.2%}")
+			completed = calculate_downloaded(self._entity)
+			downloaded = self._entity.get_component(TorrentStatsEC).downloaded
+			uploaded = self._entity.get_component(TorrentStatsEC).uploaded
+
+		self.query_one("#torrent-completed", expect_type=Label).update(f"Complete: {completed:.2%}")
+		self.query_one("#torrent-downloaded", expect_type=Label).update(f"Downloaded: {downloaded:,} bytes")
+		self.query_one("#torrent-uploaded", expect_type=Label).update(f"Uploaded: {uploaded:,} bytes")
 
 	@on(Button.Pressed, "#add-peers-button")
 	def add_peers(self):
