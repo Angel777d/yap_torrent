@@ -1,24 +1,14 @@
-# Another python torrent client
+# Yet Another Python torrent
 
 ### Completed:
 
 * Standard protocol implementation
-* Torrent file read
-* Tracker announce
-* Connect to remote peers
-* Bitfield
-* Ask for piece block
-* Receive piece block
-* Save piece to disk
-* Save torrent progress
+* Extensions protocol
+* DHT extension
 
 ### TODO:
 
-* add console commands
-* support magnet link
-* select peers to connect
-* implement rarest first download strategy
+* stop, start, remove torrents
+* http simple api
+* implement the rarest first download strategy
 * implement choke algorythm
-* support announce-list format
-* web client
-* support extensions

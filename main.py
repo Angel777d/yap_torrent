@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from torrent_app.application import Application
+from yap_torrent.application import Application
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
