@@ -4,10 +4,10 @@ import time
 from angelovichcore.DataStorage import Entity
 from torrent_app import System
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC, TorrentCompletedEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC
 from torrent_app.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from torrent_app.protocol.tracker import make_announce
-from torrent_app.systems import get_torrent_name
+from torrent_app.systems import get_torrent_name, is_torrent_complete
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class AnnounceSystem(System):
 		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
 		for torrent_entity in trackers_collection:
 			# skip completed torrents
-			if torrent_entity.has_component(TorrentCompletedEC):
+			if is_torrent_complete(torrent_entity):
 				continue
 
 			tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)

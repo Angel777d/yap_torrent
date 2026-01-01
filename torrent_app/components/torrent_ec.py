@@ -174,10 +174,6 @@ class TorrentDownloadEC(EntityComponent):
 		self._peers[peer_hash] = set()
 
 
-class TorrentCompletedEC(EntityComponent):
-	pass
-
-
 class SaveTorrentEC(EntityComponent):
 	pass
 

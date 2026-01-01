@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from asyncio import StreamReader, StreamWriter
+from asyncio import StreamReader, StreamWriter, Server
 from dataclasses import dataclass
 from functools import partial
 from typing import Iterable, Set, Dict, Iterator
@@ -11,11 +11,12 @@ from angelovichcore.DataStorage import Entity
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC, PeerDisconnectedEC
-from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, ValidateTorrentEC, TorrentCompletedEC
+from torrent_app.components.torrent_ec import TorrentInfoEC, TorrentHashEC, ValidateTorrentEC
 from torrent_app.protocol import extensions
 from torrent_app.protocol.bt_main_messages import bitfield
 from torrent_app.protocol.extensions import create_reserved, merge_reserved
 from torrent_app.protocol.structures import PeerInfo
+from torrent_app.systems import is_torrent_complete
 
 logger = logging.getLogger(__name__)
 
@@ -85,11 +86,12 @@ class PeerSystem(System):
 	def __init__(self, env: Env):
 		super().__init__(env)
 		self.manager = PeersManager()
+		self.server: Server = None
 
 	async def start(self):
 		port = self.env.config.port
 		host = self.env.ip
-		await asyncio.start_server(self._server_callback, host, port)
+		self.server = await asyncio.start_server(self._server_callback, host, port)
 
 		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
 		self.env.event_bus.add_listener("torrent.complete", self._on_torrent_complete, scope=self)
@@ -103,6 +105,8 @@ class PeerSystem(System):
 			self.manager.update(info_hash, peers)
 
 	def close(self):
+		self.server.close()
+
 		ds = self.env.data_storage
 		ds.clear_collection(PeerInfoEC)
 
@@ -141,7 +145,7 @@ class PeerSystem(System):
 					logger.error(f"Torrent not found for host {host}")
 					continue
 				# skip completed torrents
-				if torrent_entity.has_component(TorrentCompletedEC):
+				if is_torrent_complete(torrent_entity):
 					continue
 				# skip torrents in validation
 				if torrent_entity.has_component(ValidateTorrentEC):

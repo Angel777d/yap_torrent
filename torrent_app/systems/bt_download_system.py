@@ -9,8 +9,7 @@ from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
 from torrent_app.components.peer_ec import PeerConnectionEC, PeerInfoEC
 from torrent_app.components.piece_ec import PieceEC, PiecePendingRemoveEC
-from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC, \
-	TorrentCompletedEC
+from torrent_app.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC
 from torrent_app.protocol import bt_main_messages as msg
 from torrent_app.protocol.message import Message
 from torrent_app.protocol.structures import PieceBlockInfo
@@ -126,7 +125,6 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 
 	if is_torrent_complete(torrent_entity):
 		torrent_entity.remove_component(TorrentDownloadEC)
-		torrent_entity.add_component(TorrentCompletedEC())
 		env.event_bus.dispatch("torrent.complete", torrent_entity)
 		return
 

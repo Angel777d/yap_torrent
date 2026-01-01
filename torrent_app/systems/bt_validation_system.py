@@ -7,10 +7,9 @@ from typing import Set, Optional
 
 from torrent_app import System, Env
 from torrent_app.components.bitfield_ec import BitfieldEC
-from torrent_app.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC, \
-	TorrentCompletedEC
+from torrent_app.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC
 from torrent_app.protocol import TorrentInfo
-from torrent_app.systems import execute_in_pool, calculate_downloaded, is_torrent_complete
+from torrent_app.systems import execute_in_pool, calculate_downloaded
 from torrent_app.utils import check_hash
 
 logger = logging.getLogger(__name__)
@@ -43,11 +42,7 @@ class ValidationSystem(System):
 				if _task.cancelled():
 					return
 
-				bitfield_ec = torrent_entity.get_component(BitfieldEC)
-				bitfield_ec.reset(_task.result())
-
-				if is_torrent_complete(torrent_entity):
-					torrent_entity.add_component(TorrentCompletedEC())
+				torrent_entity.get_component(BitfieldEC).reset(_task.result())
 
 				# save torrent to local data
 				torrent_entity.add_component(SaveTorrentEC())
@@ -59,6 +54,8 @@ class ValidationSystem(System):
 					f"Validation complete: {torrent_info.name}. {calculate_downloaded(torrent_entity):.2%} downloaded")
 
 			logger.info(f"Validation start: {torrent_info.name}")
+
+			torrent_entity.get_component(BitfieldEC).reset({})
 
 			task = asyncio.create_task(execute_in_pool(_check_torrent, torrent_info, download_path))
 			task.add_done_callback(reset_task)
