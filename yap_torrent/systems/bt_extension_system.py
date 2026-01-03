@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from angelovichcore.DataStorage import Entity
+from angelovich.core.DataStorage import Entity
 from yap_torrent import System
 from yap_torrent.components.extensions import PeerExtensionsEC
 from yap_torrent.components.peer_ec import PeerConnectionEC

@@ -4,7 +4,7 @@ import random
 from functools import partial
 from typing import Set
 
-from angelovichcore.DataStorage import Entity, DataStorage
+from angelovich.core.DataStorage import Entity, DataStorage
 from yap_torrent import System, Env
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerInfoEC

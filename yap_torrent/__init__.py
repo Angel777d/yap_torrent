@@ -3,8 +3,8 @@ import logging
 from asyncio import Task
 from typing import Coroutine, Any
 
-from angelovichcore.DataStorage import DataStorage
-from angelovichcore.Dispatcher import Dispatcher
+from angelovich.core.DataStorage import DataStorage
+from angelovich.core.Dispatcher import Dispatcher
 from yap_torrent.config import Config
 
 logger = logging.getLogger(__name__)

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from angelovichcore.DataStorage import Entity
+from angelovich.core.DataStorage import Entity
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC
 
 

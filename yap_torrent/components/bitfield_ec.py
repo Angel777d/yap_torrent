@@ -1,7 +1,7 @@
 import math
 from typing import Set
 
-from angelovichcore.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent
 
 
 class BitfieldEC(EntityComponent):

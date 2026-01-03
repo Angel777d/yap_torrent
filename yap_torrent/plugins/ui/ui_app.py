@@ -1,6 +1,3 @@
-from asyncio import AbstractEventLoop
-from typing import Optional
-
 from textual.app import App, ComposeResult
 from textual.screen import Screen
 from textual.widgets import Footer
@@ -33,10 +30,10 @@ class TorrentUIApp(App):
 		("ctrl+c", "help_quit"),
 	]
 
-	def __init__(self):
+	def __init__(self, env: Env):
 		super(TorrentUIApp, self).__init__()
 		# self.__task: Optional[Task] = None
-		self.__env: Optional[Env] = None
+		self.env: Env = env
 
 	# override default implementation
 	def action_help_quit(self) -> None:
@@ -46,24 +43,8 @@ class TorrentUIApp(App):
 	def action_quit(self) -> None:
 		self.env.close_event.set()
 
-	@property
-	def env(self) -> Optional[Env]:
-		return self.__env
-
 	def on_mount(self) -> None:
 		self.push_screen(Root())
-
-	def start(self, loop: AbstractEventLoop, env: Env):
-		self.__env = env
-		# self.__task = loop.create_task(self.run_async(
-		loop.create_task(self.run_async(
-			headless=False,
-			inline=False,
-			inline_no_clear=False,
-			mouse=True,
-			size=None,
-			auto_pilot=None
-		))
 
 	def stop(self):
 		self.exit()

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple, Iterable, Set, Optional
 
 import yap_torrent.dht.connection as dht_connection
-from angelovichcore.DataStorage import Entity
+from angelovich.core.DataStorage import Entity
 from yap_torrent import System, Env, Config
 from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC

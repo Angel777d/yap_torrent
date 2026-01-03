@@ -9,7 +9,7 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import ListView, Footer, ListItem, Label, Button
 
-from angelovichcore.DataStorage import Entity
+from angelovich.core.DataStorage import Entity
 from yap_torrent import Env
 from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentStatsEC
 from yap_torrent.plugins.ui.utils import get_torrent_name

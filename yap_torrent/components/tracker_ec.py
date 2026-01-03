@@ -2,7 +2,7 @@ import random
 import time
 from typing import List, Dict, Any
 
-from angelovichcore.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent
 from yap_torrent.protocol.structures import TrackerAnnounceResponse
 
 

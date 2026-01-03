@@ -9,21 +9,14 @@ logger = logging.getLogger(__name__)
 
 
 class TorrentPlugin:
-	def __init__(self, name: str, module):
-		self.name = name
-		self.module = module
-
 	async def start(self, env: Env):
-		await self.module.start(env)
+		raise NotImplementedError
 
 	async def update(self, delta_time: float):
-		await self.module.update(delta_time)
+		pass
 
 	def close(self):
-		self.module.close()
-
-	def __repr__(self):
-		return f"Module: '{self.name}' ({self.module})"
+		pass
 
 
 def discover_plugins(config: Config) -> List[TorrentPlugin]:
@@ -38,17 +31,15 @@ def discover_plugins(config: Config) -> List[TorrentPlugin]:
 
 		try:
 			module = importlib.import_module(name)
-			if not hasattr(module, "start"):
-				logger.warning(f"plugin module {name} has no start function")
-				continue
-			if not hasattr(module, "update"):
-				logger.warning(f"plugin module {name} has no update function")
-				continue
-			if not hasattr(module, "close"):
-				logger.warning(f"plugin module {name} has no close function")
+			if not hasattr(module, "plugin"):
+				logger.warning(f"plugin module {name} has no 'plugin' attribute")
 				continue
 
-			discovered_plugins.append(TorrentPlugin(name, module))
+			if not isinstance(module.plugin, TorrentPlugin):
+				logger.warning(f"plugin module {name} plugin is not inherited from TorrentPlugin")
+				continue
+
+			discovered_plugins.append(module.plugin)
 			logger.info(f"plugin module {name} discovered")
 		except ImportError as ex:
 			logger.error(f"plugin module {name} import error: {ex}")

@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Hashable, Dict, Set, Generator, Callable
 
-from angelovichcore.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.protocol.structures import PieceBlockInfo, PieceInfo
 

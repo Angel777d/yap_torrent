@@ -4,8 +4,7 @@
   "watch_folder": "data/watch",
   "trash_folder": "data/trash",
   "disabled_plugins": [
-    "yap_torrent.plugins.profile",
-    "yap_torrent.plugins.rest_api"
+    "yap_torrent.plugins.profile"
   ],
   "max_connections": 50
 }

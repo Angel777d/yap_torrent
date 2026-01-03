@@ -2,7 +2,7 @@
 import time
 from typing import Hashable
 
-from angelovichcore.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent
 from yap_torrent.protocol.structures import PieceInfo
 from yap_torrent.utils import check_hash
 

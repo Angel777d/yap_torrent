@@ -2,7 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from angelovichcore.DataStorage import Entity
+from angelovich.core.DataStorage import Entity
 from yap_torrent import Env, TimeSystem
 from yap_torrent.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentHashEC

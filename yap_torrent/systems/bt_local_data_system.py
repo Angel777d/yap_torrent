@@ -5,7 +5,7 @@ import pickle
 from pathlib import Path
 from typing import Any, Dict, Set
 
-from angelovichcore.DataStorage import Entity
+from angelovich.core.DataStorage import Entity
 from yap_torrent import System, Env
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import KnownPeersEC

@@ -1,6 +1,6 @@
 from typing import Dict
 
-from angelovichcore.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent
 
 UT_METADATA = "ut_metadata"
 METADATA_PIECE_SIZE = 2 ** 14
