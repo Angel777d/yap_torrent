@@ -55,7 +55,7 @@ class ValidationSystem(System):
 
 			logger.info(f"Validation start: {torrent_info.name}")
 
-			torrent_entity.get_component(BitfieldEC).reset({})
+			torrent_entity.get_component(BitfieldEC).reset(set())
 
 			task = asyncio.create_task(execute_in_pool(_check_torrent, torrent_info, download_path))
 			task.add_done_callback(reset_task)
