@@ -5,16 +5,17 @@
 * Standard protocol implementation
 * Extensions protocol
 * DHT extension
+* Plugins system
 
-### TODO:
+---
 
-# before 1.0
-* simple input
-* ui to plugin
+## TODO:
+### before 1.0
 * stop, start, remove torrents
 * endgame
 * implement the rarest first download strategy
-
-# after 1.0
-* http simple api plugin
+* ui to external plugin
+### after 1.0
+* http api plugin
+* web ui
 * implement choke algorythm
