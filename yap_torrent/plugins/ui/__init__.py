@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Set
 
 from yap_torrent import Env
 from yap_torrent.plugins import TorrentPlugin
@@ -26,6 +27,9 @@ class UIPlugin(TorrentPlugin):
 	def close(self):
 		self._app.stop()
 
+	@staticmethod
+	def get_purpose() -> Set[str]:
+		return set("ui")
 
 plugin = UIPlugin()
 

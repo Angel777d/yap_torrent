@@ -8,7 +8,13 @@
 
 ### TODO:
 
+# before 1.0
+* simple input
+* ui to plugin
 * stop, start, remove torrents
-* http simple api
+* endgame
 * implement the rarest first download strategy
+
+# after 1.0
+* http simple api plugin
 * implement choke algorythm
