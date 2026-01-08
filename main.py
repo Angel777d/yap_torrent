@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from torrent_app.application import Application
+from yap_torrent.application import Application
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -20,10 +20,10 @@ handler.setLevel(logging.INFO)
 logger.addHandler(handler)
 
 if __name__ == '__main__':
-	event = asyncio.Event()
+	close_event = asyncio.Event()
 	application = Application()
 
 	try:
 		asyncio.run(application.run(event))
 	except KeyboardInterrupt:
-		event.set()
+		close_event.set()
