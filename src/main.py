@@ -16,7 +16,7 @@ LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 handler = logging.FileHandler('torrent.log', mode='w')
 handler.setFormatter(logging.Formatter(LOG_FORMAT))
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 
 if __name__ == '__main__':
@@ -24,6 +24,6 @@ if __name__ == '__main__':
 	application = Application()
 
 	try:
-		asyncio.run(application.run(event))
+		asyncio.run(application.run(close_event))
 	except KeyboardInterrupt:
 		close_event.set()

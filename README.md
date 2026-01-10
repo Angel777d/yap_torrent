@@ -1,5 +1,8 @@
 # Yet Another Python torrent
 
+
+[GitHub-flavored Markdown](https://guides.github.com/features/mastering-markdown/)
+
 ### Completed:
 
 * Standard protocol implementation

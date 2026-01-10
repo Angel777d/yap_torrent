@@ -4,7 +4,7 @@ from typing import Set
 
 from yap_torrent import Env
 from yap_torrent.plugins import TorrentPlugin
-from yap_torrent.plugins.simple_controls.screens import root
+from .screens import root
 
 
 # yap_torrent.plugins.simple_controls

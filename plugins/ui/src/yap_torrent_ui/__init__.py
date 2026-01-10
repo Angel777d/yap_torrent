@@ -4,7 +4,7 @@ from typing import Set
 
 from yap_torrent import Env
 from yap_torrent.plugins import TorrentPlugin
-from yap_torrent.plugins.ui.ui_app import TorrentUIApp
+from .ui_app import TorrentUIApp
 
 logger = logging.getLogger(__name__)
 

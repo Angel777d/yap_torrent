@@ -2,9 +2,11 @@ import asyncio
 from os import system
 
 from angelovich.core.DataStorage import Entity
+
 from yap_torrent import Env
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC
+from yap_torrent_ui.utils import get_torrent_name
 
 
 def _cls():
@@ -15,12 +17,17 @@ def _torrent_list(env: Env, loop: asyncio.AbstractEventLoop):
 	_cls()
 	torrents = env.data_storage.get_collection(TorrentHashEC).entities
 	for index, torrent_entity in enumerate(torrents):
-		if torrent_entity.has_component(TorrentInfoEC):
-			print(f"{index}. {torrent_entity.get_component(TorrentInfoEC).info.name}")
-		else:
-			print(f"{index}. [{torrent_entity.get_component(TorrentHashEC).info_hash.hex()}]")
+		print(f"{index + 1}. {get_torrent_name(torrent_entity)}")
+	print(f"0. Exit")
+
 	index = int(input("Select torrent: "))
-	loop.run_in_executor(None, _torrent, env, loop, torrents[index])
+	if index == 0:
+		env.close_event.set()
+		return
+	index = index - 1
+	if index < len(torrents):
+		loop.run_in_executor(None, _torrent, env, loop, torrents[index])
+		return
 
 
 def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):

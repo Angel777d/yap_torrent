@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from asyncio import Task
-from typing import Coroutine, Any
+from typing import Coroutine, Any, Optional
 
 from angelovich.core.DataStorage import DataStorage
 from angelovich.core.Dispatcher import Dispatcher
@@ -18,6 +18,7 @@ class Env:
 		self.config: Config = cfg
 		self.data_storage: DataStorage = DataStorage()
 		self.event_bus = Dispatcher()
+		self.close_event : Optional[asyncio.Event] = None
 
 
 class System:

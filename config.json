@@ -3,9 +3,6 @@
   "download_folder": "data/download",
   "watch_folder": "data/watch",
   "trash_folder": "data/trash",
-  "disabled_plugins": [
-    "yap_torrent.plugins.profile",
-    "yap_torrent.plugins.simple_controls"
-  ],
+  "disabled_plugins": [],
   "max_connections": 50
 }
