@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from yap_torrent import System
+from yap_torrent.system import System
 from yap_torrent.components.torrent_ec import SaveTorrentEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.protocol.magnet import MagnetInfo

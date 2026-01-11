@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 from shutil import move
 
-from yap_torrent import System, Env
+from yap_torrent.system import System
+from yap_torrent.env import Env
 from yap_torrent.components.torrent_ec import ValidateTorrentEC, TorrentHashEC, SaveTorrentEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.protocol import load_torrent_file

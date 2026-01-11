@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict
 
 from angelovich.core.DataStorage import Entity
-from yap_torrent import System
+from yap_torrent.system import System
 from yap_torrent.components.extensions import TorrentMetadataEC, PeerExtensionsEC, UT_METADATA, METADATA_PIECE_SIZE
 from yap_torrent.components.peer_ec import PeerConnectionEC
 from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC

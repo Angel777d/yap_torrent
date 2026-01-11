@@ -2,7 +2,8 @@ import logging
 from pathlib import Path
 
 from angelovich.core.DataStorage import Entity
-from yap_torrent import System, Env
+from yap_torrent.system import System
+from yap_torrent.env import Env
 from yap_torrent.components.peer_ec import PeerConnectionEC
 from yap_torrent.components.piece_ec import PieceEC, PiecePendingRemoveEC
 from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC

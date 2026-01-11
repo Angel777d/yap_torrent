@@ -6,21 +6,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Iterable, Set, Optional
 
-import yap_torrent.dht.connection as dht_connection
 from angelovich.core.DataStorage import Entity
-from yap_torrent import System, Env, Config
+
+import yap_torrent.dht.connection as dht_connection
 from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC
+from yap_torrent.config import Config
 from yap_torrent.dht import bt_dht_messages as msg
 from yap_torrent.dht.connection import DHTServerProtocol, DHTServerProtocolHandler, KRPCMessage, KRPCQueryType, \
 	KRPCMessageType
 from yap_torrent.dht.routing.table import DHTRoutingTable
 from yap_torrent.dht.tokens import DHTTokens
 from yap_torrent.dht.utils import compact_address, read_compact_node_info, distance
+from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.connection import Message
 from yap_torrent.protocol.extensions import check_extension
 from yap_torrent.protocol.structures import PeerInfo
+from yap_torrent.system import System
 
 logger = logging.getLogger(__name__)
 

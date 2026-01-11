@@ -4,7 +4,7 @@ from textual.containers import Vertical, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Label, Input, Button
 
-from yap_torrent import Env
+from yap_torrent.env import Env
 
 
 class AddMagnetDialog(ModalScreen):

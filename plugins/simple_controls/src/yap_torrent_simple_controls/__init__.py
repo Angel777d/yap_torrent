@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Set
 
-from yap_torrent import Env
+from yap_torrent.env import Env
 from yap_torrent.plugins import TorrentPlugin
 from .screens import root
 

@@ -2,9 +2,8 @@ import asyncio
 import logging
 from typing import Set
 
-from yap_torrent import Env
+from yap_torrent.env import Env
 from yap_torrent.plugins import TorrentPlugin
-from .ui_app import TorrentUIApp
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +13,7 @@ class UIPlugin(TorrentPlugin):
 		self._app = None
 
 	async def start(self, env: Env):
+		from .ui_app import TorrentUIApp
 		self._app = TorrentUIApp(env)
 		asyncio.create_task(self._app.run_async(
 			headless=False,

@@ -4,8 +4,11 @@ import time
 from typing import List
 
 import yap_torrent.plugins as plugins
-from yap_torrent import Env, System, Config, upnp
+from yap_torrent import upnp
+from yap_torrent.config import Config
+from yap_torrent.env import Env
 from yap_torrent.plugins import TorrentPlugin
+from yap_torrent.system import System
 from yap_torrent.systems.announce_system import AnnounceSystem
 from yap_torrent.systems.bt_choke_system import BTChokeSystem
 from yap_torrent.systems.bt_dht_system import BTDHTSystem
@@ -35,10 +38,10 @@ def open_port(ip: str, port: int, dht_port: int):
 	service = upnp.discover(ip)
 	if service:
 		open_res = upnp.open_port(service, port, ip, protocol="TCP")
-		print(f"open TCP port: {open_res}")
+		logger.info(f"open TCP port: {open_res}")
 
 		open_res = upnp.open_port(service, dht_port, ip, protocol="UDP")
-		print(f"open UDP port: {open_res}")
+		logger.info(f"open UDP port: {open_res}")
 
 
 def create_peer_id():

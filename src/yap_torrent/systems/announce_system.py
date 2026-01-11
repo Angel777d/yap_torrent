@@ -2,7 +2,7 @@ import logging
 import time
 
 from angelovich.core.DataStorage import Entity
-from yap_torrent import System
+from yap_torrent.system import System
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC

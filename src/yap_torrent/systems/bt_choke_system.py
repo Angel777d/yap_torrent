@@ -1,7 +1,7 @@
 import logging
 
 from angelovich.core.DataStorage import Entity
-from yap_torrent import System
+from yap_torrent.system import System
 from yap_torrent.components.peer_ec import PeerConnectionEC
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message

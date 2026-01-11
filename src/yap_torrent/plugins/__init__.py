@@ -1,7 +1,7 @@
 import logging
 from typing import List, Set
 
-from yap_torrent import Config
+from yap_torrent.config import Config
 from yap_torrent.plugins.torrent_plugin import TorrentPlugin
 
 logger = logging.getLogger(__name__)
