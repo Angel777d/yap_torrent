@@ -2,8 +2,6 @@ name: Publish YAP-Torrent app to PyPI
 
 on:
   push:
-    branches:
-      - master
     tags:
       - app-v.*
 

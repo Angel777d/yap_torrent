@@ -2,8 +2,6 @@ name: Publish YAP-Torrent UI plugin to PyPI
 
 on:
   push:
-    branches:
-      - master
     tags:
       - plugins-ui-v.*
 
