@@ -18,21 +18,16 @@ SSDP_PORT = 1900
 SSDP_MX = 2
 SSDP_ST = "urn:schemas-upnp-org:device:InternetGatewayDevice:1"
 
-SSDP_REQUEST = (
-	f"M-SEARCH * HTTP/1.1\r\n"
-	f"HOST: {SSDP_ADDR}:{SSDP_PORT}\r\n"
-	f"MAN: \"ssdp:discover\"\r\n"
-	f"MX: {SSDP_MX}\r\n"
-	f"ST: {SSDP_ST}\r\n"
-	f"\r\n"
-)
+SSDP_REQUEST = (f"M-SEARCH * HTTP/1.1\r\n"
+                f"HOST: {SSDP_ADDR}:{SSDP_PORT}\r\n"
+                f"MAN: \"ssdp:discover\"\r\n"
+                f"MX: {SSDP_MX}\r\n"
+                f"ST: {SSDP_ST}\r\n"
+                f"\r\n")
 
 
 def get_my_ext_ip() -> str:
-	services = [
-		"https://ipecho.net/plain",
-		'https://ident.me'
-	]
+	services = ["https://ipecho.net/plain", 'https://ident.me']
 	for service in services:
 		try:
 			external_ip = urllib.request.urlopen(service, timeout=1).read().decode('utf8')
@@ -87,9 +82,7 @@ def _get_wanip_path(upnp_url):
 			return path
 
 
-def open_port(
-		service_url, external_port, internal_client,
-		internal_port=None, protocol='TCP', duration=0,
+def open_port(service_url, external_port, internal_client, internal_port=None, protocol='TCP', duration=0,
 		description=None, enabled=1):
 	wan_ip_path = _get_wanip_path(service_url)
 	parsed_url = urlparse(service_url)
@@ -119,8 +112,7 @@ def open_port(
 
 	# set up the argument element names and values
 	# using a list of tuples to preserve order
-	arguments = [
-		('NewRemoteHost', ""),  # unused - but required
+	arguments = [('NewRemoteHost', ""),  # unused - but required
 		('NewExternalPort', external_port),  # specify port on router
 		('NewProtocol', protocol),  # specify protocol
 		('NewInternalPort', internal_port),  # specify port on internal host
@@ -159,14 +151,8 @@ def open_port(
 	# use the path of WANIPConnection (or WANPPPConnection) to target that service,
 	# insert the xml payload,
 	# add two headers to make tell the server what we're sending exactly.
-	conn.request(
-		'POST',
-		wan_ip_path,
-		pure_xml,
-		{
-			'SOAPAction': '"urn:schemas-upnp-org:service:WANIPConnection:1#AddPortMapping"',
-			'Content-Type': 'text/xml'}
-	)
+	conn.request('POST', wan_ip_path, pure_xml,
+		{'SOAPAction': '"urn:schemas-upnp-org:service:WANIPConnection:1#AddPortMapping"', 'Content-Type': 'text/xml'})
 
 	# wait for a response
 	resp = conn.getresponse()
@@ -184,4 +170,3 @@ def get_my_ip(router_ip=None) -> str:
 		except socket.error as ex:
 			logger.error(ex)
 	return "127.0.0.1"
-
