@@ -3,9 +3,9 @@ from os import system
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.env import Env
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC
+from yap_torrent.env import Env
 from yap_torrent.systems import get_torrent_name
 
 

@@ -5,11 +5,11 @@ from asyncio import Task
 from pathlib import Path
 from typing import Set, Optional
 
-from yap_torrent.system import System
-from yap_torrent.env import Env
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC
+from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
+from yap_torrent.system import System
 from yap_torrent.systems import execute_in_pool, calculate_downloaded
 from yap_torrent.utils import check_hash
 

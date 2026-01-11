@@ -3,10 +3,11 @@ import logging
 from pathlib import Path
 
 from angelovich.core.DataStorage import Entity
-from yap_torrent.env import Env
-from yap_torrent.system import TimeSystem
+
 from yap_torrent.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentHashEC
+from yap_torrent.env import Env
+from yap_torrent.system import TimeSystem
 from yap_torrent.systems import calculate_downloaded
 from yap_torrent.utils import save_piece
 

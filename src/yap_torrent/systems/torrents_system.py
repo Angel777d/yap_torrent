@@ -1,5 +1,5 @@
-from yap_torrent.system import System
 from yap_torrent.components.torrent_ec import TorrentHashEC, ValidateTorrentEC
+from yap_torrent.system import System
 
 
 class TorrentSystem(System):

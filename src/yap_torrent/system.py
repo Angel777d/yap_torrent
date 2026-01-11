@@ -1,6 +1,7 @@
 import asyncio
-from _asyncio import Task
 from typing import Coroutine, Any
+
+from _asyncio import Task
 
 from yap_torrent.env import Env
 

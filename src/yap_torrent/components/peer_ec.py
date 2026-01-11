@@ -3,6 +3,7 @@ from asyncio import Task
 from typing import Hashable, Set, Iterable
 
 from angelovich.core.DataStorage import EntityComponent
+
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.connection import Connection
 from yap_torrent.protocol.structures import PeerInfo, PieceBlockInfo

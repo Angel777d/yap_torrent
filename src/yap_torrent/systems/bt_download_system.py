@@ -5,15 +5,16 @@ from functools import partial
 from typing import Set
 
 from angelovich.core.DataStorage import Entity, DataStorage
-from yap_torrent.system import System
-from yap_torrent.env import Env
+
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerInfoEC
 from yap_torrent.components.piece_ec import PieceEC, PiecePendingRemoveEC
 from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC
+from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.protocol.structures import PieceBlockInfo
+from yap_torrent.system import System
 from yap_torrent.systems import is_torrent_complete
 
 logger = logging.getLogger(__name__)

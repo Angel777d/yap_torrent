@@ -6,17 +6,18 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Iterable, Set, Dict, Iterator
 
-import yap_torrent.protocol.connection as net
 from angelovich.core.DataStorage import Entity
-from yap_torrent.system import System
-from yap_torrent.env import Env
+
+import yap_torrent.protocol.connection as net
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC, PeerDisconnectedEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, ValidateTorrentEC
+from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield
 from yap_torrent.protocol.extensions import create_reserved, merge_reserved
 from yap_torrent.protocol.structures import PeerInfo
+from yap_torrent.system import System
 from yap_torrent.systems import is_torrent_complete
 
 logger = logging.getLogger(__name__)

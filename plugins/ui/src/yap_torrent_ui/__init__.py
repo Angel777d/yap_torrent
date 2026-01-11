@@ -7,6 +7,7 @@ from yap_torrent.plugins import TorrentPlugin
 
 logger = logging.getLogger(__name__)
 
+
 # yap_torrent.plugins.ui
 class UIPlugin(TorrentPlugin):
 	def __init__(self):
@@ -30,6 +31,7 @@ class UIPlugin(TorrentPlugin):
 	@staticmethod
 	def get_purpose() -> Set[str]:
 		return set("ui")
+
 
 plugin = UIPlugin()
 

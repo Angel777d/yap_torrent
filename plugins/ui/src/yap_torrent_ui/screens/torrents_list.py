@@ -1,5 +1,6 @@
 from typing import Optional
 
+from angelovich.core.DataStorage import Entity
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -9,11 +10,10 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import ListView, Footer, ListItem, Label, Button
 
-from angelovich.core.DataStorage import Entity
-from ..utils import get_torrent_name
-from yap_torrent.env import Env
 from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentStatsEC
+from yap_torrent.env import Env
 from yap_torrent.systems import calculate_downloaded
+from ..utils import get_torrent_name
 
 
 class TorrentInfo(Widget):

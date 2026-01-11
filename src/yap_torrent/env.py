@@ -15,4 +15,4 @@ class Env:
 		self.config: Config = cfg
 		self.data_storage: DataStorage = DataStorage()
 		self.event_bus = Dispatcher()
-		self.close_event : Optional[asyncio.Event] = None
+		self.close_event: Optional[asyncio.Event] = None

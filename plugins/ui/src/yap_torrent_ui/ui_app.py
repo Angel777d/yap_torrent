@@ -2,10 +2,10 @@ from textual.app import App, ComposeResult
 from textual.screen import Screen
 from textual.widgets import Footer
 
+from yap_torrent.env import Env
 from .screens.add_magnet import AddMagnetDialog
 from .screens.bsod import BSOD
 from .screens.torrents_list import TorrentsList
-from yap_torrent.env import Env
 
 
 class Root(Screen):
