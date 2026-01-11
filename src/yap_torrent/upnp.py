@@ -1,6 +1,7 @@
-#  TODO: add source link
+# https://mattscodecave.com/posts/using-python-and-upnp-to-forward-a-port.html
 
 import http.client
+import logging
 import re
 import socket
 import urllib.error
@@ -9,6 +10,8 @@ import urllib.request
 from urllib.parse import urlparse
 from xml.dom.minidom import Document
 from xml.dom.minidom import parseString
+
+logger = logging.getLogger(__name__)
 
 SSDP_ADDR = "239.255.255.250"
 SSDP_PORT = 1900
@@ -33,15 +36,16 @@ def get_my_ext_ip() -> str:
 	for service in services:
 		try:
 			external_ip = urllib.request.urlopen(service, timeout=1).read().decode('utf8')
-			print("external_ip:", external_ip)
+			logger.info(f"get external ip {external_ip} from {service}")
 			return external_ip
 		except Exception as e:
-			print(e)
+			logger.info(f"external ip service {service} is not available: {e}")
+
 	return ""
 
 
 def discover(ip):
-	print(f'sending on {ip}')
+	logger.info(f'sending ssdp:discover to {ip}')
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		try:
 			sock.bind((ip, 0))
@@ -49,13 +53,14 @@ def discover(ip):
 			sock.settimeout(SSDP_MX)
 			while True:
 				data, addr = sock.recvfrom(1024)
-				print(addr, data)
+				logger.info("got response from: \r  %s\r  %s", addr, data)
 				parsed = re.findall(r'(?P<name>.*?): (?P<value>.*?)\r\n', str(data, 'utf-8'))
 				location = [x for x in parsed if x[0].lower() == "location"]
 				router_path = location[0][1]
+				logger.info("found upnp service on: %s", router_path)
 				return router_path
 		except socket.error as ex:
-			print(ex)
+			logger.info("got exception: %s", ex)
 
 	return None
 
@@ -176,10 +181,7 @@ def get_my_ip(router_ip=None) -> str:
 		try:
 			s.connect((router_ip, 80))
 			return s.getsockname()[0]
-		except socket.error as err:
-			print(err)
+		except socket.error as ex:
+			logger.error(ex)
 	return "127.0.0.1"
 
-# interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
-# all_ips = [ip[-1][0] for ip in interfaces]
-# for ip in all_ips:
