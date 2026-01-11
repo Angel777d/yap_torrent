@@ -1,5 +1,7 @@
 # Yet Another Python torrent
 
+[GitHub-flavored Markdown](https://guides.github.com/features/mastering-markdown/)
+
 ### Completed:
 
 * Standard protocol implementation
@@ -10,12 +12,16 @@
 ---
 
 ## TODO:
+
 ### before 1.0
+
 * stop, start, remove torrents
 * endgame
 * implement the rarest first download strategy
 * ui to external plugin
+
 ### after 1.0
+
 * http api plugin
 * web ui
 * implement choke algorythm

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/*",
+]
+
+[project.entry-points.'yap_torrent.plugins']
+yap_torrent_simple_controls = 'yap_torrent_simple_controls'
+
+[project]
+name = "yap_torrent_simple_controls"
+version = "0.0.1"
+description = "Basic controls for yap torrent"
+readme = { file = "README.md", content-type = "text/markdown" }
+
+authors = [
+    { name = "Angelovich", email = "angel777da@gmail.com" },
+]
+maintainers = []
+
+requires-python = ">=3.13"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "yap_torrent",
+]
+
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+keywords = ["Torrent", "BitTorrent"]
+
+
+[project.urls]
+Homepage = "https://github.com/Angel777d/yap_torrent"
+Issues = "https://github.com/Angel777d/yap_torrent/issues"
+
+
