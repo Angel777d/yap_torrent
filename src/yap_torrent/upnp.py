@@ -83,7 +83,7 @@ def _get_wanip_path(upnp_url):
 
 
 def open_port(service_url, external_port, internal_client, internal_port=None, protocol='TCP', duration=0,
-		description=None, enabled=1):
+              description=None, enabled=1):
 	wan_ip_path = _get_wanip_path(service_url)
 	parsed_url = urlparse(service_url)
 
@@ -113,13 +113,13 @@ def open_port(service_url, external_port, internal_client, internal_port=None, p
 	# set up the argument element names and values
 	# using a list of tuples to preserve order
 	arguments = [('NewRemoteHost', ""),  # unused - but required
-		('NewExternalPort', external_port),  # specify port on router
-		('NewProtocol', protocol),  # specify protocol
-		('NewInternalPort', internal_port),  # specify port on internal host
-		('NewInternalClient', internal_client),  # specify IP of internal host
-		('NewEnabled', enabled),  # turn mapping ON
-		('NewPortMappingDescription', description),  # add a description
-		('NewLeaseDuration', duration)]  # how long should it be opened?
+	             ('NewExternalPort', external_port),  # specify port on router
+	             ('NewProtocol', protocol),  # specify protocol
+	             ('NewInternalPort', internal_port),  # specify port on internal host
+	             ('NewInternalClient', internal_client),  # specify IP of internal host
+	             ('NewEnabled', enabled),  # turn mapping ON
+	             ('NewPortMappingDescription', description),  # add a description
+	             ('NewLeaseDuration', duration)]  # how long should it be opened?
 
 	# NewEnabled should be 1 by default, but better supply it.
 	# NewPortMappingDescription Can be anything you want, even an empty string.
@@ -152,7 +152,8 @@ def open_port(service_url, external_port, internal_client, internal_port=None, p
 	# insert the xml payload,
 	# add two headers to make tell the server what we're sending exactly.
 	conn.request('POST', wan_ip_path, pure_xml,
-		{'SOAPAction': '"urn:schemas-upnp-org:service:WANIPConnection:1#AddPortMapping"', 'Content-Type': 'text/xml'})
+	             {'SOAPAction': '"urn:schemas-upnp-org:service:WANIPConnection:1#AddPortMapping"',
+	              'Content-Type': 'text/xml'})
 
 	# wait for a response
 	resp = conn.getresponse()
