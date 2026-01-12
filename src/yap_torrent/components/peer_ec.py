@@ -55,19 +55,6 @@ class PeerConnectionEC(EntityComponent):
 
 		super()._reset()
 
-	async def interested(self) -> None:
-		if self.local_interested:
-			return
-		logger.debug(f"Interested in peer {self.connection.remote_peer_id}")
-		await self.connection.send(msg.interested())
-		self.local_interested = True
-
-	async def not_interested(self) -> None:
-		if not self.local_interested:
-			return
-		logger.debug(f"Not interested in peer {self.connection.remote_peer_id}")
-		await self.connection.send(msg.not_interested())
-		self.local_interested = False
 
 	async def choke(self) -> None:
 		if self.remote_choked:

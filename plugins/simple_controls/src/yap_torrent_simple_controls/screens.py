@@ -20,14 +20,23 @@ def _torrent_list(env: Env, loop: asyncio.AbstractEventLoop):
 		print(f"{index + 1}. {get_torrent_name(torrent_entity)}")
 	print(f"0. Exit")
 
-	index = int(input("Select torrent: "))
-	if index == 0:
-		env.close_event.set()
-		return
-	index = index - 1
-	if index < len(torrents):
-		loop.run_in_executor(None, _torrent, env, loop, torrents[index])
-		return
+	value = input("Select torrent: ")
+	if value.isdigit():
+		index = int(value)
+		if index == 0:
+			env.close_event.set()
+			return
+		if index == 100:
+			leftovers = asyncio.all_tasks(loop=loop)
+			print(leftovers)
+			input("Press enter to exit")
+		index = index - 1
+		if index < len(torrents):
+			loop.run_in_executor(None, _torrent, env, loop, torrents[index])
+			return
+
+	# refresh page
+	loop.run_in_executor(None, _torrent_list, env, loop)
 
 
 def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):

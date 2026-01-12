@@ -6,9 +6,11 @@ from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerInfoEC
 from yap_torrent.components.piece_ec import PieceEC
 from yap_torrent.components.torrent_ec import TorrentHashEC
+from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.system import System
+from yap_torrent.systems import iterate_peers, get_torrent_entity
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,13 @@ class BTInterestedSystem(System):
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
 		self.env.event_bus.add_listener("piece.complete", self.__on_piece_complete, scope=self)
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
+		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_stop, scope=self)
+
+	async def _on_torrent_stop(self, info_hash: bytes):
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		for peer_entity in iterate_peers(self.env, info_hash):
+			await _update_local_peer_interested(self.env, torrent_entity, peer_entity, False)
 
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity) -> None:
 		await self.update_local_interested(torrent_entity, peer_entity)
@@ -69,13 +78,20 @@ class BTInterestedSystem(System):
 	async def update_local_interested(self, torrent_entity: Entity, peer_entity: Entity):
 		remote_bitfield = peer_entity.get_component(BitfieldEC)
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
-		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
+		new_interested = local_bitfield.interested_in(remote_bitfield)
+		await _update_local_peer_interested(self.env, torrent_entity, peer_entity, len(new_interested) > 0)
 
-		old_interested = peer_connection_ec.local_interested
-		if local_bitfield.interested_in(remote_bitfield):
-			await peer_connection_ec.interested()
-		else:
-			await peer_connection_ec.not_interested()
 
-		if peer_connection_ec.local_interested != old_interested:
-			self.env.event_bus.dispatch("peer.local.interested_changed", torrent_entity, peer_entity)
+async def _update_local_peer_interested(env: Env, torrent_entity: Entity, peer_entity: Entity, new_interested: bool):
+	peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
+	if peer_connection_ec.local_interested == new_interested:
+		return
+
+	logger.debug(f"Interested in: %s", peer_connection_ec)
+	peer_connection_ec.local_interested = new_interested
+	if new_interested:
+		await peer_connection_ec.connection.send(msg.interested())
+	else:
+		await peer_connection_ec.connection.send(msg.not_interested())
+
+	env.event_bus.dispatch("peer.local.interested_changed", torrent_entity, peer_entity)

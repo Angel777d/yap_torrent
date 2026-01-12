@@ -28,11 +28,12 @@ class LocalDataSystem(System):
 	async def start(self):
 		active_path = Path(self.env.config.active_folder)
 		self.add_task(_load_local(self.env, active_path))
+		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
 
 	def close(self):
 		to_save = self.env.data_storage.get_collection(TorrentHashEC).entities
 		for torrent_entity in to_save:
-			path = _make_save_path(self.env, torrent_entity)
+			path = _path_from_entity(self.env, torrent_entity)
 			save_data = _export_torrent_data(torrent_entity)
 			_save(path, save_data)
 		super().close()
@@ -44,6 +45,10 @@ class LocalDataSystem(System):
 			entity.remove_component(SaveTorrentEC)
 			self.add_task(_save_local(self.env, entity))
 
+	async def _on_torrent_remove(self, info_hash: bytes):
+		path = _path_from_info_hash(self.env, info_hash)
+		if path.exists():
+			os.remove(path)
 
 async def _load_local(env: Env, active_path: Path):
 	for root, dirs, files in os.walk(active_path):
@@ -57,15 +62,19 @@ async def _load_local(env: Env, active_path: Path):
 
 async def _save_local(env: Env, torrent_entity: Entity):
 	loop = asyncio.get_running_loop()
-	path = _make_save_path(env, torrent_entity)
+	path = _path_from_entity(env, torrent_entity)
 	save_data = _export_torrent_data(torrent_entity)
 	await loop.run_in_executor(None, _save, path, save_data)
 
 
-def _make_save_path(env, torrent_entity: Entity) -> Path:
-	info_hash: bytes = torrent_entity.get_component(TorrentHashEC).info_hash
+def _path_from_info_hash(env, info_hash: bytes) -> Path:
 	active_path = Path(env.config.active_folder)
 	return active_path.joinpath(info_hash.hex())
+
+
+def _path_from_entity(env, torrent_entity: Entity) -> Path:
+	info_hash: bytes = torrent_entity.get_component(TorrentHashEC).info_hash
+	return _path_from_info_hash(env, info_hash)
 
 
 def _save(path: Path, save_data: dict[str, Any]):

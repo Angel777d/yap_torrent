@@ -1,3 +1,5 @@
+import asyncio
+
 from yap_torrent.components.torrent_ec import TorrentHashEC, ValidateTorrentEC
 from yap_torrent.system import System
 
@@ -19,13 +21,15 @@ class TorrentSystem(System):
 		pass
 
 	async def _on_torrent_start(self, info_hash: bytes):
-		pass
+		await asyncio.gather(*self.env.event_bus.dispatch("action.torrent.start", info_hash))
 
 	async def _on_torrent_stop(self, info_hash: bytes):
-		pass
+		await asyncio.gather(*self.env.event_bus.dispatch("action.torrent.stop", info_hash))
 
 	async def _on_torrent_remove(self, info_hash: bytes):
-		pass
+		torrent_entity = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)
+		await asyncio.gather(*self.env.event_bus.dispatch("action.torrent.remove", info_hash))
+		self.env.data_storage.remove_entity(torrent_entity)
 
 	async def _on_torrent_invalidate(self, info_hash: bytes):
 		torrent_entity = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)

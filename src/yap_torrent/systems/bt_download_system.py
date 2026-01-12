@@ -30,12 +30,8 @@ class BTDownloadSystem(System):
 		self.env.event_bus.add_listener("peer.local.interested_changed", self._on_local_peer_changed, scope=self)
 		self.env.event_bus.add_listener("peer.local.choked_changed", self._on_local_peer_changed, scope=self)
 
-		collection = self.env.data_storage.get_collection(PeerConnectionEC)
-		collection.add_listener(collection.EVENT_REMOVED, self._on_peer_removed, scope=self)
-
 	def close(self) -> None:
 		self.env.event_bus.remove_all_listeners(scope=self)
-		self.env.data_storage.get_collection(PeerConnectionEC).remove_all_listeners(scope=self)
 
 	async def _on_peer_removed(self, peer_entity: Entity):
 		peer_ec = peer_entity.get_component(PeerInfoEC)
@@ -127,7 +123,7 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 
 	if is_torrent_complete(torrent_entity):
 		torrent_entity.remove_component(TorrentDownloadEC)
-		env.event_bus.dispatch("torrent.complete", torrent_entity)
+		env.event_bus.dispatch("action.torrent.complete", torrent_entity)
 		return
 
 	# load next blocks

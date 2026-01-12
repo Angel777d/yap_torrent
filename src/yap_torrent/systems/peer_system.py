@@ -3,7 +3,6 @@ import logging
 import time
 from asyncio import StreamReader, StreamWriter, Server
 from dataclasses import dataclass
-from functools import partial
 from typing import Iterable, Set, Dict, Iterator
 
 from angelovich.core.DataStorage import Entity
@@ -18,7 +17,7 @@ from yap_torrent.protocol.bt_main_messages import bitfield
 from yap_torrent.protocol.extensions import create_reserved, merge_reserved
 from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
-from yap_torrent.systems import is_torrent_complete
+from yap_torrent.systems import is_torrent_complete, iterate_peers
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +81,9 @@ class PeersManager:
 			key=lambda h: h.fails_count
 		)
 
+	def remove_torrent(self, info_hash: bytes):
+		for host in self.hosts.values():
+			host.torrents.discard(info_hash)
 
 class PeerSystem(System):
 
@@ -96,10 +98,10 @@ class PeerSystem(System):
 		self.server = await asyncio.start_server(self._server_callback, host, port)
 
 		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
-		self.env.event_bus.add_listener("torrent.complete", self._on_torrent_complete, scope=self)
+		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
 		self.env.event_bus.add_listener("request.torrent.invalidate", self._on_torrent_stop, scope=self)
-		self.env.event_bus.add_listener("request.torrent.remove", self._on_torrent_stop, scope=self)
-		self.env.event_bus.add_listener("request.torrent.stop", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
 
 		for torrent_entity in self.env.data_storage.get_collection(KnownPeersEC).entities:
 			info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
@@ -121,6 +123,7 @@ class PeerSystem(System):
 		# cleanup disconnected peers:
 		to_remove = ds.get_collection(PeerDisconnectedEC).entities
 		for peer_entity in to_remove:
+			peer_entity.get_component(PeerConnectionEC).disconnect()
 			self.manager.free(peer_entity.get_component(PeerInfoEC).peer_info)
 			ds.remove_entity(peer_entity)
 
@@ -159,12 +162,13 @@ class PeerSystem(System):
 	async def _on_torrent_complete(self, torrent_entity: Entity):
 		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
 		_disconnect_peers(
-			p for p in _iter_peers(self.env, info_hash) if
+			p for p in iterate_peers(self.env, info_hash) if
 			p.get_component(PeerConnectionEC).remote_interested
 		)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
-		_disconnect_peers(p for p in _iter_peers(self.env, info_hash))
+		_disconnect_peers(p for p in iterate_peers(self.env, info_hash))
+		self.manager.remove_torrent(info_hash)
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
@@ -247,7 +251,12 @@ class PeerSystem(System):
 
 		connection = peer_entity.get_component(PeerConnectionEC).connection
 
-		message_callback = partial(self.env.event_bus.dispatch, "peer.message", torrent_entity, peer_entity)
+		def on_message(message: net.Message):
+			if not torrent_entity.is_valid():
+				return
+			self.env.event_bus.dispatch("peer.message", torrent_entity, peer_entity, message)
+			logger.error(f"Error while reading message from peer {peer_info}: {e}")
+
 		# main peer loop
 		while True:
 			if connection.is_dead():
@@ -255,7 +264,7 @@ class PeerSystem(System):
 				break
 
 			# read the next message. return False in case of error
-			if await connection.read(message_callback):
+			if await connection.read(on_message):
 				continue
 
 			break
@@ -264,13 +273,6 @@ class PeerSystem(System):
 		peer_entity.add_component(PeerDisconnectedEC())
 
 
-def _iter_peers(env: Env, info_hash: bytes):
-	for peer_entity in env.data_storage.get_collection(PeerInfoEC).entities:
-		if peer_entity.get_component(TorrentHashEC).info_hash == info_hash:
-			yield peer_entity
-
-
 def _disconnect_peers(peers: Iterator[Entity]):
 	for peer_entity in peers:
-		peer_entity.get_component(PeerConnectionEC).disconnect()
 		peer_entity.add_component(PeerDisconnectedEC())

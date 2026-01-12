@@ -8,7 +8,7 @@ from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, Torr
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.protocol.tracker import make_announce
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_name, is_torrent_complete
+from yap_torrent.systems import get_torrent_name, is_torrent_complete, get_torrent_entity
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,9 @@ class AnnounceSystem(System):
 
 	async def start(self):
 		await super().start()
-		self.env.event_bus.add_listener("torrent.complete", self._on_torrent_complete, scope=self)
-		self.env.event_bus.add_listener("torrent.stop", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
+		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_stop, scope=self)
 
 	def close(self) -> None:
 		self.env.event_bus.remove_all_listeners(scope=self)
@@ -26,7 +27,8 @@ class AnnounceSystem(System):
 	async def _on_torrent_complete(self, torrent_entity: Entity):
 		await self.__tracker_announce(torrent_entity, "completed")
 
-	async def _on_torrent_stop(self, torrent_entity: Entity):
+	async def _on_torrent_stop(self, info_hash: bytes):
+		torrent_entity = get_torrent_entity(self.env, info_hash)
 		torrent_entity.get_component(TorrentTrackerDataEC).started = False
 		await self.__tracker_announce(torrent_entity, "stopped")
 

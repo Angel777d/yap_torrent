@@ -1,12 +1,12 @@
 import asyncio
 import concurrent.futures
 from pathlib import Path
-from typing import Optional, Callable, TypeVar, TypeVarTuple, Dict
+from typing import Optional, Callable, TypeVar, TypeVarTuple, Dict, Generator
 
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.bitfield_ec import BitfieldEC
-from yap_torrent.components.peer_ec import KnownPeersEC
+from yap_torrent.components.peer_ec import KnownPeersEC, PeerInfoEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentPathEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
@@ -54,8 +54,17 @@ async def execute_in_pool(func: Callable[[*_Ts], _T], *args: *_Ts) -> _T:
 	return await loop.run_in_executor(_pool, func, *args)
 
 
+def get_torrent_entity(env: Env, info_hash: bytes) -> Optional[Entity]:
+	return env.data_storage.get_collection(TorrentHashEC).find(info_hash)
+
 def get_torrent_name(entity: Entity):
 	if entity.has_component(TorrentInfoEC):
 		return entity.get_component(TorrentInfoEC).info.name
 	else:
 		return f"[{entity.get_component(TorrentHashEC).info_hash}]"
+
+
+def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
+	for peer_entity in env.data_storage.get_collection(PeerInfoEC).entities:
+		if peer_entity.get_component(PeerInfoEC).info_hash == info_hash:
+			yield peer_entity
