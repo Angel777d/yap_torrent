@@ -27,11 +27,9 @@ class AnnounceSystem(System):
 		await self.__tracker_announce(torrent_entity, "completed")
 
 	async def _on_torrent_stop(self, info_hash: bytes):
-		logger.info(f"Stopping torrent {info_hash.hex()}")
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		torrent_entity.get_component(TorrentTrackerDataEC).started = False
 		await self.__tracker_announce(torrent_entity, "stopped")
-		logger.info(f"Stopping torrent {info_hash.hex()} complete")
 
 	async def _update(self, delta_time: float):
 		current_time = time.monotonic()

@@ -22,11 +22,10 @@ class BTChokeSystem(System):
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
-		logger.info(f"Stopping torrent {info_hash.hex()}")
 		torrent_entity = get_torrent_entity(self.env, info_hash)
-		for peer_entity in iterate_peers(self.env, info_hash):
-			await _update_remote_choked(self.env, torrent_entity, peer_entity, True)
-		logger.info(f"Stopping torrent {info_hash.hex()} complete")
+		tasks = [_update_remote_choked(self.env, torrent_entity, peer_entity, True)
+		         for peer_entity in iterate_peers(self.env, info_hash)]
+		await asyncio.gather(*tasks)
 
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity) -> None:
 		# TODO: implement choke algorythm

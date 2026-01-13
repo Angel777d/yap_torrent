@@ -31,14 +31,10 @@ class BTInterestedSystem(System):
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
-		logger.info(f"Stopping torrent {info_hash.hex()}")
 		torrent_entity = get_torrent_entity(self.env, info_hash)
-		tasks = []
-		for peer_entity in iterate_peers(self.env, info_hash):
-			logger.info(peer_entity.get_component(PeerConnectionEC))
-			tasks.append(_update_local_peer_interested(self.env, torrent_entity, peer_entity, False))
+		tasks = [_update_local_peer_interested(self.env, torrent_entity, peer_entity, False)
+		         for peer_entity in iterate_peers(self.env, info_hash)]
 		await asyncio.gather(*tasks)
-		logger.info(f"Stopping torrent {info_hash.hex()} complete")
 
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity) -> None:
 		await self.update_local_interested(torrent_entity, peer_entity)

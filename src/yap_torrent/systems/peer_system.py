@@ -168,10 +168,8 @@ class PeerSystem(System):
 		)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
-		logger.info(f"Stopping torrent {info_hash.hex()}")
 		_disconnect_peers(p for p in iterate_peers(self.env, info_hash))
 		self.manager.remove_torrent(info_hash)
-		logger.info(f"Stopping torrent {info_hash.hex()} complete")
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
