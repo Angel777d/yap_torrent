@@ -2,7 +2,7 @@
 import time
 from typing import Hashable
 
-from angelovich.core.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
 from yap_torrent.protocol.structures import PieceInfo
 from yap_torrent.utils import check_hash
@@ -10,7 +10,7 @@ from yap_torrent.utils import check_hash
 logger = logging.getLogger(__name__)
 
 
-class PieceEC(EntityComponent):
+class PieceEC(EntityHashComponent):
 	def __init__(self, info_hash: bytes, info: PieceInfo):
 		super().__init__()
 		self.info_hash = info_hash
@@ -28,16 +28,12 @@ class PieceEC(EntityComponent):
 	def completed(self) -> bool:
 		return len(self.data) > 0
 
-	@classmethod
-	def is_hashable(cls) -> bool:
-		return True
-
-	def get_hash(self) -> Hashable:
-		return self.make_hash(self.info_hash, self.info.index)
-
 	@staticmethod
 	def make_hash(info_hash: bytes, index: int) -> Hashable:
 		return info_hash, index
+
+	def __hash__(self):
+		return hash(self.make_hash(self.info_hash, self.info.index))
 
 	def get_block(self, begin, length) -> bytes:
 		return self.data[begin:begin + length]

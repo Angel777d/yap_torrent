@@ -3,7 +3,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Hashable, Dict, Set, Generator, Callable
 
-from angelovich.core.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.protocol.structures import PieceBlockInfo, PieceInfo
@@ -11,17 +11,13 @@ from yap_torrent.protocol.structures import PieceBlockInfo, PieceInfo
 logger = logging.getLogger(__name__)
 
 
-class TorrentHashEC(EntityComponent):
+class TorrentHashEC(EntityHashComponent):
 	def __init__(self, info_hash: bytes) -> None:
 		super().__init__()
 		self.info_hash: bytes = info_hash
 
-	@classmethod
-	def is_hashable(cls) -> bool:
-		return True
-
-	def get_hash(self) -> Hashable:
-		return self.info_hash
+	def __hash__(self):
+		return hash(self.info_hash)
 
 
 class TorrentInfoEC(EntityComponent):

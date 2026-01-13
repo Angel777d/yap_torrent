@@ -1,8 +1,8 @@
 import logging
 from asyncio import Task
-from typing import Hashable, Set, Iterable
+from typing import Set, Iterable
 
-from angelovich.core.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.connection import Connection
@@ -11,22 +11,14 @@ from yap_torrent.protocol.structures import PeerInfo, PieceBlockInfo
 logger = logging.getLogger(__name__)
 
 
-class PeerInfoEC(EntityComponent):
+class PeerInfoEC(EntityHashComponent):
 	def __init__(self, info_hash: bytes, peer_info: PeerInfo):
 		super().__init__()
 		self.info_hash: bytes = info_hash
 		self.peer_info: PeerInfo = peer_info
 
-	@classmethod
-	def is_hashable(cls) -> bool:
-		return True
-
-	@staticmethod
-	def make_hash(info_hash: bytes, peer_info: PeerInfo) -> Hashable:
-		return peer_info, info_hash
-
-	def get_hash(self) -> Hashable:
-		return self.make_hash(self.info_hash, self.peer_info)
+	def __hash__(self):
+		return hash((self.info_hash, self.peer_info))
 
 
 class PeerConnectionEC(EntityComponent):
@@ -54,7 +46,6 @@ class PeerConnectionEC(EntityComponent):
 		self.connection.close()
 
 		super()._reset()
-
 
 	async def choke(self) -> None:
 		if self.remote_choked:
