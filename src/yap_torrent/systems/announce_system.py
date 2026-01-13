@@ -6,11 +6,31 @@ from angelovich.core.DataStorage import Entity
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
+from yap_torrent.env import Env
 from yap_torrent.protocol.tracker import make_announce
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_name, is_torrent_complete, get_torrent_entity
+from yap_torrent.systems import get_torrent_name, is_torrent_complete, get_torrent_entity, is_torrent_active
 
 logger = logging.getLogger(__name__)
+
+
+def _iterate_active_torrents(env: Env):
+	trackers_collection = env.data_storage.get_collection(TorrentTrackerDataEC).entities
+	for torrent_entity in trackers_collection:
+		# skip completed torrents
+		if is_torrent_complete(torrent_entity):
+			continue
+		# skip inactive torrents
+		if not is_torrent_active(torrent_entity):
+			continue
+
+		tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
+
+		# skip failed trackers
+		if tracker_data_ec.failure_reason:
+			continue
+
+		yield torrent_entity
 
 
 class AnnounceSystem(System):
@@ -23,30 +43,28 @@ class AnnounceSystem(System):
 	def close(self) -> None:
 		self.env.event_bus.remove_all_listeners(scope=self)
 
+		# make "stopped" announcements
+		for torrent_entity in _iterate_active_torrents(self.env):
+			tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
+			if not tracker_data_ec.started:
+				return
+			self.__tracker_announce(torrent_entity, "stopped")
+
 	async def _on_torrent_complete(self, torrent_entity: Entity):
-		await self.__tracker_announce(torrent_entity, "completed")
+		await self.__tracker_announce_async(torrent_entity, "completed")
 
 	async def _on_torrent_stop(self, info_hash: bytes):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		torrent_entity.get_component(TorrentTrackerDataEC).started = False
-		await self.__tracker_announce(torrent_entity, "stopped")
+		await self.__tracker_announce_async(torrent_entity, "stopped")
 
 	async def _update(self, delta_time: float):
 		current_time = time.monotonic()
 		ds = self.env.data_storage
 
 		# make announcement
-		trackers_collection = ds.get_collection(TorrentTrackerDataEC).entities
-		for torrent_entity in trackers_collection:
-			# skip completed torrents
-			if is_torrent_complete(torrent_entity):
-				continue
-
+		for torrent_entity in _iterate_active_torrents(self.env):
 			tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
-
-			# skip failed trackers
-			if tracker_data_ec.failure_reason:
-				continue
 
 			event = ""  # empty, "started", "completed", "stopped"
 			if not tracker_data_ec.started:
@@ -55,9 +73,12 @@ class AnnounceSystem(System):
 
 			interval = min(tracker_data_ec.interval, tracker_data_ec.min_interval)
 			if tracker_data_ec.last_update_time + interval <= current_time:
-				await self.__tracker_announce(torrent_entity, event)
+				await self.__tracker_announce_async(torrent_entity, event)
 
-	async def __tracker_announce(self, torrent_entity: Entity, event: str = "started"):
+	async def __tracker_announce_async(self, torrent_entity: Entity, event: str = "started"):
+		self.__tracker_announce(torrent_entity, event)
+
+	def __tracker_announce(self, torrent_entity: Entity, event: str = "started"):
 		peer_id = self.env.peer_id
 		external_ip = self.env.external_ip
 		port = self.env.config.port
