@@ -10,7 +10,7 @@ from angelovich.core.DataStorage import Entity
 import yap_torrent.protocol.connection as net
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC, PeerDisconnectedEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC, TorrentState
 from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield
@@ -218,13 +218,16 @@ class PeerSystem(System):
 
 	async def _add_peer(self, info_hash: bytes, peer_info: PeerInfo, remote_peer_id: bytes,
 	                    reader: StreamReader, writer: StreamWriter, reserved: bytes) -> None:
-
 		ds = self.env.data_storage
-
 		connection = net.Connection(remote_peer_id, reader, writer)
+		torrent_entity: Entity = ds.get_collection(TorrentHashEC).find(info_hash)
+
+		if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Inactive:
+			logger.debug(f"Peer {peer_info} connected to inactive torrent {info_hash.hex()}. Disconnecting")
+			connection.close()
+			return
 
 		# send a BITFIELD message first
-		torrent_entity: Entity = ds.get_collection(TorrentHashEC).find(info_hash)
 		local_bitfield = torrent_entity.get_component(BitfieldEC)
 		if local_bitfield.have_num > 0:
 			torrent_info_ec = torrent_entity.get_component(TorrentInfoEC)
@@ -232,6 +235,7 @@ class PeerSystem(System):
 
 		# create peer entity
 		peer_entity = ds.create_entity()
+		# TODO: use one component instead
 		peer_entity.add_component(PeerInfoEC(info_hash, peer_info))
 		peer_entity.add_component(BitfieldEC())
 		peer_entity.add_component(PeerConnectionEC(connection, reserved))
