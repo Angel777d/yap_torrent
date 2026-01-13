@@ -26,9 +26,10 @@ class LocalDataSystem(System):
 		self.collection = self.env.data_storage.get_collection(SaveTorrentEC)
 
 	async def start(self):
+		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
+
 		active_path = Path(self.env.config.active_folder)
 		self.add_task(_load_local(self.env, active_path))
-		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
 
 	def close(self):
 		to_save = self.env.data_storage.get_collection(TorrentHashEC).entities

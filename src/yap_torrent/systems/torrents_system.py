@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentState, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentState, TorrentStatsEC
 from yap_torrent.system import System
 from yap_torrent.systems import get_torrent_entity
 
@@ -24,6 +24,7 @@ class TorrentSystem(System):
 
 	async def _on_torrent_start(self, info_hash: bytes):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
+		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Active
 		await asyncio.gather(*self.env.event_bus.dispatch("action.torrent.start", info_hash))
 
 	async def _on_torrent_stop(self, info_hash: bytes):

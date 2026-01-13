@@ -39,6 +39,7 @@ class AnnounceSystem(System):
 		await super().start()
 		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("action.torrent.start", self._on_torrent_start, scope=self)
 
 	def close(self) -> None:
 		self.env.event_bus.remove_all_listeners(scope=self)
@@ -53,6 +54,11 @@ class AnnounceSystem(System):
 	async def _on_torrent_complete(self, torrent_entity: Entity):
 		await self.__tracker_announce_async(torrent_entity, "completed")
 
+	async def _on_torrent_start(self, info_hash: bytes):
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		torrent_entity.get_component(TorrentTrackerDataEC).started = True
+		await self.__tracker_announce_async(torrent_entity, "started")
+
 	async def _on_torrent_stop(self, info_hash: bytes):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		torrent_entity.get_component(TorrentTrackerDataEC).started = False
@@ -66,6 +72,7 @@ class AnnounceSystem(System):
 		for torrent_entity in _iterate_active_torrents(self.env):
 			tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
 
+			# TODO: make start event on startup and
 			event = ""  # empty, "started", "completed", "stopped"
 			if not tracker_data_ec.started:
 				tracker_data_ec.started = True

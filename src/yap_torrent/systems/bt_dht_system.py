@@ -166,7 +166,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 			port: int
 			token: bytes = bytes()
 
-		all_nodes: Dict[bytes: RequestNode] = {
+		all_nodes: Dict[bytes, RequestNode] = {
 			node.id: RequestNode(node.id, node.host, node.port) for node in
 			self._routing_table.get_closest_nodes(info_hash, 16)
 		}

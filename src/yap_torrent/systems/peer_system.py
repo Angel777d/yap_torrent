@@ -101,6 +101,7 @@ class PeerSystem(System):
 		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
 		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
+		self.env.event_bus.add_listener("action.torrent.start", self._on_torrent_start, scope=self)
 
 		for torrent_entity in self.env.data_storage.get_collection(KnownPeersEC).entities:
 			info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
@@ -170,6 +171,9 @@ class PeerSystem(System):
 	async def _on_torrent_stop(self, info_hash: bytes):
 		_disconnect_peers(p for p in iterate_peers(self.env, info_hash))
 		self.manager.remove_torrent(info_hash)
+
+	async def _on_torrent_start(self, info_hash: bytes):
+		pass
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
