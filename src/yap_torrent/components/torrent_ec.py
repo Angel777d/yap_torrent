@@ -1,4 +1,5 @@
 import logging
+from enum import IntEnum
 from pathlib import Path
 from typing import Hashable, Dict, Set, Generator, Callable
 
@@ -35,6 +36,11 @@ class TorrentPathEC(EntityComponent):
 		self.root_path: Path = path
 
 
+class TorrentState(IntEnum):
+	Active = 1
+	Inactive = 2
+
+
 class TorrentStatsEC(EntityComponent):
 	def __init__(self, **kwargs) -> None:
 		super().__init__()
@@ -42,10 +48,13 @@ class TorrentStatsEC(EntityComponent):
 		self.uploaded = kwargs.get("uploaded", 0)
 		self.downloaded = kwargs.get("downloaded", 0)
 
+		self.state: TorrentState = TorrentState(kwargs.get("state", TorrentState.Active))
+
 	def export(self) -> Dict[str, int]:
 		return {
 			"uploaded": self.uploaded,
-			"downloaded": self.downloaded
+			"downloaded": self.downloaded,
+			"state": self.state.value
 		}
 
 	def update_uploaded(self, length: int) -> None:

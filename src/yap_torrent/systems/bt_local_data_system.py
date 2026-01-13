@@ -50,6 +50,7 @@ class LocalDataSystem(System):
 		if path.exists():
 			os.remove(path)
 
+
 async def _load_local(env: Env, active_path: Path):
 	for root, dirs, files in os.walk(active_path):
 		for file_name in files:
@@ -131,4 +132,4 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	# update validate option
 	validate = save_data.get('validate', False)
 	if validate:
-		torrent_entity.add_component(ValidateTorrentEC())
+		env.event_bus.dispatch("request.torrent.invalidate", info_hash)

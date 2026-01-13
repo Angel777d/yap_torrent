@@ -19,7 +19,6 @@ class AnnounceSystem(System):
 		await super().start()
 		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
-		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_stop, scope=self)
 
 	def close(self) -> None:
 		self.env.event_bus.remove_all_listeners(scope=self)
@@ -28,9 +27,11 @@ class AnnounceSystem(System):
 		await self.__tracker_announce(torrent_entity, "completed")
 
 	async def _on_torrent_stop(self, info_hash: bytes):
+		logger.info(f"Stopping torrent {info_hash.hex()}")
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		torrent_entity.get_component(TorrentTrackerDataEC).started = False
 		await self.__tracker_announce(torrent_entity, "stopped")
+		logger.info(f"Stopping torrent {info_hash.hex()} complete")
 
 	async def _update(self, delta_time: float):
 		current_time = time.monotonic()

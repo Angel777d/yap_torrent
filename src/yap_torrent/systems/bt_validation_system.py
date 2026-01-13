@@ -10,8 +10,8 @@ from yap_torrent.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, 
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.system import System
-from yap_torrent.systems import execute_in_pool, calculate_downloaded
-from yap_torrent.utils import check_hash
+from yap_torrent.systems import calculate_downloaded, get_torrent_entity
+from yap_torrent.utils import check_hash, execute_in_pool
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,19 @@ class ValidationSystem(System):
 		self._collection = self.env.data_storage.get_collection(ValidateTorrentEC)
 		self._task: Optional[Task[Set[int]]] = None
 
+	async def start(self):
+		self.env.event_bus.add_listener("request.torrent.invalidate", self._on_torrent_invalidate, scope=self)
+
+	async def _on_torrent_invalidate(self, info_hash: bytes):
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		torrent_entity.add_component(ValidateTorrentEC())
+		self.env.event_bus.dispatch("action.torrent.stop", info_hash)
+
 	def close(self):
-		super().close()
+		self.env.event_bus.remove_all_listeners(scope=self)
 		if self._task:
 			self._task.cancel()
+		super().close()
 
 	async def _update(self, delta_time: float):
 		# some validation in process

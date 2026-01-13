@@ -28,7 +28,8 @@ def _torrent_list(env: Env, loop: asyncio.AbstractEventLoop):
 			return
 		if index == 100:
 			leftovers = asyncio.all_tasks(loop=loop)
-			print(leftovers)
+			for task in leftovers:
+				print(task)
 			input("Press enter to exit")
 		index = index - 1
 		if index < len(torrents):
@@ -49,17 +50,17 @@ def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):
 	else:
 		print(info_hash.hex())
 
-	print("1. Stop", "2. Start", "3. Invalidate", "4. Delete", "5. Back")
-	action = int(input("Select action: "))
+	print("1. Stop\r\n2. Start\r\n3. Invalidate\r\n4. Delete\r\n0. Back")
+	action = input("Select action: ")
 
 	match action:
-		case 1:
+		case "1":
 			loop.create_task(send_event(env, "request.torrent.stop", info_hash))
-		case 2:
+		case "2":
 			loop.create_task(send_event(env, "request.torrent.start", info_hash))
-		case 3:
+		case "3":
 			loop.create_task(send_event(env, "request.torrent.invalidate", info_hash))
-		case 4:
+		case "4":
 			loop.create_task(send_event(env, "request.torrent.remove", info_hash))
 
 	loop.run_in_executor(None, _torrent_list, env, loop)

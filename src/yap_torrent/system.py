@@ -11,7 +11,7 @@ class System:
 		self.__env: Env = env
 		self.__tasks: set[asyncio.Task] = set()
 
-	async def start(self) -> 'System':
+	async def start(self):
 		pass
 
 	async def update(self, delta_time: float):

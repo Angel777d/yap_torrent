@@ -10,14 +10,14 @@ from angelovich.core.DataStorage import Entity
 import yap_torrent.protocol.connection as net
 from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC, PeerDisconnectedEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, ValidateTorrentEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield
 from yap_torrent.protocol.extensions import create_reserved, merge_reserved
 from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
-from yap_torrent.systems import is_torrent_complete, iterate_peers
+from yap_torrent.systems import iterate_peers, is_torrent_active, is_torrent_complete
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ class PeersManager:
 		for host in self.hosts.values():
 			host.torrents.discard(info_hash)
 
+
 class PeerSystem(System):
 
 	def __init__(self, env: Env):
@@ -99,8 +100,6 @@ class PeerSystem(System):
 
 		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
 		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
-		self.env.event_bus.add_listener("request.torrent.invalidate", self._on_torrent_stop, scope=self)
-		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_stop, scope=self)
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
 
 		for torrent_entity in self.env.data_storage.get_collection(KnownPeersEC).entities:
@@ -149,11 +148,13 @@ class PeerSystem(System):
 				if not torrent_entity:
 					logger.error(f"Torrent not found for host {host}")
 					continue
-				# skip completed torrents
+
+				# skip complete torrents
 				if is_torrent_complete(torrent_entity):
 					continue
-				# skip torrents in validation
-				if torrent_entity.has_component(ValidateTorrentEC):
+
+				# skip inactive torrents
+				if not is_torrent_active(torrent_entity):
 					continue
 
 				self.manager.use(host.peer)
@@ -167,8 +168,10 @@ class PeerSystem(System):
 		)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
+		logger.info(f"Stopping torrent {info_hash.hex()}")
 		_disconnect_peers(p for p in iterate_peers(self.env, info_hash))
 		self.manager.remove_torrent(info_hash)
+		logger.info(f"Stopping torrent {info_hash.hex()} complete")
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
@@ -252,10 +255,10 @@ class PeerSystem(System):
 		connection = peer_entity.get_component(PeerConnectionEC).connection
 
 		def on_message(message: net.Message):
-			if not torrent_entity.is_valid():
+			# skip messages for inactive torrents
+			if not is_torrent_active(torrent_entity):
 				return
 			self.env.event_bus.dispatch("peer.message", torrent_entity, peer_entity, message)
-			logger.error(f"Error while reading message from peer {peer_info}: {e}")
 
 		# main peer loop
 		while True:

@@ -1,8 +1,19 @@
+import asyncio
+import concurrent.futures
 import hashlib
 from pathlib import Path
+from typing import Callable, TypeVar, TypeVarTuple
 
 from yap_torrent.protocol import TorrentInfo
 
+_T = TypeVar("_T")
+_Ts = TypeVarTuple("_Ts")
+_pool = concurrent.futures.ProcessPoolExecutor()
+
+
+async def execute_in_pool(func: Callable[[*_Ts], _T], *args: *_Ts) -> _T:
+	loop = asyncio.get_running_loop()
+	return await loop.run_in_executor(_pool, func, *args)
 
 def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
 	piece_length = info.piece_length
