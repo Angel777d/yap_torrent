@@ -188,6 +188,10 @@ class Connection:
 		await self.send(bytes())
 
 	async def send(self, message: bytes) -> None:
+
+		if self.writer.is_closing():
+			return
+
 		logger.debug("send %s message to %s", Message(message), self.remote_peer_id)
 		try:
 			self.last_out_time = time.monotonic()

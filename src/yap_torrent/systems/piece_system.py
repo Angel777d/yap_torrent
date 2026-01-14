@@ -5,7 +5,7 @@ from pathlib import Path
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.piece_ec import PieceToSaveEC, PieceEC, PiecePendingRemoveEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentHashEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentEC
 from yap_torrent.env import Env
 from yap_torrent.system import TimeSystem
 from yap_torrent.systems import calculate_downloaded, get_torrent_entity
@@ -64,12 +64,12 @@ class PieceSystem(TimeSystem):
 
 			piece: PieceEC = piece_entity.get_component(PieceEC)
 			updated_torrents.add(piece.info_hash)
-			torrent_entity: Entity = ds.get_collection(TorrentHashEC).find(piece.info_hash)
+			torrent_entity: Entity = ds.get_collection(TorrentEC).find(piece.info_hash)
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 			save_piece(self.download_path, torrent_info, piece.info.index, piece.data)
 
 		for info_hash in updated_torrents:
-			torrent_entity: Entity = ds.get_collection(TorrentHashEC).find(info_hash)
+			torrent_entity: Entity = ds.get_collection(TorrentEC).find(info_hash)
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 			if not torrent_entity.has_component(SaveTorrentEC):
 				torrent_entity.add_component(SaveTorrentEC())

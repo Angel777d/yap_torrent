@@ -10,7 +10,7 @@ from textual.timer import Timer
 from textual.widget import Widget
 from textual.widgets import ListView, Footer, ListItem, Label, Button
 
-from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.systems import calculate_downloaded
 from ..utils import get_torrent_name
@@ -69,12 +69,12 @@ class TorrentInfo(Widget):
 	@on(Button.Pressed, "#add-peers-button")
 	def add_peers(self):
 		env: Env = self.app.env
-		env.event_bus.dispatch("request.dht.more_peers", self._entity.get_component(TorrentHashEC).info_hash)
+		env.event_bus.dispatch("request.dht.more_peers", self._entity.get_component(TorrentEC).info_hash)
 
 	@on(Button.Pressed, "#check-torrent-button")
 	def invalidate(self):
 		env: Env = self.app.env
-		env.event_bus.dispatch("request.torrent.invalidate", self._entity.get_component(TorrentHashEC).info_hash)
+		env.event_bus.dispatch("request.torrent.invalidate", self._entity.get_component(TorrentEC).info_hash)
 
 
 class TorrentsList(Screen):
@@ -95,7 +95,7 @@ class TorrentsList(Screen):
 	def __init__(self):
 		super().__init__()
 		env: Env = self.app.env
-		self.collection = env.data_storage.get_collection(TorrentHashEC)
+		self.collection = env.data_storage.get_collection(TorrentEC)
 		self.selected_index = 0
 
 	def get_selected_entity(self) -> Optional[Entity]:

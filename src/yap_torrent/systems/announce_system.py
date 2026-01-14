@@ -3,8 +3,7 @@ import time
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.bitfield_ec import BitfieldEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol.tracker import make_announce
@@ -89,16 +88,16 @@ class AnnounceSystem(System):
 		peer_id = self.env.peer_id
 		external_ip = self.env.external_ip
 		port = self.env.config.port
-		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+		info_hash = torrent_entity.get_component(TorrentEC).info_hash
+		bitfield = torrent_entity.get_component(TorrentEC).bitfield
 		tracker_ec = torrent_entity.get_component(TorrentTrackerEC)
 		tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
-		bitfield_ec = torrent_entity.get_component(BitfieldEC)
 		torrent_name = get_torrent_name(torrent_entity)
 
 		left = 0
 		if torrent_entity.has_component(TorrentInfoEC):
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
-			left = max(torrent_info.size - bitfield_ec.have_num * torrent_info.piece_length, 0)
+			left = max(torrent_info.size - bitfield.have_num * torrent_info.piece_length, 0)
 
 		uploaded = torrent_entity.get_component(TorrentStatsEC).uploaded
 		downloaded = torrent_entity.get_component(TorrentStatsEC).downloaded

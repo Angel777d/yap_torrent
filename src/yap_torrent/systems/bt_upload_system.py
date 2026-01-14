@@ -5,7 +5,7 @@ from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.peer_ec import PeerConnectionEC
 from yap_torrent.components.piece_ec import PieceEC, PiecePendingRemoveEC
-from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
@@ -40,7 +40,7 @@ class BTUploadSystem(System):
 async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity: Entity, message: Message):
 	ds = env.data_storage
 	config = env.config
-	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+	info_hash = torrent_entity.get_component(TorrentEC).info_hash
 	torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 	connection = peer_entity.get_component(PeerConnectionEC).connection
 

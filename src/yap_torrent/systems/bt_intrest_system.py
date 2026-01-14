@@ -3,10 +3,9 @@ import logging
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerInfoEC
 from yap_torrent.components.piece_ec import PieceEC
-from yap_torrent.components.torrent_ec import TorrentHashEC
+from yap_torrent.components.torrent_ec import TorrentEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
@@ -40,7 +39,7 @@ class BTInterestedSystem(System):
 		await self.update_local_interested(torrent_entity, peer_entity)
 
 	async def __on_piece_complete(self, torrent_entity: Entity, piece_entity: Entity):
-		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+		info_hash = torrent_entity.get_component(TorrentEC).info_hash
 		index = piece_entity.get_component(PieceEC).info.index
 
 		# notify all
@@ -54,14 +53,14 @@ class BTInterestedSystem(System):
 		if message.message_id not in self._INTERESTED_MESSAGES:
 			return
 
-		bitfield_ec = peer_entity.get_component(BitfieldEC)
+		bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
 		message_id = msg.MessageId(message.message_id)
 
 		if message_id == msg.MessageId.HAVE:
-			bitfield_ec.set_index(msg.payload_index(message))
+			bitfield.set_index(msg.payload_index(message))
 			await self.update_local_interested(torrent_entity, peer_entity)
 		elif message_id == msg.MessageId.BITFIELD:
-			bitfield_ec.update(msg.payload_bitfield(message))
+			bitfield.update(msg.payload_bitfield(message))
 			await self.update_local_interested(torrent_entity, peer_entity)
 		elif message_id == msg.MessageId.INTERESTED:
 			await self.update_remote_interested(torrent_entity, peer_entity, True)
@@ -77,8 +76,8 @@ class BTInterestedSystem(System):
 		self.env.event_bus.dispatch("peer.remote.interested_changed", torrent_entity, peer_entity)
 
 	async def update_local_interested(self, torrent_entity: Entity, peer_entity: Entity):
-		remote_bitfield = peer_entity.get_component(BitfieldEC)
-		local_bitfield = torrent_entity.get_component(BitfieldEC)
+		remote_bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
+		local_bitfield = torrent_entity.get_component(TorrentEC).bitfield
 		new_interested = local_bitfield.interested_in(remote_bitfield)
 		await _update_local_peer_interested(self.env, torrent_entity, peer_entity, len(new_interested) > 0)
 

@@ -7,9 +7,8 @@ from typing import Any, Dict, Set
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import KnownPeersEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, SaveTorrentEC, ValidateTorrentEC, \
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, \
 	TorrentPathEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
@@ -32,7 +31,7 @@ class LocalDataSystem(System):
 		self.add_task(_load_local(self.env, active_path))
 
 	def close(self):
-		to_save = self.env.data_storage.get_collection(TorrentHashEC).entities
+		to_save = self.env.data_storage.get_collection(TorrentEC).entities
 		for torrent_entity in to_save:
 			path = _path_from_entity(self.env, torrent_entity)
 			save_data = _export_torrent_data(torrent_entity)
@@ -75,7 +74,7 @@ def _path_from_info_hash(env, info_hash: bytes) -> Path:
 
 
 def _path_from_entity(env, torrent_entity: Entity) -> Path:
-	info_hash: bytes = torrent_entity.get_component(TorrentHashEC).info_hash
+	info_hash: bytes = torrent_entity.get_component(TorrentEC).info_hash
 	return _path_from_info_hash(env, info_hash)
 
 
@@ -88,7 +87,7 @@ def _save(path: Path, save_data: dict[str, Any]):
 
 def _export_torrent_data(torrent_entity: Entity) -> dict[str, Any]:
 	result: dict[str, Any] = {
-		"info_hash": torrent_entity.get_component(TorrentHashEC).info_hash,
+		"info_hash": torrent_entity.get_component(TorrentEC).info_hash,
 		"peers": torrent_entity.get_component(KnownPeersEC).peers,
 		"path": torrent_entity.get_component(TorrentPathEC).root_path,
 		"stats": torrent_entity.get_component(TorrentStatsEC).export(),
@@ -97,7 +96,7 @@ def _export_torrent_data(torrent_entity: Entity) -> dict[str, Any]:
 	if torrent_entity.has_component(TorrentInfoEC):
 		torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 		result['torrent_info'] = torrent_info
-		result['bitfield'] = torrent_entity.get_component(BitfieldEC).dump(torrent_info.pieces_num)
+		result['bitfield'] = torrent_entity.get_component(TorrentEC).bitfield.dump(torrent_info.pieces_num)
 
 	if torrent_entity.has_component(TorrentTrackerEC):
 		result['announce_list'] = torrent_entity.get_component(TorrentTrackerEC).announce_list
@@ -116,7 +115,7 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 
 	# update bitfield
 	bitfield = save_data.get('bitfield', bytes())
-	torrent_entity.get_component(BitfieldEC).update(bitfield)
+	torrent_entity.get_component(TorrentEC).bitfield.update(bitfield)
 
 	# update peers
 	peers: Set[PeerInfo] = save_data.get('peers', {})

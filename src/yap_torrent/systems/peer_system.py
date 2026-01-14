@@ -8,9 +8,8 @@ from typing import Iterable, Set, Dict, Iterator
 from angelovich.core.DataStorage import Entity
 
 import yap_torrent.protocol.connection as net
-from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC, PeerDisconnectedEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC, TorrentStatsEC, TorrentState
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentStatsEC, TorrentState
 from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield
@@ -104,7 +103,7 @@ class PeerSystem(System):
 		self.env.event_bus.add_listener("action.torrent.start", self._on_torrent_start, scope=self)
 
 		for torrent_entity in self.env.data_storage.get_collection(KnownPeersEC).entities:
-			info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+			info_hash = torrent_entity.get_component(TorrentEC).info_hash
 			peers = torrent_entity.get_component(KnownPeersEC).peers
 			self.manager.update(info_hash, peers)
 
@@ -145,7 +144,7 @@ class PeerSystem(System):
 				break
 
 			for info_hash in host.torrents:
-				torrent_entity = ds.get_collection(TorrentHashEC).find(info_hash)
+				torrent_entity = ds.get_collection(TorrentEC).find(info_hash)
 				if not torrent_entity:
 					logger.error(f"Torrent not found for host {host}")
 					continue
@@ -162,7 +161,7 @@ class PeerSystem(System):
 				self.add_task(self._connect(my_peer_id, info_hash, host.peer))
 
 	async def _on_torrent_complete(self, torrent_entity: Entity):
-		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+		info_hash = torrent_entity.get_component(TorrentEC).info_hash
 		_disconnect_peers(
 			p for p in iterate_peers(self.env, info_hash) if
 			p.get_component(PeerConnectionEC).remote_interested
@@ -178,7 +177,7 @@ class PeerSystem(System):
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		ds = self.env.data_storage
 
-		torrent_entity = ds.get_collection(TorrentHashEC).find(info_hash)
+		torrent_entity = ds.get_collection(TorrentEC).find(info_hash)
 		if not torrent_entity:
 			return
 
@@ -199,7 +198,7 @@ class PeerSystem(System):
 		pstrlen, pstr, remote_reserved, info_hash, remote_peer_id = result
 
 		# get peer info from
-		torrent_entity = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)
+		torrent_entity = self.env.data_storage.get_collection(TorrentEC).find(info_hash)
 		if not torrent_entity:
 			logger.debug("%s asks for torrent %s we don't have", peer_info, info_hash)
 			writer.close()
@@ -224,7 +223,7 @@ class PeerSystem(System):
 	                    reader: StreamReader, writer: StreamWriter, reserved: bytes) -> None:
 		ds = self.env.data_storage
 		connection = net.Connection(remote_peer_id, reader, writer)
-		torrent_entity: Entity = ds.get_collection(TorrentHashEC).find(info_hash)
+		torrent_entity: Entity = ds.get_collection(TorrentEC).find(info_hash)
 
 		if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Inactive:
 			logger.debug(f"Peer {peer_info} connected to inactive torrent {info_hash.hex()}. Disconnecting")
@@ -232,7 +231,7 @@ class PeerSystem(System):
 			return
 
 		# send a BITFIELD message first
-		local_bitfield = torrent_entity.get_component(BitfieldEC)
+		local_bitfield = torrent_entity.get_component(TorrentEC).bitfield
 		if local_bitfield.have_num > 0:
 			torrent_info_ec = torrent_entity.get_component(TorrentInfoEC)
 			await connection.send(bitfield(local_bitfield.dump(torrent_info_ec.info.pieces_num)))
@@ -241,7 +240,6 @@ class PeerSystem(System):
 		peer_entity = ds.create_entity()
 		# TODO: use one component instead
 		peer_entity.add_component(PeerInfoEC(info_hash, peer_info))
-		peer_entity.add_component(BitfieldEC())
 		peer_entity.add_component(PeerConnectionEC(connection, reserved))
 
 		# notify systems about a new peer

@@ -6,10 +6,9 @@ from typing import Set
 
 from angelovich.core.DataStorage import Entity, DataStorage
 
-from yap_torrent.components.bitfield_ec import BitfieldEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerInfoEC
 from yap_torrent.components.piece_ec import PieceEC, PiecePendingRemoveEC
-from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentStatsEC, TorrentDownloadEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
@@ -57,7 +56,7 @@ class BTDownloadSystem(System):
 
 
 def _get_piece_entity(ds: DataStorage, torrent_entity: Entity, index: int) -> Entity:
-	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+	info_hash = torrent_entity.get_component(TorrentEC).info_hash
 	piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
 	if not piece_entity:
 		piece_info = torrent_entity.get_component(TorrentInfoEC).info.get_piece_info(index)
@@ -69,7 +68,7 @@ def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -
 	logger.debug("Piece %s completed", index)
 
 	# crate piece entity
-	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+	info_hash = torrent_entity.get_component(TorrentEC).info_hash
 	piece_info = torrent_entity.get_component(TorrentInfoEC).info.get_piece_info(index)
 	piece_ec = PieceEC(info_hash, piece_info)
 	piece_ec.set_data(data)
@@ -78,7 +77,7 @@ def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -
 	piece_entity.add_component(PiecePendingRemoveEC())
 
 	# update bitfield
-	torrent_entity.get_component(BitfieldEC).set_index(index)
+	torrent_entity.get_component(TorrentEC).bitfield.set_index(index)
 
 	return piece_entity
 
@@ -121,8 +120,8 @@ def _find_rarest(env: Env, torrent_entity: Entity, pieces: Set[int]) -> int:
 
 
 async def _request_next(env: Env, torrent_entity: Entity, peer_entity: Entity) -> None:
-	local_bitfield = torrent_entity.get_component(BitfieldEC)
-	remote_bitfield = peer_entity.get_component(BitfieldEC)
+	local_bitfield = torrent_entity.get_component(TorrentEC).bitfield
+	remote_bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
 	interested_in = local_bitfield.interested_in(remote_bitfield)
 
 	blocks_manager = _get_blocks_manager(env, torrent_entity)

@@ -3,8 +3,7 @@ from os import system
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.bitfield_ec import BitfieldEC
-from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC
 from yap_torrent.env import Env
 from yap_torrent.systems import get_torrent_name
 
@@ -15,7 +14,7 @@ def _cls():
 
 def _torrent_list(env: Env, loop: asyncio.AbstractEventLoop):
 	_cls()
-	torrents = env.data_storage.get_collection(TorrentHashEC).entities
+	torrents = env.data_storage.get_collection(TorrentEC).entities
 	for index, torrent_entity in enumerate(torrents):
 		print(f"{index + 1}. {get_torrent_name(torrent_entity)}")
 	print(f"0. Exit")
@@ -42,15 +41,15 @@ def _torrent_list(env: Env, loop: asyncio.AbstractEventLoop):
 
 def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):
 	_cls()
-	info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+	info_hash = torrent_entity.get_component(TorrentEC).info_hash
 	if torrent_entity.has_component(TorrentInfoEC):
 		info = torrent_entity.get_component(TorrentInfoEC).info
 		print(info.name)
-		print(f"Complete: {info.calculate_downloaded(torrent_entity.get_component(BitfieldEC).have_num):.2%}")
+		print(f"Complete: {info.calculate_downloaded(torrent_entity.get_component(TorrentEC).bitfield.have_num):.2%}")
 	else:
 		print(info_hash.hex())
 
-	print("1. Stop\r\n2. Start\r\n3. Invalidate\r\n4. Delete\r\n0. Back")
+	print("1. Stop\r\n2. Start\r\n3. Invalidate\r\n4. Delete\r\n5. Ask DHT peers\r\n0. Back")
 	action = input("Select action: ")
 
 	match action:
@@ -62,8 +61,13 @@ def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):
 			loop.create_task(send_event(env, "request.torrent.invalidate", info_hash))
 		case "4":
 			loop.create_task(send_event(env, "request.torrent.remove", info_hash))
+		case "5":
+			loop.create_task(send_event(env, "request.dht.more_peers", info_hash))
+		case "0":
+			loop.run_in_executor(None, _torrent_list, env, loop)
+			return
 
-	loop.run_in_executor(None, _torrent_list, env, loop)
+	loop.run_in_executor(None, _torrent, env, loop, torrent_entity)
 
 
 async def send_event(env, action, *args):

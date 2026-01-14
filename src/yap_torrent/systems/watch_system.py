@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from shutil import move
 
-from yap_torrent.components.torrent_ec import ValidateTorrentEC, TorrentHashEC, SaveTorrentEC
+from yap_torrent.components.torrent_ec import ValidateTorrentEC, TorrentEC, SaveTorrentEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import load_torrent_file
@@ -47,7 +47,7 @@ class WatcherSystem(System):
 					continue
 
 				info_hash = torrent_file_data.make_info_hash()
-				if self.env.data_storage.get_collection(TorrentHashEC).find(info_hash):
+				if self.env.data_storage.get_collection(TorrentEC).find(info_hash):
 					logger.info(f"Torrent from {file_path} is already exist")
 					continue
 

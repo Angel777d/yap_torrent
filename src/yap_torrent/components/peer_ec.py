@@ -6,7 +6,7 @@ from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.connection import Connection
-from yap_torrent.protocol.structures import PeerInfo, PieceBlockInfo
+from yap_torrent.protocol.structures import PeerInfo, PieceBlockInfo, Bitfield
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,8 @@ class PeerConnectionEC(EntityComponent):
 
 		self.remote_choked = True
 		self.remote_interested = False
+
+		self.remote_bitfield: Bitfield = Bitfield()
 
 	def disconnect(self):
 		self.task.cancel()

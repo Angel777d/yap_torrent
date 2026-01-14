@@ -2,7 +2,7 @@ from typing import Optional
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC
 
 
 def get_torrent_name(entity: Optional[Entity], default_text="No Data") -> str:
@@ -10,6 +10,6 @@ def get_torrent_name(entity: Optional[Entity], default_text="No Data") -> str:
 		if entity.has_component(TorrentInfoEC):
 			return entity.get_component(TorrentInfoEC).info.name
 		else:
-			return f"[{entity.get_component(TorrentHashEC).info_hash}]"
+			return f"[{entity.get_component(TorrentEC).info_hash}]"
 	else:
 		return default_text

@@ -10,7 +10,7 @@ from angelovich.core.DataStorage import Entity
 
 import yap_torrent.dht.connection as dht_connection
 from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentHashEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC
 from yap_torrent.config import Config
 from yap_torrent.dht import bt_dht_messages as msg
 from yap_torrent.dht.connection import DHTServerProtocol, DHTServerProtocolHandler, KRPCMessage, KRPCQueryType, \
@@ -86,14 +86,14 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		self.env.event_bus.add_listener("request.dht.more_peers", self.__on_request_more_peers, scope=self)
 
 		# subscribe to torrents added event
-		collection = self.env.data_storage.get_collection(TorrentHashEC)
+		collection = self.env.data_storage.get_collection(TorrentEC)
 		collection.add_listener(collection.EVENT_ADDED, self.__on_torrent_added, self)
 
 		# add torrents without info hash to pending torrents
 		for entity in collection.entities:
 			if entity.has_component(TorrentInfoEC):
 				continue
-			self.pending_torrents.append(entity.get_component(TorrentHashEC).info_hash)
+			self.pending_torrents.append(entity.get_component(TorrentEC).info_hash)
 
 		# start listening for incoming DHT connections
 		port = self.env.config.dht_port
@@ -144,7 +144,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 		peer_info = peer_entity.get_component(PeerInfoEC).peer_info
 		self._add_node(bytes(), peer_info.host, port)
 
-	async def __on_torrent_added(self, entity: Entity, component: TorrentHashEC):
+	async def __on_torrent_added(self, entity: Entity, component: TorrentEC):
 		if entity.has_component(TorrentInfoEC):
 			return
 		self.pending_torrents.append(component.info_hash)
@@ -335,7 +335,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 	def _get_peers(self, info_hash: bytes) -> List[bytes]:
 		peers = self._peers.get(info_hash, set())
 
-		torrent = self.env.data_storage.get_collection(TorrentHashEC).find(info_hash)
+		torrent = self.env.data_storage.get_collection(TorrentEC).find(info_hash)
 		if torrent:
 			peers.update(torrent.get_component(KnownPeersEC).peers)
 

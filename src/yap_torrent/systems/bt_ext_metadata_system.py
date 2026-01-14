@@ -5,7 +5,7 @@ from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.extensions import TorrentMetadataEC, PeerExtensionsEC, UT_METADATA, METADATA_PIECE_SIZE
 from yap_torrent.components.peer_ec import PeerConnectionEC
-from yap_torrent.components.torrent_ec import TorrentHashEC, TorrentInfoEC
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC
 from yap_torrent.protocol import bt_ext_messages as msg
 from yap_torrent.protocol import encode, decode, TorrentInfo
 from yap_torrent.protocol.connection import Message
@@ -23,7 +23,7 @@ class BTExtMetadataSystem(System):
 		self.env.event_bus.add_listener("protocol.extensions.create_handshake", self.__on_create_handshake, scope=self)
 		self.env.event_bus.add_listener("protocol.extensions.got_handshake", self.__on_got_handshake, scope=self)
 
-		collection = self.env.data_storage.get_collection(TorrentHashEC)
+		collection = self.env.data_storage.get_collection(TorrentEC)
 		collection.add_listener(collection.EVENT_ADDED, self.__on_torrent_added, self)
 		for entity in collection.entities:
 			entity.add_component(TorrentMetadataEC())
@@ -33,11 +33,11 @@ class BTExtMetadataSystem(System):
 	def close(self):
 		self.env.event_bus.remove_all_listeners(scope=self)
 
-		collection = self.env.data_storage.get_collection(TorrentHashEC)
+		collection = self.env.data_storage.get_collection(TorrentEC)
 		collection.remove_all_listeners(self)
 		super().close()
 
-	async def __on_torrent_added(self, entity: Entity, component: TorrentHashEC):
+	async def __on_torrent_added(self, entity: Entity, component: TorrentEC):
 		entity.add_component(TorrentMetadataEC())
 
 	async def __on_create_handshake(self, torrent_entity: Entity, additional_fields: dict[str, Any]) -> None:
@@ -68,7 +68,7 @@ class BTExtMetadataSystem(System):
 		remote_ext_id = ext_ec.remote_ext_to_id[UT_METADATA]
 		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
 
-		info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+		info_hash = torrent_entity.get_component(TorrentEC).info_hash
 		logger.info(f"Start metadata load for torrent [{info_hash}]")
 
 		ext_message = encode({"msg_type": 0, "piece": 0})
@@ -139,7 +139,7 @@ class BTExtMetadataSystem(System):
 				for i in range(len(metadata_ec.pieces)):
 					metadata.extend(metadata_ec.pieces[i])
 				metadata = bytes(metadata)
-				info_hash = torrent_entity.get_component(TorrentHashEC).info_hash
+				info_hash = torrent_entity.get_component(TorrentEC).info_hash
 				if check_hash(metadata, info_hash):
 					metadata_ec.set_metadata(metadata)
 					torrent_info = TorrentInfo(decode(metadata))

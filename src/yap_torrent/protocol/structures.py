@@ -1,4 +1,5 @@
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Generator, Tuple, Dict, Any, Iterable, Set
@@ -246,3 +247,40 @@ class TrackerAnnounceResponse:
 	@property
 	def warning_message(self) -> str:
 		return self._tracker_response.get("warning message", b'').decode("utf-8")
+
+
+class Bitfield:
+	def __init__(self):
+		self._have: Set[int] = set()
+
+	@staticmethod
+	def __position_to_index(i, offset) -> int:
+		return i * 8 + 7 - offset
+
+	def reset(self, value: Set[int]):
+		self._have = value
+
+	def update(self, bitfield: bytes):
+		self._have = set(
+			self.__position_to_index(i, offset) for i, byte in enumerate(bitfield) for offset in range(8) if
+			byte & (1 << offset))
+		return self
+
+	def set_index(self, index: int):
+		self._have.add(index)
+
+	def have_index(self, index: int) -> bool:
+		return index in self._have
+
+	def interested_in(self, remote: "Bitfield") -> Set[int]:
+		return remote._have.difference(self._have)
+
+	@property
+	def have_num(self) -> int:
+		return len(self._have)
+
+	def dump(self, length) -> bytes:
+		return bytes(
+			int(sum((1 if self.__position_to_index(i, offset) in self._have else 0) << offset for offset in range(8)))
+			for i in
+			range(math.ceil(length / 8)))
