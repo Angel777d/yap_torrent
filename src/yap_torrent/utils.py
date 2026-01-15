@@ -15,6 +15,7 @@ async def execute_in_pool(func: Callable[[*_Ts], _T], *args: *_Ts) -> _T:
 	loop = asyncio.get_running_loop()
 	return await loop.run_in_executor(_pool, func, *args)
 
+
 def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
 	piece_length = info.piece_length
 	data = bytearray()

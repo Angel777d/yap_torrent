@@ -3,7 +3,7 @@ import logging
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.peer_ec import PeerConnectionEC, PeerInfoEC
+from yap_torrent.components.peer_ec import PeerConnectionEC
 from yap_torrent.components.piece_ec import PieceEC
 from yap_torrent.components.torrent_ec import TorrentEC
 from yap_torrent.env import Env
@@ -45,7 +45,7 @@ class BTInterestedSystem(System):
 		# notify all
 		peers_collection = self.env.data_storage.get_collection(PeerConnectionEC).entities
 		for peer_entity in peers_collection:
-			if peer_entity.get_component(PeerInfoEC).info_hash == info_hash:
+			if peer_entity.get_component(PeerConnectionEC).info_hash == info_hash:
 				await peer_entity.get_component(PeerConnectionEC).connection.send(msg.have(index))
 				await self.update_local_interested(torrent_entity, peer_entity)
 

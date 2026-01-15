@@ -2,13 +2,12 @@ import asyncio
 import logging
 import time
 from asyncio import StreamReader, StreamWriter, Server
-from dataclasses import dataclass
-from typing import Iterable, Set, Dict, Iterator
+from typing import Iterable, Set, List
 
 from angelovich.core.DataStorage import Entity
 
 import yap_torrent.protocol.connection as net
-from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC, PeerDisconnectedEC
+from yap_torrent.components.peer_ec import PeerConnectionEC, KnownPeersEC, PeerDisconnectedEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentStatsEC, TorrentState
 from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
@@ -16,80 +15,18 @@ from yap_torrent.protocol.bt_main_messages import bitfield
 from yap_torrent.protocol.extensions import create_reserved, merge_reserved
 from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
-from yap_torrent.systems import iterate_peers, is_torrent_active, is_torrent_complete
+from yap_torrent.systems import iterate_peers, is_torrent_active, is_torrent_complete, get_torrent_entity
 
 logger = logging.getLogger(__name__)
 
 # TODO: build dynamically from systems
 LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 
-FAIL_COOLDOWN = 60
-MAX_FAILS_COUNT = 3
-
-
-@dataclass
-class HostInfo:
-	peer: PeerInfo
-	torrents: Set[bytes]
-	last_fail_time: float
-	fails_count: int = 0
-	in_use: bool = False
-
-	def fail(self):
-		self.fails_count += 1
-		self.last_fail_time = time.monotonic()
-
-	def on_cooldown(self) -> bool:
-		return self.fails_count and time.monotonic() - self.last_fail_time < FAIL_COOLDOWN
-
-
-class PeersManager:
-	def __init__(self):
-		self.banned: Set[str] = set()
-		self.hosts: Dict[str, HostInfo] = dict()
-
-	def update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
-		for peer in peers:
-			if peer.host in self.banned:
-				continue
-			self.hosts.setdefault(peer.host, HostInfo(peer, set(), .0)).torrents.add(info_hash)
-
-	def mark_good(self, peer: PeerInfo):
-		self.hosts.get(peer.host).fails_count = 0
-
-	def mark_failed(self, peer: PeerInfo):
-		self.hosts.get(peer.host).fail()
-
-	def free(self, peer: PeerInfo):
-		host = self.hosts.get(peer.host)
-		if not host:
-			return
-		if host.fails_count > MAX_FAILS_COUNT:
-			self.banned.add(peer.host)
-			del self.hosts[peer.host]
-		else:
-			host.in_use = False
-
-	def use(self, peer: PeerInfo):
-		host = self.hosts.get(peer.host)
-		host.in_use = True
-
-	def get_hosts(self) -> Iterable[HostInfo]:
-		return sorted(
-			(host for host in self.hosts.values() if not (host.on_cooldown() or host.in_use)),
-			key=lambda h: h.fails_count
-		)
-
-	def remove_torrent(self, info_hash: bytes):
-		for host in self.hosts.values():
-			host.torrents.discard(info_hash)
-
 
 class PeerSystem(System):
 
 	def __init__(self, env: Env):
 		super().__init__(env)
-		self.manager = PeersManager()
 		self.server: Server = None
 
 	async def start(self):
@@ -102,87 +39,103 @@ class PeerSystem(System):
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
 		self.env.event_bus.add_listener("action.torrent.start", self._on_torrent_start, scope=self)
 
-		for torrent_entity in self.env.data_storage.get_collection(KnownPeersEC).entities:
-			info_hash = torrent_entity.get_component(TorrentEC).info_hash
-			peers = torrent_entity.get_component(KnownPeersEC).peers
-			self.manager.update(info_hash, peers)
-
 	def close(self):
+		# TODO: disconnect all peers
+
 		self.server.close()
-
-		ds = self.env.data_storage
-		ds.clear_collection(PeerInfoEC)
-
 		self.env.event_bus.remove_all_listeners(scope=self)
 		super().close()
+
+	def process_disconnected(self):
+		ds = self.env.data_storage
+		to_remove = ds.get_collection(PeerDisconnectedEC).entities
+		for peer_entity in to_remove:
+			peer_ec = peer_entity.get_component(PeerConnectionEC)
+			logger.info("Disconnect %s", peer_ec)
+			peer_ec.disconnect()
+			ds.remove_entity(peer_entity)
+
+	def remove_outdated_peers(self):
+		for peer_entity in self.env.data_storage.get_collection(PeerConnectionEC):
+			peer_ec = peer_entity.get_component(PeerConnectionEC)
+			if peer_ec.remote_interested:
+				continue
+			if peer_ec.local_interested:
+				continue
+
+			if time.monotonic() - peer_ec.connection.last_message_time > 60:
+				logger.info("Removing outdated peer %s", peer_ec)
+				peer_entity.add_component(PeerDisconnectedEC())
+
+	def overflow_check(self):
+		if len(self.env.data_storage.get_collection(PeerConnectionEC)) > self.env.config.max_connections:
+			logger.warning("Max connections overflow check!")
+
+	def connect_to_peers(self):
+		ds = self.env.data_storage
+		my_peer_id = self.env.peer_id
+
+		active_hosts: Set[str] = set(
+			d.get_component(PeerConnectionEC).peer_info.host
+			for d in ds.get_collection(PeerConnectionEC)
+		)
+
+		# select only torrents we want to download
+		active_torrents: List[Entity] = [
+			e for e in ds.get_collection(TorrentEC)
+			if is_torrent_active(e) and not is_torrent_complete(e)
+		]
+		# TODO: sort active torrents by priority
+
+		for torrent_entity in active_torrents:
+			for peer in torrent_entity.get_component(KnownPeersEC).get_peers_to_connect(active_hosts):
+				if len(active_hosts) >= self.env.config.max_connections:
+					return
+				active_hosts.add(peer.host)
+				info_hash = torrent_entity.get_component(TorrentEC).info_hash
+				self.add_task(self._connect(my_peer_id, info_hash, peer))
 
 	async def _update(self, delta_time: float):
 		ds = self.env.data_storage
 
 		# cleanup disconnected peers:
-		to_remove = ds.get_collection(PeerDisconnectedEC).entities
-		for peer_entity in to_remove:
-			peer_entity.get_component(PeerConnectionEC).disconnect()
-			self.manager.free(peer_entity.get_component(PeerInfoEC).peer_info)
-			ds.remove_entity(peer_entity)
+		self.process_disconnected()
 
-		active_collection = ds.get_collection(PeerInfoEC)
+		# remove peers with no interest or no response
+		self.remove_outdated_peers()
 
-		def is_capacity_full():
-			return len(active_collection) >= self.env.config.max_connections
+		# incoming connections can overflow the limit. clean it up
+		self.overflow_check()
 
 		# check capacity first
-		if is_capacity_full():
+		if len(ds.get_collection(PeerConnectionEC)) >= self.env.config.max_connections:
 			return
 
-		my_peer_id = self.env.peer_id
-
-		# sort and filter pending peers
-		suitable_hosts = self.manager.get_hosts()
-		for host in suitable_hosts:
-			if is_capacity_full():
-				break
-
-			for info_hash in host.torrents:
-				torrent_entity = ds.get_collection(TorrentEC).find(info_hash)
-				if not torrent_entity:
-					logger.error(f"Torrent not found for host {host}")
-					continue
-
-				# skip complete torrents
-				if is_torrent_complete(torrent_entity):
-					continue
-
-				# skip inactive torrents
-				if not is_torrent_active(torrent_entity):
-					continue
-
-				self.manager.use(host.peer)
-				self.add_task(self._connect(my_peer_id, info_hash, host.peer))
+		# try to connect to any peers we know about
+		self.connect_to_peers()
 
 	async def _on_torrent_complete(self, torrent_entity: Entity):
+		# TODO: replace with update logic
 		info_hash = torrent_entity.get_component(TorrentEC).info_hash
+		logger.info("Disconnect on torrent complete")
 		_disconnect_peers(
 			p for p in iterate_peers(self.env, info_hash) if
-			p.get_component(PeerConnectionEC).remote_interested
+			not p.get_component(PeerConnectionEC).remote_interested
 		)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
+		logger.info("Disconnect on torrent stop")
 		_disconnect_peers(p for p in iterate_peers(self.env, info_hash))
-		self.manager.remove_torrent(info_hash)
 
 	async def _on_torrent_start(self, info_hash: bytes):
 		pass
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
-		ds = self.env.data_storage
-
-		torrent_entity = ds.get_collection(TorrentEC).find(info_hash)
+		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity:
 			return
 
 		torrent_entity.get_component(KnownPeersEC).update_peers(peers)
-		self.manager.update(info_hash, peers)
 
 	async def _server_callback(self, reader: StreamReader, writer: StreamWriter):
 		peer_info = PeerInfo(*writer.transport.get_extra_info('peername'))
@@ -208,10 +161,10 @@ class PeerSystem(System):
 		reserved = merge_reserved(LOCAL_RESERVED, remote_reserved)
 		await self._add_peer(info_hash, peer_info, remote_peer_id, reader, writer, reserved)
 
-	async def _connect(self, my_peer_id: bytes, info_hash: bytes, peer_info: PeerInfo, ):
+	async def _connect(self, my_peer_id: bytes, info_hash: bytes, peer_info: PeerInfo):
 		result = await net.connect(peer_info, info_hash, my_peer_id, reserved=LOCAL_RESERVED)
 		if not result:
-			self.manager.mark_failed(peer_info)
+			get_torrent_entity(self.env, info_hash).get_component(KnownPeersEC).mark_failed(peer_info)
 			return
 
 		remote_peer_id, reader, writer, remote_reserved = result
@@ -225,10 +178,16 @@ class PeerSystem(System):
 		connection = net.Connection(remote_peer_id, reader, writer)
 		torrent_entity: Entity = ds.get_collection(TorrentEC).find(info_hash)
 
+		# disconnect in case of inactive torrents
 		if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Inactive:
-			logger.debug(f"Peer {peer_info} connected to inactive torrent {info_hash.hex()}. Disconnecting")
+			logger.debug("%s connected to inactive torrent %s. Disconnecting", peer_info, info_hash.hex())
 			connection.close()
 			return
+
+		# disconnect in case max connections reached
+		if len(ds.get_collection(PeerConnectionEC)) >= self.env.config.max_connections:
+			logger.info("Max connections reached. Disconnecting from %s", peer_info)
+			connection.close()
 
 		# send a BITFIELD message first
 		local_bitfield = torrent_entity.get_component(TorrentEC).bitfield
@@ -237,10 +196,7 @@ class PeerSystem(System):
 			await connection.send(bitfield(local_bitfield.dump(torrent_info_ec.info.pieces_num)))
 
 		# create peer entity
-		peer_entity = ds.create_entity()
-		# TODO: use one component instead
-		peer_entity.add_component(PeerInfoEC(info_hash, peer_info))
-		peer_entity.add_component(PeerConnectionEC(connection, reserved))
+		peer_entity = ds.create_entity().add_component(PeerConnectionEC(info_hash, peer_info, connection, reserved))
 
 		# notify systems about a new peer
 		# wait for it before start listening to messages
@@ -253,13 +209,15 @@ class PeerSystem(System):
 			self._read_messages(torrent_entity, peer_entity))
 
 	async def _read_messages(self, torrent_entity: Entity, peer_entity: Entity):
-		peer_info = peer_entity.get_component(PeerInfoEC).peer_info
-		self.manager.mark_good(peer_info)
-
+		peer_info = peer_entity.get_component(PeerConnectionEC).peer_info
 		connection = peer_entity.get_component(PeerConnectionEC).connection
 
+		known_peers_ec = torrent_entity.get_component(KnownPeersEC)
+		fails_count = known_peers_ec.get_fails_count(peer_info)
+		known_peers_ec.mark_good(peer_info)
+
 		def on_message(message: net.Message):
-			# skip messages for inactive torrents
+			# ignore messages for inactive torrents
 			if not is_torrent_active(torrent_entity):
 				return
 			self.env.event_bus.dispatch("peer.message", torrent_entity, peer_entity, message)
@@ -267,19 +225,19 @@ class PeerSystem(System):
 		# main peer loop
 		while True:
 			if connection.is_dead():
-				logger.debug("Peer diconnected by other side or timeout")
 				break
 
 			# read the next message. return False in case of error
 			if await connection.read(on_message):
 				continue
 
+			torrent_entity.get_component(KnownPeersEC).mark_failed(peer_info, fails_count)
 			break
 
-		self.manager.mark_failed(peer_info)
+		logger.info("No more messages %s", peer_info.host)
 		peer_entity.add_component(PeerDisconnectedEC())
 
 
-def _disconnect_peers(peers: Iterator[Entity]):
+def _disconnect_peers(peers: Iterable[Entity]):
 	for peer_entity in peers:
 		peer_entity.add_component(PeerDisconnectedEC())

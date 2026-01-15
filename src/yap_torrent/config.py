@@ -14,9 +14,9 @@ class Config:
 			with open(path, "r") as f:
 				data = json.load(f)
 		except FileNotFoundError:
-			logger.warning(f"Config file not found at {path}")
+			logger.warning(f"Config file not found at {path}. Using default settings.")
 		except json.JSONDecodeError:
-			logger.warning(f"Config file at {path} is invalid")
+			logger.warning(f"Config file at {path} is invalid. Using default settings.")
 
 		self.data_folder = data.get("data_folder", "data")
 
@@ -29,7 +29,7 @@ class Config:
 
 		self.port: int = int(data.get("port", 6889))
 
-		self.max_connections = int(data.get("max_connections", 15))
+		self.max_connections = int(data.get("max_connections", 30))
 
 		self.dht_port: int = int(data.get("dht_port", 6999))
 		self._data = data

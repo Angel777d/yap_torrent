@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Tuple, Iterable, Set, Optional
 from angelovich.core.DataStorage import Entity
 
 import yap_torrent.dht.connection as dht_connection
-from yap_torrent.components.peer_ec import PeerInfoEC, PeerConnectionEC, KnownPeersEC
+from yap_torrent.components.peer_ec import PeerConnectionEC, KnownPeersEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC
 from yap_torrent.config import Config
 from yap_torrent.dht import bt_dht_messages as msg
@@ -141,7 +141,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 			return
 
 		port = msg.payload_port(message)
-		peer_info = peer_entity.get_component(PeerInfoEC).peer_info
+		peer_info = peer_entity.get_component(PeerConnectionEC).peer_info
 		self._add_node(bytes(), peer_info.host, port)
 
 	async def __on_torrent_added(self, entity: Entity, component: TorrentEC):

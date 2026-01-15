@@ -103,16 +103,14 @@ class Application:
 			try:
 				for system in self.systems:
 					await system.update(dt)
-			except Exception as e:
-				logger.error("unexpected exception on systems update")
-				logger.error(e)
+			except Exception as ex:
+				logger.error("unexpected exception on systems update: %s", ex, exc_info=True)
 
 			try:
 				for plugin in self.plugins:
 					await plugin.update(dt)
-			except Exception as e:
-				logger.error("unexpected exception on plugins update")
-				logger.error(e)
+			except Exception as ex:
+				logger.error("unexpected exception on plugins update: %s", ex, exc_info=True)
 
 			await asyncio.sleep(GLOBAL_TICK_TIME)
 

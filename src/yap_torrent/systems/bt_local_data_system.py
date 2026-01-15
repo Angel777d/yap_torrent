@@ -120,7 +120,6 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	# update peers
 	peers: Set[PeerInfo] = save_data.get('peers', {})
 	torrent_entity.get_component(KnownPeersEC).update_peers(peers)
-	env.event_bus.dispatch("peers.update", info_hash, peers)
 
 	# update tracker data if any
 	if 'announce_list' in save_data:
