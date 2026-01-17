@@ -5,7 +5,8 @@ from asyncio import Task
 from pathlib import Path
 from typing import Set, Optional
 
-from yap_torrent.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC, TorrentEC
+from yap_torrent.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC, TorrentEC, \
+	TorrentStatsEC, TorrentState
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.system import System
@@ -51,13 +52,17 @@ class ValidationSystem(System):
 				if _task.cancelled():
 					return
 
-				torrent_entity.get_component(TorrentEC).bitfield.reset(set())
+				torrent_entity.get_component(TorrentEC).bitfield.reset(_task.result())
 
 				# save torrent to local data
 				torrent_entity.add_component(SaveTorrentEC())
 
 				# reset validate flag
 				torrent_entity.remove_component(ValidateTorrentEC)
+
+				# start torrent if needed
+				if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Active:
+					self.env.event_bus.dispatch("action.torrent.start", torrent_info.info_hash)
 
 				logger.info(
 					f"Validation complete: {torrent_info.name}. {calculate_downloaded(torrent_entity):.2%} downloaded")

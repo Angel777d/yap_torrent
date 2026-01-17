@@ -58,18 +58,37 @@ class PeerSystem(System):
 	def remove_outdated_peers(self):
 		for peer_entity in self.env.data_storage.get_collection(PeerConnectionEC):
 			peer_ec = peer_entity.get_component(PeerConnectionEC)
+
+			# Remote peer interested. don't remove'
 			if peer_ec.remote_interested:
 				continue
+
+			# I'm interested in this peer. don't remove
 			if peer_ec.local_interested:
 				continue
 
-			if time.monotonic() - peer_ec.connection.last_message_time > 60:
-				logger.info("Removing outdated peer %s", peer_ec)
-				peer_entity.add_component(PeerDisconnectedEC())
+			# just connected. keep it alive for a while
+			if time.monotonic() - peer_ec.connection.connection_time < 30:
+				continue
+
+			logger.info("Removing outdated peer %s", peer_ec)
+			peer_entity.add_component(PeerDisconnectedEC())
 
 	def overflow_check(self):
-		if len(self.env.data_storage.get_collection(PeerConnectionEC)) > self.env.config.max_connections:
-			logger.warning("Max connections overflow check!")
+		peers_count = len(self.env.data_storage.get_collection(PeerConnectionEC))
+		if peers_count <= self.env.config.max_connections:
+			return
+		logger.info("Too much connected peers: %s", peers_count)
+
+		def sort_key(_e: Entity):
+			peer_ec = _e.get_component(PeerConnectionEC)
+			return int(peer_ec.local_interested), int(peer_ec.remote_interested), peer_ec.connection.last_message_time
+
+		to_remove = sorted((e for e in self.env.data_storage.get_collection(PeerConnectionEC)), key=sort_key)[
+			:-self.env.config.max_connections]
+		for peer_entity in to_remove:
+			logger.info("Max capacity disconnect: %s", peer_entity.get_component(PeerConnectionEC))
+			peer_entity.add_component(PeerDisconnectedEC())
 
 	def connect_to_peers(self):
 		ds = self.env.data_storage
@@ -184,11 +203,6 @@ class PeerSystem(System):
 			connection.close()
 			return
 
-		# disconnect in case max connections reached
-		if len(ds.get_collection(PeerConnectionEC)) >= self.env.config.max_connections:
-			logger.info("Max connections reached. Disconnecting from %s", peer_info)
-			connection.close()
-
 		# send a BITFIELD message first
 		local_bitfield = torrent_entity.get_component(TorrentEC).bitfield
 		if local_bitfield.have_num > 0:
@@ -213,14 +227,13 @@ class PeerSystem(System):
 		connection = peer_entity.get_component(PeerConnectionEC).connection
 
 		known_peers_ec = torrent_entity.get_component(KnownPeersEC)
-		fails_count = known_peers_ec.get_fails_count(peer_info)
-		known_peers_ec.mark_good(peer_info)
 
 		def on_message(message: net.Message):
 			# ignore messages for inactive torrents
 			if not is_torrent_active(torrent_entity):
 				return
 			self.env.event_bus.dispatch("peer.message", torrent_entity, peer_entity, message)
+			known_peers_ec.mark_good(peer_info)
 
 		# main peer loop
 		while True:
@@ -231,7 +244,7 @@ class PeerSystem(System):
 			if await connection.read(on_message):
 				continue
 
-			torrent_entity.get_component(KnownPeersEC).mark_failed(peer_info, fails_count)
+			torrent_entity.get_component(KnownPeersEC).mark_failed(peer_info)
 			break
 
 		logger.info("No more messages %s", peer_info.host)

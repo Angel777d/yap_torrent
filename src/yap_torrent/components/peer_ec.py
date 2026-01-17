@@ -94,7 +94,7 @@ class KnownPeersEC(EntityComponent):
 	def mark_good(self, peer: PeerInfo):
 		self._fails[peer.host] = 0
 
-	def mark_failed(self, peer: PeerInfo, value=1):
+	def mark_failed(self, peer: PeerInfo):
 		self._fails[peer.host] += 1
 		self._last_attempts[peer.host] = time.monotonic()
 
