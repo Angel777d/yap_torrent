@@ -86,9 +86,9 @@ class TorrentDownloadEC(EntityComponent):
 				self._blocks_to_peers[block].remove(peer_hash)
 			return blocks
 
-		def get_endgame_block(self, interested_in: Set[int]) -> Optional[PieceBlockInfo]:
+		def get_endgame_block(self, interested_in: Set[int], peer: PeerConnectionEC) -> Optional[PieceBlockInfo]:
 			for block in self._blocks_to_peers:
-				if block.index in interested_in:
+				if block.index in interested_in and peer not in self._blocks_to_peers[block]:
 					return block
 			return None
 
@@ -174,7 +174,7 @@ class TorrentDownloadEC(EntityComponent):
 
 			# Endgame starts here. Get block from already in progress blocks
 			if not block:
-				block = self._in_progress.get_endgame_block(interested_in)
+				block = self._in_progress.get_endgame_block(interested_in, peer)
 
 			# Give up. There is nothing to download
 			if not block:
