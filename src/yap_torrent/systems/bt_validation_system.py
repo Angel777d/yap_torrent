@@ -62,7 +62,8 @@ class ValidationSystem(System):
 
 				# start torrent if needed
 				if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Active:
-					self.env.event_bus.dispatch("action.torrent.start", torrent_info.info_hash)
+					info_hash = torrent_entity.get_component(TorrentEC).info_hash
+					self.env.event_bus.dispatch("action.torrent.start", info_hash)
 
 				logger.info(
 					f"Validation complete: {torrent_info.name}. {calculate_downloaded(torrent_entity):.2%} downloaded")

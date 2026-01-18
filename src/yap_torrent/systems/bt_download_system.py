@@ -83,6 +83,9 @@ def _complete_piece(env: Env, torrent_entity: Entity, index: int, data: bytes) -
 
 
 async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: Entity, message: Message):
+	if is_torrent_complete(torrent_entity):
+		return
+
 	index, begin, block = msg.payload_piece(message)
 	# update stats
 	torrent_entity.get_component(TorrentStatsEC).update_downloaded(len(block))
@@ -91,11 +94,12 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 
 	# save block data
 	block_info = PieceBlockInfo(index, begin, len(block))
-	blocks_manager.set_block_data(block_info, block, peer_entity.get_component(PeerConnectionEC))
+	is_completed, peers_to_cancel = blocks_manager.set_block_data(
+		block_info, block, peer_entity.get_component(PeerConnectionEC))
 
 	# ready to save a piece
-	if blocks_manager.is_completed(index):
-		data = blocks_manager.get_piece_data(index)
+	if is_completed:
+		data = blocks_manager.pop_piece_data(index)
 		if data:
 			piece_entity = _complete_piece(env, torrent_entity, index, data)
 			# wait for all systems to finish
@@ -103,6 +107,10 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 		else:
 			# nothing at the moment
 			pass
+
+	# send cancel to peers
+	for peer in peers_to_cancel:
+		await peer.connection.send(msg.cancel(index, begin, len(block)))
 
 	if is_torrent_complete(torrent_entity):
 		torrent_entity.remove_component(TorrentDownloadEC)

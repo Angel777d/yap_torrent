@@ -41,6 +41,16 @@ class PieceInfo:
 	index: int
 	piece_hash: bytes
 
+	def create_blocks(self) -> Set[PieceBlockInfo]:
+		begin = 0
+		block_size = _block_size()
+		result: Set[PieceBlockInfo] = set()
+		while begin < self.size:
+			result.add(
+				PieceBlockInfo(self.index, begin, _calculate_block_size(self.size, begin)))
+			begin += block_size
+		return result
+
 
 @dataclass(frozen=True, slots=True)
 class FileInfo:
@@ -150,17 +160,6 @@ class TorrentInfo:
 			end_pos = min(piece_end, file_end)
 
 			yield file, start_pos, end_pos
-
-	def create_blocks(self, index: int) -> Set[PieceBlockInfo]:
-		piece = self.get_piece_info(index)
-		begin = 0
-		block_size = _block_size()
-		result: Set[PieceBlockInfo] = set()
-		while begin < piece.size:
-			result.add(
-				PieceBlockInfo(piece.index, begin, _calculate_block_size(piece.size, begin)))
-			begin += block_size
-		return result
 
 
 @dataclass(frozen=True, slots=True)

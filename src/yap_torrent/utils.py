@@ -18,7 +18,7 @@ async def execute_in_pool(func: Callable[[*_Ts], _T], *args: *_Ts) -> _T:
 
 def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
 	piece_length = info.piece_length
-	data = bytearray()
+	data = bytearray(info.get_piece_info(index).size)
 	for file, start_pos, end_pos in info.piece_to_files(index):
 		path = info.get_file_path(root, file)
 		with open(path, "rb") as f:
@@ -28,6 +28,7 @@ def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
 
 			f.seek(offset)
 			buffer = f.read(length)
+
 			data[read_from:read_from + length] = buffer
 	return bytes(data)
 
