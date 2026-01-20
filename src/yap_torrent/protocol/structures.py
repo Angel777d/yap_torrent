@@ -46,8 +46,7 @@ class PieceInfo:
 		block_size = _block_size()
 		result: Set[PieceBlockInfo] = set()
 		while begin < self.size:
-			result.add(
-				PieceBlockInfo(self.index, begin, _calculate_block_size(self.size, begin)))
+			result.add(PieceBlockInfo(self.index, begin, _calculate_block_size(self.size, begin)))
 			begin += block_size
 		return result
 
@@ -274,6 +273,9 @@ class Bitfield:
 	def interested_in(self, remote: "Bitfield") -> Set[int]:
 		return remote._have.difference(self._have)
 
+	def intersection(self, other: Set[int]) -> Set[int]:
+		return self._have.intersection(other)
+
 	@property
 	def have_num(self) -> int:
 		return len(self._have)
@@ -281,5 +283,4 @@ class Bitfield:
 	def dump(self, length) -> bytes:
 		return bytes(
 			int(sum((1 if self.__position_to_index(i, offset) in self._have else 0) << offset for offset in range(8)))
-			for i in
-			range(math.ceil(length / 8)))
+			for i in range(math.ceil(length / 8)))

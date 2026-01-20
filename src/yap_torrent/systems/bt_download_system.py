@@ -2,7 +2,7 @@ import asyncio
 import logging
 import random
 from functools import partial
-from typing import Set
+from typing import Set, Dict
 
 from angelovich.core.DataStorage import Entity, DataStorage
 
@@ -122,8 +122,26 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 
 
 def _find_rarest(env: Env, torrent_entity: Entity, pieces: Set[int]) -> int:
-	# TODO: implement rarest first strategy
-	return random.choice(list(pieces))
+	# random first policy
+	# it is important to have some pieces to reciprocate for the choke algorithm
+	if torrent_entity.get_component(TorrentEC).bitfield.have_num < 4:
+		return random.choice(list(pieces))
+
+	# rarest first strategy
+	info_hash = torrent_entity.get_component(TorrentEC).info_hash
+
+	# collect pieces on connected peers
+	counters: Dict[int, int] = {index: 0 for index in pieces}
+	for peer_entity in env.data_storage.get_collection(PeerConnectionEC):
+		peer_ec = peer_entity.get_component(PeerConnectionEC)
+		if peer_ec.info_hash != info_hash:
+			continue
+		for index in peer_ec.remote_bitfield.intersection(pieces):
+			counters[index] = counters.get(index, 0) + 1
+
+	# select rarest piece
+	index = sorted(counters.items(), key=lambda x: x[1]).pop(0)[0]
+	return index
 
 
 async def _request_next(env: Env, torrent_entity: Entity, peer_entity: Entity) -> None:
