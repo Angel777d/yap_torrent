@@ -3,7 +3,7 @@ from os import system
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.systems import get_torrent_name
 
@@ -16,7 +16,8 @@ def _torrent_list(env: Env, loop: asyncio.AbstractEventLoop):
 	_cls()
 	torrents = env.data_storage.get_collection(TorrentEC).entities
 	for index, torrent_entity in enumerate(torrents):
-		print(f"{index + 1}. {get_torrent_name(torrent_entity)}")
+		print(f"{index + 1}. {get_torrent_name(torrent_entity)} ({torrent_entity.get_component(TorrentStatsEC).state.name})")
+
 	print(f"0. Exit")
 
 	value = input("Select torrent: ")
@@ -46,6 +47,8 @@ def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):
 		info = torrent_entity.get_component(TorrentInfoEC).info
 		print(info.name)
 		print(f"Complete: {info.calculate_downloaded(torrent_entity.get_component(TorrentEC).bitfield.have_num):.2%}")
+		print(f"Downloaded: {torrent_entity.get_component(TorrentStatsEC).downloaded:,}")
+		print(f"Uploaded: {torrent_entity.get_component(TorrentStatsEC).uploaded:,}")
 	else:
 		print(info_hash.hex())
 
@@ -61,6 +64,8 @@ def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):
 			loop.create_task(send_event(env, "request.torrent.invalidate", info_hash))
 		case "4":
 			loop.create_task(send_event(env, "request.torrent.remove", info_hash))
+			loop.run_in_executor(None, _torrent_list, env, loop)
+			return
 		case "5":
 			loop.create_task(send_event(env, "request.dht.more_peers", info_hash))
 		case "0":

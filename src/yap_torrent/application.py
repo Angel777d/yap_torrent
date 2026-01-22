@@ -68,10 +68,10 @@ class Application:
 			BTExtMetadataSystem(env),
 			BTDHTSystem(env),
 			MagnetSystem(env),
-			AnnounceSystem(env),
 			TorrentSystem(env),
 			LocalDataSystem(env),
 			WatcherSystem(env),
+			AnnounceSystem(env),
 		]
 
 		self.plugins: List[TorrentPlugin] = plugins.discover_plugins(env.config)

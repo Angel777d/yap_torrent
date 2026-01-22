@@ -28,7 +28,7 @@ class LocalDataSystem(System):
 		self.env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
 
 		active_path = Path(self.env.config.active_folder)
-		self.add_task(_load_local(self.env, active_path))
+		await _load_local(self.env, active_path)
 
 	def close(self):
 		to_save = self.env.data_storage.get_collection(TorrentEC).entities

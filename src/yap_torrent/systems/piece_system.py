@@ -59,14 +59,17 @@ class PieceSystem(TimeSystem):
 	def save_pieces(self):
 		ds = self.env.data_storage
 		updated_torrents = set()
-		for piece_entity in ds.get_collection(PieceToSaveEC).entities:
-			piece_entity.remove_component(PieceToSaveEC)
-
+		to_save = ds.get_collection(PieceToSaveEC).entities
+		for piece_entity in to_save:
 			piece: PieceEC = piece_entity.get_component(PieceEC)
 			updated_torrents.add(piece.info_hash)
-			torrent_entity: Entity = ds.get_collection(TorrentEC).find(piece.info_hash)
+			torrent_entity = ds.get_collection(TorrentEC).find(piece.info_hash)
 			torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 			save_piece(self.download_path, torrent_info, piece.info.index, piece.data)
+
+		# cleanup pieces to save
+		for piece_entity in to_save:
+			piece_entity.remove_component(PieceToSaveEC)
 
 		for info_hash in updated_torrents:
 			torrent_entity: Entity = ds.get_collection(TorrentEC).find(info_hash)
@@ -85,11 +88,13 @@ class PieceSystem(TimeSystem):
 		if all_pieces <= MAX_PIECES:
 			return
 
-		collection = ds.get_collection(PiecePendingRemoveEC).entities
 		# filter pieces can be removed
-		collection = [e for e in collection if e.get_component(PieceEC).completed and e.get_component(
-			PiecePendingRemoveEC).can_remove() and not e.has_component(PieceToSaveEC)]
-		collection.sort(key=lambda e: e.get_component(PiecePendingRemoveEC).last_update)
+		collection = sorted((
+			e for e in ds.get_collection(PiecePendingRemoveEC)
+			if e.get_component(PieceEC).completed
+			   and e.get_component(PiecePendingRemoveEC).can_remove()
+			   and not e.has_component(PieceToSaveEC)),
+			key=lambda e: e.get_component(PiecePendingRemoveEC).last_update)
 
 		to_remove = collection[:all_pieces - MAX_PIECES]
 		logger.debug(f"cleanup pieces: {len(to_remove)} removed")

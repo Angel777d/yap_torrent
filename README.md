@@ -1,7 +1,7 @@
 # Yet Another Python torrent
 
-
 ### Description:
+
 todo: write description
 
 ### Implemented features:

@@ -43,8 +43,10 @@ class TorrentStatsEC(EntityComponent):
 	def __init__(self, **kwargs) -> None:
 		super().__init__()
 
-		self.uploaded = kwargs.get("uploaded", 0)
-		self.downloaded = kwargs.get("downloaded", 0)
+		self._uploaded = kwargs.get("uploaded", 0)
+		self._downloaded = kwargs.get("downloaded", 0)
+		self._session_downloaded = 0
+		self._session_uploaded = 0
 
 		self.state: TorrentState = TorrentState(kwargs.get("state", TorrentState.Active))
 
@@ -56,10 +58,28 @@ class TorrentStatsEC(EntityComponent):
 		}
 
 	def update_uploaded(self, length: int) -> None:
-		self.uploaded += length
+		self._uploaded += length
+		self._session_uploaded += length
 
 	def update_downloaded(self, length: int) -> None:
-		self.downloaded += length
+		self._downloaded += length
+		self._session_downloaded += length
+
+	@property
+	def uploaded(self) -> float:
+		return self._uploaded
+
+	@property
+	def downloaded(self) -> float:
+		return self._downloaded
+
+	@property
+	def session_uploaded(self) -> float:
+		return self._session_uploaded
+
+	@property
+	def session_downloaded(self) -> float:
+		return self._session_downloaded
 
 
 class TorrentDownloadEC(EntityComponent):

@@ -26,7 +26,6 @@ class TorrentTrackerDataEC(EntityComponent):
 		self.interval: float = kwargs.get("interval", 0)
 		self.min_interval: float = kwargs.get("min_interval", 0)
 		self.tracker_id: bytes = kwargs.get("tracker_id", b'')
-		self.started: bool = kwargs.get("started", False)
 
 		self.failure_reason: str = ""
 		self.warning_message: str = ""
@@ -55,6 +54,5 @@ class TorrentTrackerDataEC(EntityComponent):
 			"tracker_id": self.tracker_id,
 			"last_update_time": self.last_update_time,
 			"interval": self.interval,
-			"min_interval": self.min_interval,
-			"started": self.started,
+			"min_interval": self.min_interval
 		}
