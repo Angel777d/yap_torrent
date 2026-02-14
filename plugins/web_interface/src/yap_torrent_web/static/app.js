@@ -80,6 +80,44 @@ async function torrentAction(action, hash) {
 	}
 }
 
+async function addMagnetLink() {
+	const input = document.getElementById('magnet-input');
+	const magnetLink = input.value.trim();
+
+	if (!magnetLink) {
+		alert('Please enter a magnet link');
+		return;
+	}
+
+	if (!magnetLink.startsWith('magnet:')) {
+		alert('Invalid magnet link format. Must start with "magnet:"');
+		return;
+	}
+
+	try {
+		const response = await fetch('/api/magnet/add', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ magnet: magnetLink })
+		});
+
+		const result = await response.json();
+
+		if (response.ok && result.success) {
+			input.value = ''; // Clear input
+			alert('Magnet link added successfully!');
+			// Reload torrents to show new torrent
+			await loadTorrents();
+		} else {
+			alert('Error: ' + (result.error || 'Unknown error'));
+		}
+	} catch (e) {
+		alert('Error: ' + e.message);
+	}
+}
+
 // Auto-load on page load
 window.onload = () => {
 	loadStatus();

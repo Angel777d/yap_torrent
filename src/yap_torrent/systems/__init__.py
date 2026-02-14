@@ -11,6 +11,8 @@ from yap_torrent.protocol import TorrentInfo
 
 
 def is_torrent_complete(torrent_entity: Entity) -> bool:
+	if not torrent_entity.has_component(TorrentInfoEC):
+		return False
 	info = torrent_entity.get_component(TorrentInfoEC).info
 	bitfield = torrent_entity.get_component(TorrentEC).bitfield
 	return info.is_complete(bitfield.have_num)

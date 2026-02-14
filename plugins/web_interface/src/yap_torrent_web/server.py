@@ -41,6 +41,7 @@ class WebServer:
 		self.app.router.add_get('/api/status', self.handle_status)
 		self.app.router.add_get('/api/torrents', self.handle_torrents)
 		self.app.router.add_post('/api/torrent/action', self.handle_torrent_action)
+		self.app.router.add_post('/api/magnet/add', self.handle_magnet_add)
 		self.app.router.add_static('/static', self.static_dir)
 
 	async def handle_index(self, request: web.Request) -> web.Response:
@@ -84,6 +85,39 @@ class WebServer:
 
 		except Exception as e:
 			logger.error(f"Error handling torrent action: {e}", exc_info=True)
+			return web.json_response(
+				{'error': str(e)},
+				status=500
+			)
+
+	async def handle_magnet_add(self, request: web.Request) -> web.Response:
+		"""Handle adding magnet link"""
+		try:
+			data = await request.json()
+			magnet_link = data.get('magnet')
+
+			if not magnet_link:
+				return web.json_response(
+					{'error': 'Missing magnet link'},
+					status=400
+				)
+
+			if not isinstance(magnet_link, str) or not magnet_link.startswith('magnet:'):
+				return web.json_response(
+					{'error': 'Invalid magnet link format'},
+					status=400
+				)
+
+			# Dispatch the magnet add event
+			self.env.event_bus.dispatch("request.magnet.add", magnet_link)
+
+			return web.json_response({
+				'success': True,
+				'magnet': magnet_link
+			})
+
+		except Exception as e:
+			logger.error(f"Error handling magnet add: {e}", exc_info=True)
 			return web.json_response(
 				{'error': str(e)},
 				status=500
