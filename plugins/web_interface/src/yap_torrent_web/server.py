@@ -6,13 +6,13 @@ from aiohttp import web
 
 from yap_torrent.components.torrent_ec import TorrentEC, TorrentStatsEC, TorrentInfoEC
 from yap_torrent.env import Env
-from yap_torrent.systems import get_torrent_name
+from yap_torrent.systems import get_torrent_name, get_torrent_entity
 
 logger = logging.getLogger(__name__)
 
 
 class WebServer:
-	def __init__(self, env: Env, host: str = '0.0.0.0', port: int = 8080):
+	def __init__(self, env: Env):
 		self.env = env
 		self.static_dir = Path(__file__).parent / 'static'
 
@@ -31,89 +31,42 @@ class WebServer:
 
 		logger.info(f"Web server started: {site.name}")
 
+	async def stop(self):
+		await self.runner.shutdown()
+		await self.runner.cleanup()
+		await self.app.cleanup()
+		logger.info("Web server stopped")
+
+	def close(self):
+		pass
+
 	def _setup_routes(self):
 		self.app.router.add_static('/static', self.static_dir)
 
 		self.app.router.add_get('/', self.handle_index)
+		self.app.router.add_get('/torrent/{hash}', self.handle_torrent_page)
 
 		self.app.router.add_get('/api/status', self.handle_status)
 		self.app.router.add_get('/api/torrents', self.handle_torrents)
+		self.app.router.add_get('/api/torrent/{hash}', self.handle_torrent_info)
 
 		self.app.router.add_post('/api/torrent/action', self.handle_torrent_action)
 		self.app.router.add_post('/api/magnet/add', self.handle_magnet_add)
 
-	async def handle_index(self, request: web.Request) -> web.Response:
+	async def handle_index(self, _: web.Request) -> web.Response:
 		return web.FileResponse(self.static_dir / 'index.html')
 
-	async def handle_status(self, request: web.Request) -> web.Response:
+	async def handle_torrent_page(self, _: web.Request) -> web.Response:
+		return web.FileResponse(self.static_dir / 'torrent.html')
+
+	async def handle_status(self, _: web.Request) -> web.Response:
 		return web.json_response(self._get_status())
 
-	async def handle_torrents(self, request: web.Request) -> web.Response:
+	async def handle_torrents(self, _: web.Request) -> web.Response:
 		return web.json_response(self._get_torrents())
 
-	async def handle_torrent_action(self, request: web.Request) -> web.Response:
-		try:
-			data = await request.json()
-			action = data.get('action')
-			torrent_hash = data.get('hash')
-
-			if not action or not torrent_hash:
-				return web.json_response(
-					{'error': 'Missing action or hash'},
-					status=400
-				)
-
-			# Dispatch the action event
-			self.env.event_bus.dispatch(
-				f"request.torrent.{action}",
-				bytes.fromhex(torrent_hash)
-			)
-
-			return web.json_response({
-				'success': True,
-				'action': action,
-				'hash': torrent_hash
-			})
-
-		except Exception as e:
-			logger.error(f"Error handling torrent action: {e}", exc_info=True)
-			return web.json_response(
-				{'error': str(e)},
-				status=500
-			)
-
-	async def handle_magnet_add(self, request: web.Request) -> web.Response:
-		"""Handle adding magnet link"""
-		try:
-			data = await request.json()
-			magnet_link = data.get('magnet')
-
-			if not magnet_link:
-				return web.json_response(
-					{'error': 'Missing magnet link'},
-					status=400
-				)
-
-			if not isinstance(magnet_link, str) or not magnet_link.startswith('magnet:'):
-				return web.json_response(
-					{'error': 'Invalid magnet link format'},
-					status=400
-				)
-
-			# Dispatch the magnet add event
-			self.env.event_bus.dispatch("request.magnet.add", magnet_link)
-
-			return web.json_response({
-				'success': True,
-				'magnet': magnet_link
-			})
-
-		except Exception as e:
-			logger.error(f"Error handling magnet add: {e}", exc_info=True)
-			return web.json_response(
-				{'error': str(e)},
-				status=500
-			)
+	async def handle_torrent_info(self, request: web.Request) -> web.Response:
+		return web.json_response(self._get_torrent_info(request.match_info['hash']))
 
 	def _get_status(self) -> dict:
 		return {
@@ -139,6 +92,56 @@ class WebServer:
 			})
 		return result
 
-	def close(self):
-		# TODO: close server
-		logger.info("Web server stopped")
+	def _get_torrent_info(self, hex_hash: str):
+		info_hash = bytes.fromhex(hex_hash)
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		if torrent_entity is None:
+			raise web.HTTPNotFound(reason="Torrent not found")
+
+		info = torrent_entity.get_component(TorrentInfoEC).info
+		stats = torrent_entity.get_component(TorrentStatsEC)
+		return {
+			"hash": hex_hash,
+			"name": f"{get_torrent_name(torrent_entity)} ({stats.state.name})",
+			"complete": info.calculate_downloaded(torrent_entity.get_component(TorrentEC).bitfield.have_num),
+			"uploaded": stats.uploaded,
+			"downloaded": stats.downloaded,
+		}
+
+	async def handle_torrent_action(self, request: web.Request) -> web.Response:
+		data = await request.json()
+		action = data.get('action')
+		torrent_hash = data.get('hash')
+
+		if not action or not torrent_hash:
+			raise web.HTTPBadRequest(reason="Missing action or hash")
+
+		# Dispatch the action event
+		self.env.event_bus.dispatch(
+			f"request.torrent.{action}",
+			bytes.fromhex(torrent_hash)
+		)
+
+		return web.json_response({
+			'success': True,
+			'action': action,
+			'hash': torrent_hash
+		})
+
+	async def handle_magnet_add(self, request: web.Request) -> web.Response:
+		data = await request.json()
+		magnet_link = data.get('magnet')
+
+		if not magnet_link:
+			raise web.HTTPBadRequest(reason="Missing magnet link")
+
+		if not isinstance(magnet_link, str) or not magnet_link.startswith('magnet:'):
+			raise web.HTTPBadRequest(reason="Invalid magnet link format")
+
+		# Dispatch the magnet add event
+		self.env.event_bus.dispatch("request.magnet.add", magnet_link)
+
+		return web.json_response({
+			'success': True,
+			'magnet': magnet_link
+		})
