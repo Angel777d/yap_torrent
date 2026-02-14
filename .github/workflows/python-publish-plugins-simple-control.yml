@@ -1,9 +1,9 @@
-name: Publish YAP-Torrent simple-control plugin to PyPI
+name: Publish YAP-Torrent simple_controls plugin to PyPI
 
 on:
   push:
     tags:
-      - plugins-simple-control-v.*
+      - plugins-simple_controls-v.*
 
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
       - name: Build release distributions
         run: |
           # NOTE: put your own distribution build steps here.
-          cd ./plugins/simple-control
+          cd ./plugins/simple_controls
           python -m pip install build
           python -m build
 
@@ -31,7 +31,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-dists
-          path: plugins/simple-control/dist/
+          path: plugins/simple_controls/dist/
 
   pypi-publish:
     runs-on: ubuntu-latest
@@ -41,7 +41,7 @@ jobs:
       id-token: write
 
     environment:
-      name: pypi-simple-control-plugin-release
+      name: pypi-simple_controls-plugin-release
 
     steps:
       - name: Retrieve release distributions
