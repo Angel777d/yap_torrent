@@ -87,6 +87,34 @@ h1 {
 	font-weight: bold;
 }
 
+.torrent-name {
+	margin-bottom: 8px;
+}
+
+.progress-bar {
+	position: relative;
+	height: 24px;
+	background: #e0e0e0;
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.progress-fill {
+	height: 100%;
+	background: #4caf50;
+	transition: width 0.3s ease;
+}
+
+.progress-text {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	font-size: 12px;
+	font-weight: bold;
+	color: #333;
+}
+
 .btn-start {
 	background: #4caf50;
 }

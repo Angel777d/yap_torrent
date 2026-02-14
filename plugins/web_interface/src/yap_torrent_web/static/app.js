@@ -21,11 +21,16 @@ async function loadTorrents() {
 		const container = document.getElementById('torrents-list');
 
 		if (Array.isArray(data) && data.length > 0) {
-			container.innerHTML = data.map(t =>
-				`<div class="torrent-item" data-hash="${t.hash}" onclick="selectTorrent('${t.hash}')">
-					${t.name || 'Unknown'}
-				</div>`
-			).join('');
+			container.innerHTML = data.map(t => {
+				const progress = (t.complete * 100).toFixed(2);
+				return `<div class="torrent-item" data-hash="${t.hash}" onclick="selectTorrent('${t.hash}')">
+					<div class="torrent-name">${t.name || 'Unknown'}</div>
+					<div class="progress-bar">
+						<div class="progress-fill" style="width: ${progress}%"></div>
+						<div class="progress-text">${progress}%</div>
+					</div>
+				</div>`;
+			}).join('');
 		} else {
 			container.innerHTML = '<p>No torrents found</p>';
 		}
