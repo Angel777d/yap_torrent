@@ -14,6 +14,10 @@ class WebInterfacePlugin(TorrentPlugin):
 		self.server = WebServer(env)
 		await self.server.start()
 
+	async def stop(self):
+		if self.server:
+			await self.server.stop()
+
 	def close(self):
 		if self.server:
 			self.server.close()
