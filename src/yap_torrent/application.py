@@ -4,7 +4,6 @@ import time
 from typing import List
 
 import yap_torrent.plugins as plugins
-from plugins.web_interface.src.yap_torrent_web import WebInterfacePlugin
 from yap_torrent import upnp
 from yap_torrent.config import Config
 from yap_torrent.env import Env
