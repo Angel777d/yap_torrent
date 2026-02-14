@@ -37,3 +37,6 @@ class Config:
 	@property
 	def data(self) -> Dict[str, Any]:
 		return self._data
+
+	def get_plugin_config(self, plugin_name: str) -> Dict[str, Any]:
+		return self._data.get(plugin_name, {})

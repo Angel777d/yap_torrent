@@ -115,18 +115,25 @@ class Application:
 			await asyncio.sleep(GLOBAL_TICK_TIME)
 
 		logger.info("Torrent application stop")
-		self.stop()
 
-		logger.info("Torrent application closed")
+		# async stop
+		for system in self.systems:
+			await system.stop()
 
-		await asyncio.sleep(0)
+		for plugin in self.plugins:
+			await plugin.stop()
 
-	# leftovers = asyncio.all_tasks()
-	# print(leftovers)
-
-	def stop(self):
+		# lock close
 		for system in self.systems:
 			system.close()
 
 		for plugin in self.plugins:
 			plugin.close()
+
+		logger.info("Torrent application closed")
+
+		await asyncio.sleep(0)
+
+		# leftovers = asyncio.all_tasks()
+		# print(leftovers)
+		pass

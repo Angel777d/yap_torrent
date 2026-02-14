@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Torrent Info - YAP Torrent</title>
+	<meta charset="utf-8">
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+	<div class="container">
+		<div class="header">
+			<h1>Torrent Info</h1>
+			<a href="/" class="btn-back">← Back to List</a>
+		</div>
+
+		<div id="torrent-info" class="torrent-details">
+			<p>Loading...</p>
+		</div>
+
+		<div class="torrent-actions">
+			<h2>Actions</h2>
+			<div class="torrent-controls">
+				<button class="btn-start" onclick="torrentAction('start')">Start</button>
+				<button class="btn-stop" onclick="torrentAction('stop')">Stop</button>
+				<button class="btn-invalidate" onclick="torrentAction('invalidate')">Invalidate</button>
+				<button class="btn-remove" onclick="torrentAction('remove')">Remove</button>
+				<button class="btn-dht" onclick="torrentAction('dht_ask_peers')">DHT Ask Peers</button>
+			</div>
+		</div>
+	</div>
+
+	<script src="/static/torrent.js"></script>
+</body>
+</html>

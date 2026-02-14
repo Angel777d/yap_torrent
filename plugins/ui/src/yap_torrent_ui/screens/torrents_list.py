@@ -69,7 +69,7 @@ class TorrentInfo(Widget):
 	@on(Button.Pressed, "#add-peers-button")
 	def add_peers(self):
 		env: Env = self.app.env
-		env.event_bus.dispatch("request.dht.more_peers", self._entity.get_component(TorrentEC).info_hash)
+		env.event_bus.dispatch("request.torrent.dht_ask_peers", self._entity.get_component(TorrentEC).info_hash)
 
 	@on(Button.Pressed, "#check-torrent-button")
 	def invalidate(self):

@@ -10,6 +10,9 @@ class TorrentPlugin:
 	async def update(self, delta_time: float):
 		pass
 
+	async def stop(self):
+		pass
+
 	def close(self):
 		pass
 

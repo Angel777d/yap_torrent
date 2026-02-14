@@ -14,6 +14,9 @@ class System:
 	async def start(self):
 		pass
 
+	async def stop(self):
+		pass
+
 	async def update(self, delta_time: float):
 		await self._update(delta_time)
 

@@ -7,14 +7,13 @@ include = [
     "src/*",
 ]
 
-[project.scripts]
-run_yap = "yap_torrent:run"
-
+[project.entry-points.'yap_torrent.plugins']
+yap_torrent_web = 'yap_torrent_web'
 
 [project]
-name = "yap_torrent"
-version = "0.1.3"
-description = "BitTorrent client implemented in python"
+name = "yap_torrent_web"
+version = "0.0.2"
+description = "Web interface for yap torrent"
 readme = { file = "README.md", content-type = "text/markdown" }
 
 authors = [
@@ -24,33 +23,25 @@ maintainers = []
 
 requires-python = ">=3.13"
 classifiers = [
-    # How mature is this project? Common values are
-    #   3 - Alpha
-    #   4 - Beta
-    #   5 - Production/Stable
     "Development Status :: 3 - Alpha",
-    # Indicate who your project is intended for
     "Intended Audience :: Developers",
     "Intended Audience :: Education",
-    # Specify the Python versions you support here.
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "requests",
-    "angelovich.core"
+    "yap_torrent",
+    "aiohttp",
 ]
 
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
-keywords = ["Torrent", "BitTorrent", "DHT"]
+keywords = ["Torrent", "BitTorrent", "Web Interface"]
 
 
 [project.urls]
 Homepage = "https://github.com/Angel777d/yap_torrent"
 Issues = "https://github.com/Angel777d/yap_torrent/issues"
-
-

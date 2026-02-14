@@ -67,7 +67,7 @@ def _torrent(env: Env, loop: asyncio.AbstractEventLoop, torrent_entity: Entity):
 			loop.run_in_executor(None, _torrent_list, env, loop)
 			return
 		case "5":
-			loop.create_task(send_event(env, "request.dht.more_peers", info_hash))
+			loop.create_task(send_event(env, "request.torrent.dht_ask_peers", info_hash))
 		case "0":
 			loop.run_in_executor(None, _torrent_list, env, loop)
 			return

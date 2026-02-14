@@ -83,7 +83,7 @@ class BTDHTSystem(System, DHTServerProtocolHandler):
 	async def start(self):
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-		self.env.event_bus.add_listener("request.dht.more_peers", self.__on_request_more_peers, scope=self)
+		self.env.event_bus.add_listener("request.torrent.dht_ask_peers", self.__on_request_more_peers, scope=self)
 
 		# subscribe to torrents added event
 		collection = self.env.data_storage.get_collection(TorrentEC)
