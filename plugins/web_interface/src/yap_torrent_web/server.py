@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class WebServer:
 	def __init__(self, env: Env):
 		self.env = env
-		self.static_dir = Path(__file__).parent / 'static'
+		self.html_dir = Path(__file__).parent / 'html'
 
 		self.app = web.Application()
 		self.runner = web.AppRunner(self.app)
@@ -41,10 +41,9 @@ class WebServer:
 		pass
 
 	def _setup_routes(self):
-		self.app.router.add_static('/static', self.static_dir)
+		self.app.router.add_static('/static', self.html_dir / 'static')
 
 		self.app.router.add_get('/', self.handle_index)
-		self.app.router.add_get('/torrent/{hash}', self.handle_torrent_page)
 
 		self.app.router.add_get('/api/status', self.handle_status)
 		self.app.router.add_get('/api/torrents', self.handle_torrents)
@@ -54,10 +53,7 @@ class WebServer:
 		self.app.router.add_post('/api/magnet/add', self.handle_magnet_add)
 
 	async def handle_index(self, _: web.Request) -> web.Response:
-		return web.FileResponse(self.static_dir / 'index.html')
-
-	async def handle_torrent_page(self, _: web.Request) -> web.Response:
-		return web.FileResponse(self.static_dir / 'torrent.html')
+		return web.FileResponse(self.html_dir / 'index.html')
 
 	async def handle_status(self, _: web.Request) -> web.Response:
 		return web.json_response(self._get_status())

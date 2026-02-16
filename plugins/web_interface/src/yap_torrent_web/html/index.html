@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <title>YAP Torrent</title>
     <meta charset="utf-8">
@@ -10,32 +10,12 @@
 <div class="top-controls">
     <h1>YAP Torrent</h1>
     <div class="control-buttons">
-        <button onclick="showStatusPopup()">Status</button>
         <button onclick="loadTorrents()">Refresh</button>
         <div class="magnet-form">
-            <label for="magnet-input"></label><input type="text" id="magnet-input" placeholder="magnet:?xt=urn:btih:..."/>
+            <label for="magnet-input"></label><input type="text" id="magnet-input"
+                                                     placeholder="magnet:?xt=urn:btih:..."/>
             <button class="btn-add" onclick="addMagnetLink()">Add Magnet</button>
         </div>
-    </div>
-</div>
-
-<!-- Status Popup -->
-<div id="status-popup" class="popup-overlay" onclick="hideStatusPopup()">
-    <div class="popup-content" onclick="event.stopPropagation()">
-        <h2>Status</h2>
-        <div class="status-item">
-            <strong>Status:</strong> <span id="status-running">-</span>
-        </div>
-        <div class="status-item">
-            <strong>Peer ID:</strong> <span id="status-peer-id">-</span>
-        </div>
-        <div class="status-item">
-            <strong>IP:</strong> <span id="status-ip">-</span>
-        </div>
-        <div class="status-item">
-            <strong>External IP:</strong> <span id="status-external-ip">-</span>
-        </div>
-        <button onclick="hideStatusPopup()">Close</button>
     </div>
 </div>
 
@@ -43,7 +23,6 @@
 <div class="main-container">
     <!-- Left: Torrent List -->
     <div class="torrents-panel">
-        <h2>Torrents</h2>
         <div id="torrents-list">Loading...</div>
     </div>
 
@@ -53,7 +32,7 @@
             <p class="no-selection">Select a torrent to view details</p>
         </div>
 
-        <!-- Controls at bottom of torrent info -->
+        <!-- Controls at the bottom of torrent info -->
         <div id="torrent-controls" class="torrent-controls" style="display: none;">
             <h3>Actions</h3>
             <div class="control-buttons-split">

@@ -1,29 +1,5 @@
 let selectedTorrentHash = null;
 
-// Status popup functions
-function showStatusPopup() {
-    loadStatus();
-    document.getElementById('status-popup').style.display = 'flex';
-}
-
-function hideStatusPopup() {
-    document.getElementById('status-popup').style.display = 'none';
-}
-
-async function loadStatus() {
-    try {
-        const response = await fetch('/api/status');
-        const data = await response.json();
-
-        document.getElementById('status-running').textContent = data.status || '-';
-        document.getElementById('status-peer-id').textContent = data.peer_id || '-';
-        document.getElementById('status-ip').textContent = data.ip || '-';
-        document.getElementById('status-external-ip').textContent = data.external_ip || '-';
-    } catch (e) {
-        console.error('Error loading status:', e);
-    }
-}
-
 async function loadTorrents() {
     try {
         const response = await fetch('/api/torrents');
@@ -50,12 +26,12 @@ async function loadTorrents() {
 }
 
 async function selectTorrent(hash) {
-    // Remove previous selection
+    // Remove a previous selection
     document.querySelectorAll('.torrent-item').forEach(item => {
         item.classList.remove('selected');
     });
 
-    // Add selection to clicked item
+    // Add selection to the clicked item
     const item = document.querySelector(`[data-hash="${hash}"]`);
     if (item) {
         item.classList.add('selected');
@@ -67,20 +43,24 @@ async function selectTorrent(hash) {
 }
 
 async function loadTorrentInfo(hash) {
+    let error = ""
     try {
         const response = await fetch(`/api/torrent/${hash}`);
         if (!response.ok) {
-            throw new Error('Torrent not found');
+            error = response.statusText
+        } else {
+            const torrent = await response.json();
+            displayTorrentInfo(torrent);
+            updateButtonStates(torrent.isStarted);
         }
-
-        const torrent = await response.json();
-        displayTorrentInfo(torrent);
-        updateButtonStates(torrent.isStarted);
-
         // Show controls
         document.getElementById('torrent-controls').style.display = 'block';
     } catch (e) {
-        document.getElementById('torrent-info').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
+        error = e.message
+    }
+
+    if (error) {
+        document.getElementById('torrent-info').innerHTML = '<p class="error">Error: ' + error + '</p>';
         document.getElementById('torrent-controls').style.display = 'none';
     }
 }
@@ -119,7 +99,7 @@ function displayTorrentInfo(torrent) {
         `;
     }
 
-    const html = `
+    document.getElementById('torrent-info').innerHTML = `
         <div class="info-section">
             <h2>${torrent.name}</h2>
         </div>
@@ -154,8 +134,6 @@ function displayTorrentInfo(torrent) {
 
         ${filesHtml}
     `;
-
-    document.getElementById('torrent-info').innerHTML = html;
 }
 
 function formatBytes(bytes) {
@@ -242,7 +220,7 @@ async function addMagnetLink() {
             if (result.success) {
                 input.value = ''; // Clear input
                 alert('Magnet link added successfully!');
-                // Reload torrents to show new torrent
+                // Reload torrents to show the new torrent
                 await loadTorrents();
             }
         } else {
@@ -255,5 +233,5 @@ async function addMagnetLink() {
 
 // Auto-load on page load
 window.onload = () => {
-    loadTorrents();
+    loadTorrents().then();
 };
