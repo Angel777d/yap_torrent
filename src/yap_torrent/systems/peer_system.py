@@ -181,6 +181,7 @@ class PeerSystem(System):
 		await self._add_peer(info_hash, peer_info, remote_peer_id, reader, writer, reserved)
 
 	async def _connect(self, my_peer_id: bytes, info_hash: bytes, peer_info: PeerInfo):
+		# local_address = (self.env.config.net_interface, self.env.config.port)
 		result = await net.connect(peer_info, info_hash, my_peer_id, reserved=LOCAL_RESERVED)
 		if not result:
 			get_torrent_entity(self.env, info_hash).get_component(KnownPeersEC).mark_failed(peer_info)
