@@ -18,12 +18,12 @@ class Config:
 		except json.JSONDecodeError:
 			logger.warning(f"Config file at {path} is invalid. Using default settings.")
 
-		self.data_folder = data.get("data_folder", "data")
+		self.data_folder: str = data.get("data_folder", "data")
 
-		self.active_folder = data.get("active_folder", f"{self.data_folder}/active")
-		self.watch_folder = data.get("watch_folder", f"{self.data_folder}/watch")
-		self.download_folder = data.get("download_folder", f"{self.data_folder}/download")
-		self.trash_folder = data.get("trash_folder", f"{self.data_folder}/trash")
+		self.active_folder: str = data.get("active_folder", f"{self.data_folder}/active")
+		self.watch_folder: str = data.get("watch_folder", f"{self.data_folder}/watch")
+		self.download_folder: str = data.get("download_folder", f"{self.data_folder}/download")
+		self.trash_folder: str = data.get("trash_folder", f"{self.data_folder}/trash")
 
 		self.disabled_plugins: set[str] = set(data.get("disabled_plugins", []))
 
