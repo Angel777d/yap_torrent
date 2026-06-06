@@ -66,20 +66,11 @@ async function loadTorrentInfo(hash) {
 }
 
 function updateButtonStates(isStarted) {
-    const startButtons = document.querySelectorAll('[onclick*="start"]');
-    const stopButtons = document.querySelectorAll('[onclick*="stop"]');
+    const startButton = document.querySelector('[data-action="start"]');
+    const stopButton = document.querySelector('[data-action="stop"]');
 
-    startButtons.forEach(btn => {
-        if (btn.textContent.trim() === 'Start') {
-            btn.disabled = isStarted;
-        }
-    });
-
-    stopButtons.forEach(btn => {
-        if (btn.textContent.trim() === 'Stop') {
-            btn.disabled = !isStarted;
-        }
-    });
+    if (startButton) startButton.disabled = isStarted;
+    if (stopButton) stopButton.disabled = !isStarted;
 }
 
 function displayTorrentInfo(torrent) {
