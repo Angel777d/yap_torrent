@@ -6,6 +6,7 @@ from typing import Dict, Set, Generator, Callable, Optional, Tuple
 from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
 from yap_torrent.components.peer_ec import PeerConnectionEC
+from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.protocol.structures import PieceBlockInfo, Bitfield
 
@@ -13,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class TorrentEC(EntityHashComponent):
-	def __init__(self, info_hash: bytes) -> None:
+	def __init__(self, info_hash: InfoHash) -> None:
 		super().__init__()
-		self.info_hash: bytes = info_hash
+		self.info_hash: InfoHash = info_hash
 		self.bitfield: Bitfield = Bitfield()
 
 	def __hash__(self):

@@ -1,9 +1,12 @@
 import asyncio
-from typing import Coroutine, Any
+from typing import Coroutine, Any, TypeVar, Callable, Optional
 
 from _asyncio import Task
+from angelovich.core.Dispatcher import CallbackType as DispatcherCallbackType
 
 from yap_torrent.env import Env
+
+_T = TypeVar("_T")
 
 
 class System:
@@ -23,11 +26,20 @@ class System:
 	async def _update(self, delta_time: float):
 		pass
 
-	def add_task(self, coro: Coroutine[Any, Any, Any]) -> Task:
+	def add_task(self, coro: Coroutine[Any, Any, _T], callback: Optional[Callable[[_T], None]] = None) -> Task:
 		task = asyncio.create_task(coro)
-		task.add_done_callback(lambda _: self.__tasks.remove(task))
+
+		def done(_task: Task[_T]):
+			if callback:
+				callback(_task)
+			self.__tasks.remove(_task)
+
+		task.add_done_callback(done)
 		self.__tasks.add(task)
 		return task
+
+	def add_listener(self, event: str, callback: DispatcherCallbackType):
+		self.env.event_bus.add_listener(event, callback, scope=self)
 
 	def close(self) -> None:
 		for task in self.__tasks:

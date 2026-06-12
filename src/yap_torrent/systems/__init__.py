@@ -7,6 +7,7 @@ from yap_torrent.components.peer_ec import KnownPeersEC, PeerConnectionEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
 	ValidateTorrentEC, TorrentState
 from yap_torrent.env import Env
+from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
 
 
@@ -43,11 +44,11 @@ def create_torrent_entity(env: Env, info_hash: bytes, path: Optional[Path], stat
 	return torrent_entity
 
 
-def get_torrent_entity(env: Env, info_hash: bytes) -> Optional[Entity]:
+def get_torrent_entity(env: Env, info_hash: InfoHash) -> Optional[Entity]:
 	return env.data_storage.get_collection(TorrentEC).find(info_hash)
 
 
-def get_info_hash(torrent_entity: Entity) -> bytes:
+def get_info_hash(torrent_entity: Entity) -> InfoHash:
 	return torrent_entity.get_component(TorrentEC).info_hash
 
 

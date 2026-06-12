@@ -39,10 +39,6 @@ class PieceEC(EntityHashComponent):
 		return self.data[begin:begin + length]
 
 
-class PieceToSaveEC(EntityComponent):
-	pass
-
-
 class PiecePendingRemoveEC(EntityComponent):
 	REMOVE_TIMEOUT = 15  # TODO: move to config
 

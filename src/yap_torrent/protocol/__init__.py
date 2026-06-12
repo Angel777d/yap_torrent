@@ -6,6 +6,8 @@ from yap_torrent.protocol.structures import TorrentInfo, TorrentFileInfo
 
 logger = logging.getLogger(__name__)
 
+# Type alias for better readability
+InfoHash = bytes
 
 def load_torrent_file(path) -> Optional[TorrentFileInfo]:
 	try:
