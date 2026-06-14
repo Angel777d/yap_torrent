@@ -36,7 +36,7 @@ def get_my_ext_ip() -> str:
 		except Exception as e:
 			logger.info(f"external ip service {service} is not available: {e}")
 
-	return ""
+	return "127.0.0.1"
 
 
 def discover(ip):
