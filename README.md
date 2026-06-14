@@ -1,11 +1,9 @@
 # Yet Another Python torrent
 
-### Description:
+Pure python implementation of BitTorrent protocol.
+It's aimed to be simple, easy to use and extend.
 
-todo: write description
-
-### Implemented features:
-
+## Implemented features:
 * Standard protocol implementation [BEP:3](https://bittorrent.org/beps/bep_0003.html)
 * DHT protocol [BEP:5](https://bittorrent.org/beps/bep_0005.html)
 * Extensions protocol [BEP:10](https://bittorrent.org/beps/bep_0010.html)
@@ -13,24 +11,17 @@ todo: write description
 * Endgame algorithm
 * Rarest first algorithm
 * Plugins system
+* Headless mode
+* SimpleUI (plugin)
+* Web UI (plugin)
 
 ---
 
 ### Planned features:
 
-#### Before v1.0
-
-* UI module selection
-* SimpleUI plugin as part of the core
-* Headless mode
-* Usage examples
-
-#### After v1.0
-
 * HTTP api plugin
-* Web UI
 * Choke algorythm
-* Configs editor
-* Move protocol implementation to separate package
+* Config editor
+* Files download order
 
 [GitHub-flavored Markdown](https://guides.github.com/features/mastering-markdown/)
