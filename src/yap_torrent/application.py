@@ -56,6 +56,7 @@ class Application:
 		open_port(ip, config.port, config.dht_port)
 
 		env = Env(create_peer_id(), ip, external_ip, config)
+		print(f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
 			PeerSystem(env),
 			BTChokeSystem(env),
