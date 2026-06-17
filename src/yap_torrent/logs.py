@@ -1,6 +1,8 @@
 import logging
 from pathlib import Path
 
+import sys
+
 _LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 
@@ -10,7 +12,7 @@ def setup_logger(path:Path, logger, use_file=True, level=logging.DEBUG):
 		path.parent.mkdir(parents=True, exist_ok=True)
 		handler = logging.FileHandler(path, mode='w')
 	else:
-		handler = logging.StreamHandler()
+		handler = logging.StreamHandler(sys.stdout)
 	handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 	handler.setLevel(level)
 	logger.addHandler(handler)
