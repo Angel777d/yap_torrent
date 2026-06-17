@@ -19,6 +19,7 @@ It's aimed to be simple, easy to use and extend.
 
 ### Planned features:
 
+* move torrent validations to post-initialize
 * HTTP api plugin
 * Choke algorythm
 * Config editor

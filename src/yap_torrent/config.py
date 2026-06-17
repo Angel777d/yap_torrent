@@ -24,6 +24,7 @@ class Config:
 		self.watch_folder: str = data.get("watch_folder", f"{self.data_folder}/watch")
 		self.download_folder: str = data.get("download_folder", f"{self.data_folder}/download")
 		self.trash_folder: str = data.get("trash_folder", f"{self.data_folder}/trash")
+		self.log_path:str = data.get("log_path", f"{self.data_folder}/torrent.log")
 
 		self.disabled_plugins: set[str] = set(data.get("disabled_plugins", []))
 

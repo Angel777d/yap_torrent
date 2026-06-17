@@ -1,8 +1,15 @@
 {
   "data_folder": "data",
-  "download_folder": "data/download",
-  "watch_folder": "data/watch",
-  "trash_folder": "data/trash",
+  "active_folder": "data/active",
+  "download_folder": "D:\\torrents",
+  "watch_folder": "D:\\download",
+  "trash_folder": "D:\\trash",
   "disabled_plugins": [],
-  "max_connections": 50
+  "port": 6889,
+  "max_connections": 50,
+  "dht_port": 6999,
+  "yap_torrent_web": {
+    "host": "0.0.0.0",
+    "port": 8081
+  }
 }

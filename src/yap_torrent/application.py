@@ -50,8 +50,7 @@ def create_peer_id():
 
 
 class Application:
-	def __init__(self):
-		config = Config()
+	def __init__(self, config: Config):
 		ip, external_ip = network_setup()
 		open_port(ip, config.port, config.dht_port)
 
