@@ -11,7 +11,7 @@ logger = logging.getLogger()
 def run():
 	cfg = Config()
 
-	setup_logger(Path(cfg.log_path), logger, level=logging.INFO)
+	setup_logger(Path(cfg.log_path), logger, use_file=cfg.use_log_file, level=logging.INFO)
 	logger.info("Starting yap-torrent")
 
 	close_event = asyncio.Event()
