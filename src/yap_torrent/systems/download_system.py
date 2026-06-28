@@ -19,7 +19,7 @@ from yap_torrent.systems import is_torrent_complete
 logger = logging.getLogger(__name__)
 
 
-class BTDownloadSystem(System):
+class DownloadSystem(System):
 
 	def __init__(self, env: Env):
 		super().__init__(env)

@@ -15,7 +15,7 @@ from yap_torrent.protocol.bt_main_messages import bitfield
 from yap_torrent.protocol.extensions import create_reserved, merge_reserved
 from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
-from yap_torrent.systems import iterate_peers, is_torrent_active, is_torrent_complete, get_torrent_entity
+from yap_torrent.systems import iterate_peers, is_torrent_active, is_torrent_complete, get_torrent_entity, get_info_hash
 
 logger = logging.getLogger(__name__)
 
@@ -142,11 +142,12 @@ class PeerSystem(System):
 			not p.get_component(PeerConnectionEC).remote_interested
 		)
 
-	async def _on_torrent_stop(self, info_hash: bytes):
+	async def _on_torrent_stop(self, torrent_entity: Entity):
+		info_hash = get_info_hash(torrent_entity)
 		logger.info("Disconnect on torrent stop")
 		_disconnect_peers(p for p in iterate_peers(self.env, info_hash))
 
-	async def _on_torrent_start(self, info_hash: bytes):
+	async def _on_torrent_start(self, torrent_entity: Entity):
 		pass
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):

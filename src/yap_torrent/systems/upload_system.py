@@ -15,7 +15,7 @@ from yap_torrent.utils import load_piece, check_hash
 logger = logging.getLogger(__name__)
 
 
-class BTUploadSystem(System):
+class UploadSystem(System):
 	_UPLOAD_MESSAGES = (msg.MessageId.REQUEST.value, msg.MessageId.CANCEL.value)
 
 	async def start(self):

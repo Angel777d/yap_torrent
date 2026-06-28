@@ -62,7 +62,7 @@ def save_nodes(config: Config, peers: List[Tuple[bytes, str, int]]):
 		pickle.dump(peers, f)
 
 
-class BTDHTSystem(System, DHTServerProtocolHandler):
+class DHTSystem(System, DHTServerProtocolHandler):
 	BUCKET_CAPACITY = 8
 
 	def __init__(self, env: Env):

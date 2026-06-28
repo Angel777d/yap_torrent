@@ -28,8 +28,11 @@ class ValidationSystem(System):
 
 	async def _on_torrent_invalidate(self, info_hash: bytes):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
+		if not torrent_entity:
+			logger.warning(f"request.torrent.invalidate: Torrent {info_hash.hex()} not found")
+			return
 		torrent_entity.add_component(ValidateTorrentEC())
-		self.env.event_bus.dispatch("action.torrent.stop", info_hash)
+		self.env.event_bus.dispatch("action.torrent.stop", torrent_entity)
 
 	def close(self):
 		self.env.event_bus.remove_all_listeners(scope=self)
@@ -62,8 +65,7 @@ class ValidationSystem(System):
 
 				# start torrent if needed
 				if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Active:
-					info_hash = torrent_entity.get_component(TorrentEC).info_hash
-					self.env.event_bus.dispatch("action.torrent.start", info_hash)
+					self.env.event_bus.dispatch("action.torrent.start", torrent_entity)
 
 				logger.info(
 					f"Validation complete: {torrent_info.name}. {calculate_downloaded(torrent_entity):.2%} downloaded")

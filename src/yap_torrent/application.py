@@ -10,16 +10,16 @@ from yap_torrent.env import Env
 from yap_torrent.plugins import TorrentPlugin
 from yap_torrent.system import System
 from yap_torrent.systems.announce_system import AnnounceSystem
-from yap_torrent.systems.bt_choke_system import BTChokeSystem
-from yap_torrent.systems.bt_dht_system import BTDHTSystem
-from yap_torrent.systems.bt_download_system import BTDownloadSystem
-from yap_torrent.systems.bt_ext_metadata_system import BTExtMetadataSystem
-from yap_torrent.systems.bt_extension_system import BTExtensionSystem
-from yap_torrent.systems.bt_intrest_system import BTInterestedSystem
-from yap_torrent.systems.bt_local_data_system import LocalDataSystem
-from yap_torrent.systems.bt_magnet_system import MagnetSystem
-from yap_torrent.systems.bt_upload_system import BTUploadSystem
-from yap_torrent.systems.bt_validation_system import ValidationSystem
+from yap_torrent.systems.choke_system import ChokeSystem
+from yap_torrent.systems.dht_system import DHTSystem
+from yap_torrent.systems.download_system import DownloadSystem
+from yap_torrent.systems.ext_metadata_system import ExtMetadataSystem
+from yap_torrent.systems.extension_system import ExtensionSystem
+from yap_torrent.systems.intrest_system import InterestedSystem
+from yap_torrent.systems.local_data_system import LocalDataSystem
+from yap_torrent.systems.magnet_system import MagnetSystem
+from yap_torrent.systems.upload_system import UploadSystem
+from yap_torrent.systems.validation_system import ValidationSystem
 from yap_torrent.systems.peer_system import PeerSystem
 from yap_torrent.systems.piece_system import PieceSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
@@ -58,15 +58,15 @@ class Application:
 		print(f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
 			PeerSystem(env),
-			BTChokeSystem(env),
-			BTInterestedSystem(env),
-			BTDownloadSystem(env),
-			BTUploadSystem(env),
+			ChokeSystem(env),
+			InterestedSystem(env),
+			DownloadSystem(env),
+			UploadSystem(env),
 			PieceSystem(env),
 			ValidationSystem(env),
-			BTExtensionSystem(env),
-			BTExtMetadataSystem(env),
-			BTDHTSystem(env),
+			ExtensionSystem(env),
+			ExtMetadataSystem(env),
+			DHTSystem(env),
 			MagnetSystem(env),
 			TorrentSystem(env),
 			LocalDataSystem(env),

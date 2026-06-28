@@ -14,7 +14,7 @@ from yap_torrent.system import System
 logger = logging.getLogger(__name__)
 
 
-class BTExtensionSystem(System):
+class ExtensionSystem(System):
 	async def start(self):
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
 		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)

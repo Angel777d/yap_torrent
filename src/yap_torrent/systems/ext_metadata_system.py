@@ -15,7 +15,7 @@ from yap_torrent.utils import check_hash
 logger = logging.getLogger(__name__)
 
 
-class BTExtMetadataSystem(System):
+class ExtMetadataSystem(System):
 	async def start(self):
 		PeerExtensionsEC.add_supported(UT_METADATA)
 

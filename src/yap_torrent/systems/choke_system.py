@@ -8,12 +8,12 @@ from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_entity, iterate_peers
+from yap_torrent.systems import get_torrent_entity, iterate_peers, get_info_hash
 
 logger = logging.getLogger(__name__)
 
 
-class BTChokeSystem(System):
+class ChokeSystem(System):
 	_CHOKE_MESSAGES = (msg.MessageId.CHOKE.value, msg.MessageId.UNCHOKE.value)
 
 	async def start(self):
@@ -21,8 +21,8 @@ class BTChokeSystem(System):
 		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
 		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
 
-	async def _on_torrent_stop(self, info_hash: bytes):
-		torrent_entity = get_torrent_entity(self.env, info_hash)
+	async def _on_torrent_stop(self, torrent_entity: Entity):
+		info_hash = get_info_hash(torrent_entity)
 		tasks = [_update_remote_choked(self.env, torrent_entity, peer_entity, True)
 		         for peer_entity in iterate_peers(self.env, info_hash)]
 		await asyncio.gather(*tasks)
