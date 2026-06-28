@@ -26,14 +26,17 @@ class System:
 	async def _update(self, delta_time: float):
 		pass
 
-	def add_task(self, coro: Coroutine[Any, Any, _T], callback: Optional[Callable[[_T], None]] = None) -> Task:
-		task = asyncio.create_task(coro)
+	def add_task(self,
+	             coro: Coroutine[Any, Any, _T],
+	             callback: Optional[Callable[[_T], None]] = None,
+	             name: Optional[str] = None) -> Task:
 
 		def done(_task: Task[_T]):
 			if callback:
 				callback(_task)
 			self.__tasks.remove(_task)
 
+		task = asyncio.create_task(coro, name=name)
 		task.add_done_callback(done)
 		self.__tasks.add(task)
 		return task

@@ -44,8 +44,8 @@ class TorrentStatsEC(EntityComponent):
 	def __init__(self, **kwargs) -> None:
 		super().__init__()
 
-		self._uploaded = kwargs.get("uploaded", 0)
-		self._downloaded = kwargs.get("downloaded", 0)
+		self._uploaded: int = kwargs.get("uploaded", 0)
+		self._downloaded: int = kwargs.get("downloaded", 0)
 		self._session_downloaded = 0
 		self._session_uploaded = 0
 
@@ -67,11 +67,11 @@ class TorrentStatsEC(EntityComponent):
 		self._session_downloaded += length
 
 	@property
-	def uploaded(self) -> float:
+	def uploaded(self) -> int:
 		return self._uploaded
 
 	@property
-	def downloaded(self) -> float:
+	def downloaded(self) -> int:
 		return self._downloaded
 
 	@property
