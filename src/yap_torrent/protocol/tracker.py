@@ -19,7 +19,8 @@ def make_announce(
 		port=6881,
 		compact=1,
 		event="",
-		tracker_id: bytes = b''
+		tracker_id: bytes = b'',
+		timeout=10.
 ) -> TrackerAnnounceResponse | None:
 	# peer_id = '-PC0100-123469398945'
 	# peer_id = '-qB4230-414563428945'
@@ -57,6 +58,7 @@ def make_announce(
 			url=announce,
 			params=params,
 			headers=headers,
+			timeout=timeout
 		)
 
 		if response.status_code != 200:
@@ -65,6 +67,10 @@ def make_announce(
 		return TrackerAnnounceResponse(decode(response.content), compact)
 
 	except ConnectionError as ex:
-		logger.warning(f"got error on announce: {ex}")
+		logger.warning(f"Connection error on announce: {ex}")
+	except requests.exceptions.Timeout as ex:
+		logger.warning(f"Announce request timeout: {ex}")
 	except Exception as ex:
-		logger.error(f"got net exception: {ex}")
+		logger.error(f"Unexpected net exception: {ex}")
+
+	return None
