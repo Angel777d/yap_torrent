@@ -8,7 +8,7 @@ from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrack
 from yap_torrent.env import Env
 from yap_torrent.protocol.tracker import make_announce
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_name, get_torrent_entity, is_torrent_active
+from yap_torrent.systems import get_torrent_name, is_torrent_active
 
 logger = logging.getLogger(__name__)
 
@@ -39,23 +39,26 @@ class AnnounceSystem(System):
 
 		# make "started" announcements
 		for torrent_entity in _iterate_active_torrents(self.env):
-			self.add_task(self.__tracker_announce_async(torrent_entity, "started"))
+			self.add_task(self.__tracker_announce(torrent_entity, "started"))
 
-	def close(self) -> None:
-		self.env.event_bus.remove_all_listeners(scope=self)
-
+	async def stop(self):
+		await super().stop()
 		# make "stopped" announcements
 		for torrent_entity in _iterate_active_torrents(self.env):
-			self.__tracker_announce(torrent_entity, "stopped")
+			await self.__tracker_announce(torrent_entity, "stopped")
+
+	def close(self) -> None:
+		super().close()
+		self.env.event_bus.remove_all_listeners(scope=self)
 
 	async def _on_torrent_complete(self, torrent_entity: Entity):
-		await self.__tracker_announce_async(torrent_entity, "completed")
+		await self.__tracker_announce(torrent_entity, "completed")
 
 	async def _on_torrent_start(self, torrent_entity: Entity):
-		await self.__tracker_announce_async(torrent_entity, "started")
+		await self.__tracker_announce(torrent_entity, "started")
 
 	async def _on_torrent_stop(self, torrent_entity: Entity):
-		await self.__tracker_announce_async(torrent_entity, "stopped")
+		await self.__tracker_announce(torrent_entity, "stopped")
 
 	async def _update(self, delta_time: float):
 		current_time = time.monotonic()
@@ -63,13 +66,10 @@ class AnnounceSystem(System):
 			tracker_data_ec = torrent_entity.get_component(TorrentTrackerDataEC)
 			interval = min(tracker_data_ec.interval, tracker_data_ec.min_interval)
 			if tracker_data_ec.last_update_time + interval <= current_time:
-				await self.__tracker_announce_async(torrent_entity)
-
-	async def __tracker_announce_async(self, torrent_entity: Entity, event: str = ""):
-		self.__tracker_announce(torrent_entity, event)
+				await self.__tracker_announce(torrent_entity)
 
 	# event = "", "started", "completed", "stopped"
-	def __tracker_announce(self, torrent_entity: Entity, event: str = ""):
+	async def __tracker_announce(self, torrent_entity: Entity, event: str = ""):
 		peer_id = self.env.peer_id
 		external_ip = self.env.external_ip
 		port = self.env.config.port
@@ -91,7 +91,7 @@ class AnnounceSystem(System):
 		for announce_tier in tracker_ec.announce_list:
 			for announce in announce_tier:
 				logger.info(f"make announce '{event}' to: {announce}")
-				result = make_announce(
+				result = await make_announce(
 					announce,
 					info_hash,
 					peer_id=peer_id,

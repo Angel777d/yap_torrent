@@ -1,6 +1,6 @@
 import logging
 
-import requests
+import aiohttp
 
 from yap_torrent.protocol import decode
 from yap_torrent.protocol.structures import TrackerAnnounceResponse
@@ -8,7 +8,7 @@ from yap_torrent.protocol.structures import TrackerAnnounceResponse
 logger = logging.getLogger(__name__)
 
 
-def make_announce(
+async def make_announce(
 		announce: str,
 		info_hash: bytes,
 		peer_id: bytes,
@@ -54,22 +54,33 @@ def make_announce(
 		params["trackerid"] = tracker_id
 
 	try:
-		response = requests.get(
-			url=announce,
-			params=params,
-			headers=headers,
-			timeout=timeout
-		)
 
-		if response.status_code != 200:
-			return None
+		# aiohttp default encoding breaks info_hash bytes
+		# made a workaround with requests usage
+		def construct_url() -> str:
+			from requests import PreparedRequest
+			p = PreparedRequest()
+			p.prepare(
+				method="GET",
+				url=announce,
+				headers=headers,
+				params=params,
+			)
+			return p.url
 
-		return TrackerAnnounceResponse(decode(response.content), compact)
-
+		async with aiohttp.ClientSession() as session:
+			async with session.request("GET",
+			                           url=construct_url(),
+			                           # params=params,
+			                           headers=headers,
+			                           timeout=aiohttp.ClientTimeout(connect=timeout)
+			                           ) as response:
+				if response.status != 200:
+					return None
+				data = await response.read()
+				return TrackerAnnounceResponse(decode(data), compact)
 	except ConnectionError as ex:
 		logger.warning(f"Connection error on announce: {ex}")
-	except requests.exceptions.Timeout as ex:
-		logger.warning(f"Announce request timeout: {ex}")
 	except Exception as ex:
 		logger.error(f"Unexpected net exception: {ex}")
 
