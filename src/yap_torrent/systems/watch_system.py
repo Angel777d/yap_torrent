@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from shutil import move
+from typing import List, Tuple
 
 from yap_torrent.components.torrent_ec import ValidateTorrentEC, TorrentEC, SaveTorrentEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
@@ -18,11 +18,9 @@ class WatcherSystem(System):
 		super().__init__(env)
 		self.last_update = 0
 
-		self.trash_path = Path(env.config.trash_folder)
 		self.watch_path = Path(env.config.watch_folder)
 
 	async def start(self):
-		self.trash_path.mkdir(parents=True, exist_ok=True)
 		self.watch_path.mkdir(parents=True, exist_ok=True)
 
 	async def _update(self, delta_time: float):
@@ -30,17 +28,17 @@ class WatcherSystem(System):
 
 		# move file to the trash folder
 		for file_path, file_name in files_to_move:
-			move(file_path, self.trash_path.joinpath(file_name))
+			file_path.rename(file_path.parent.joinpath(file_name + ".added"))
 
 	async def _load_from_path(self, path: Path):
-		files_list = []
+		files_list:List[Tuple[Path, str]] = []
 		for root, dirs, files in os.walk(path):
 			for file_name in files:
 				file_path = Path(root).joinpath(file_name)
-				files_list.append((file_path, file_name))
 				if file_path.suffix != ".torrent":
 					continue
 
+				files_list.append((file_path, file_name))
 				torrent_file_data = load_torrent_file(file_path)
 				if not torrent_file_data:
 					logger.info(f"Torrent file {file_path} is invalid")
