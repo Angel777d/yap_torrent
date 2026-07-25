@@ -1,27 +1,24 @@
 import logging
-from typing import Optional, Set
+from typing import Set, List
 
 from yap_torrent.env import Env
 from yap_torrent.plugins import TorrentPlugin
-
 from .server import RpcServer
 
 
 class TransmissionRpcPlugin(TorrentPlugin):
 	def __init__(self):
-		self.server: Optional[RpcServer] = None
+		self.servers: List[RpcServer] = []
 
 	async def start(self, env: Env):
-		self.server = RpcServer(env)
-		await self.server.start()
+		self.servers.append(await RpcServer(env).start())
 
 	async def stop(self):
-		if self.server:
-			await self.server.stop()
+		for s in self.servers:
+			await s.stop()
 
 	def close(self):
-		if self.server:
-			self.server.close()
+		self.servers.clear()
 
 	@staticmethod
 	def get_purpose() -> Set[str]:

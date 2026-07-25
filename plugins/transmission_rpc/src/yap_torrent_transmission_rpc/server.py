@@ -3,13 +3,10 @@ import time
 import uuid
 from typing import Any, Dict, Optional, Tuple
 
-import aiohttp
 from aiohttp import web
 
 from yap_torrent.env import Env
-
-from .mapping import IdManager
-from .methods import METHODS, UNIMPLEMENTED
+from .methods import METHODS, UNIMPLEMENTED, ServerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +18,11 @@ DEFAULT_PATH = "/transmission/rpc"
 class RpcServer:
 	def __init__(self, env: Env):
 		self.env = env
-		self.ids = IdManager()
-		self.session_id = uuid.uuid4().hex + uuid.uuid4().hex[:16]  # 48-char id, like Transmission
-		self.start_time = time.monotonic()
+
+		self.info: ServerInfo = ServerInfo(
+			uuid.uuid4().hex + uuid.uuid4().hex[:16],  # 48-char id, like Transmission
+			time.monotonic()
+		)
 
 		config = env.config.get_plugin_config("yap_torrent_transmission_rpc")
 		self.host = config.get("host", "0.0.0.0")
@@ -35,7 +34,7 @@ class RpcServer:
 		self._auth_password = config.get("password")
 
 		self.app = self.make_app()
-		self.runner = web.AppRunner(self.app)
+		self.runner = web.AppRunner(self.app, access_log=None)
 
 	# -- lifecycle ---------------------------------------------------------
 	def make_app(self) -> web.Application:
@@ -48,6 +47,7 @@ class RpcServer:
 		site = web.TCPSite(self.runner, self.host, self.port)
 		await site.start()
 		logger.info("Transmission RPC server started on %s:%s%s", self.host, self.port, self.path)
+		return self
 
 	async def stop(self):
 		await self.runner.shutdown()
@@ -60,8 +60,6 @@ class RpcServer:
 
 	# -- request handling --------------------------------------------------
 	async def handle_rpc(self, request: web.Request) -> web.Response:
-		# Auth placeholder. Intentionally permissive for now; the 401 path is
-		# wired so enabling real auth later is a one-line change in _check_auth.
 		if not self._check_auth(request):
 			return web.Response(
 				status=401,
@@ -70,16 +68,16 @@ class RpcServer:
 
 		# CSRF handshake: a missing/stale session id gets a 409 carrying the
 		# current id, which well-behaved clients resend with (rpc-spec).
-		if request.headers.get(CSRF_HEADER) != self.session_id:
+		if request.headers.get(CSRF_HEADER) != self.info.session_id:
 			return web.Response(
 				status=409,
-				headers={CSRF_HEADER: self.session_id},
-				text=f"{CSRF_HEADER}: {self.session_id}",
+				headers={CSRF_HEADER: self.info.session_id},
+				text=f"{CSRF_HEADER}: {self.info.session_id}",
 			)
 
 		try:
 			body = await request.json()
-		except Exception:  # noqa: BLE001 - malformed body is a client error
+		except Exception as ex:
 			return web.json_response({"result": "invalid request: malformed json body"})
 
 		method = body.get("method")
@@ -100,7 +98,7 @@ class RpcServer:
 		handler = METHODS.get(method)
 		if handler is not None:
 			try:
-				return await handler(self, arguments)
+				return await handler(self.env, self.info, arguments)
 			except Exception as ex:  # noqa: BLE001 - never leak a 500 to the client
 				logger.exception("RPC method %s failed", method)
 				return f"internal error handling {method}: {ex}", {}
@@ -115,17 +113,3 @@ class RpcServer:
 		#  self._auth_password are set, verify request.headers["Authorization"]
 		#  against them and return False on mismatch. Disabled for now.
 		return True
-
-	# -- helpers -----------------------------------------------------------
-	async def fetch_url(self, url: str) -> Optional[bytes]:
-		"""Download a remote .torrent file for torrent-add's filename=URL form."""
-		try:
-			async with aiohttp.ClientSession() as session:
-				async with session.get(url) as resp:
-					if resp.status != 200:
-						logger.warning("fetch %s returned status %s", url, resp.status)
-						return None
-					return await resp.read()
-		except Exception:  # noqa: BLE001
-			logger.exception("failed to fetch torrent url %s", url)
-			return None

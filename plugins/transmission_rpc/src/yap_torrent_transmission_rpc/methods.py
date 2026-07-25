@@ -9,30 +9,39 @@ Implemented methods are registered with the :func:`method` decorator.  Every oth
 named by the spec is listed in :data:`UNIMPLEMENTED` so it is *recognised* (returns an
 explanatory error) rather than reported as an unknown method.
 """
+import asyncio
 import base64
 import logging
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Tuple, Optional, Set
+
+import aiohttp
+from angelovich.core.DataStorage import DataStorage, Entity
 
 from yap_torrent.components.torrent_ec import (
-	SaveTorrentEC,
 	TorrentEC,
 	TorrentStatsEC,
-	ValidateTorrentEC,
 )
-from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
+from yap_torrent.env import Env
 from yap_torrent.protocol import decode
 from yap_torrent.protocol.magnet import MagnetInfo
-from yap_torrent.protocol.structures import TorrentFileInfo
-from yap_torrent.systems import create_torrent_entity, get_torrent_entity, get_torrent_name, is_torrent_active
-
+from yap_torrent.protocol.structures import Metainfo
+from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_active
 from .mapping import DEFAULT_FIELDS, build_torrent
 
 logger = logging.getLogger(__name__)
 
-Handler = Callable[[Any, Dict[str, Any]], Awaitable[Tuple[str, Dict[str, Any]]]]
+
+@dataclass(slots=True)
+class ServerInfo:
+	session_id: str
+	start_time: float
+
+
+Handler = Callable[[Env, ServerInfo, Dict[str, Any]], Awaitable[Tuple[str, Dict[str, Any]]]]
 
 METHODS: Dict[str, Handler] = {}
 
@@ -48,33 +57,61 @@ def method(name: str) -> Callable[[Handler], Handler]:
 # ---------------------------------------------------------------------------
 # id resolution
 # ---------------------------------------------------------------------------
-def resolve_hashes(server, arguments: Dict[str, Any]) -> List[bytes]:
+async def fetch_url(url: str) -> Optional[bytes]:
+	"""Download a remote .torrent file for torrent-add's filename=URL form."""
+	try:
+		async with aiohttp.ClientSession() as session:
+			async with session.get(url) as resp:
+				if resp.status != 200:
+					logger.warning("fetch %s returned status %s", url, resp.status)
+					return None
+				return await resp.read()
+	except Exception as ex:
+		logger.exception("failed to fetch torrent url %s. %s", url, ex)
+		return None
+
+
+def get_all_hashes(ds: DataStorage) -> List[bytes]:
+	"""Return all info_hash bytes in the data storage."""
+	return [e.get_component(TorrentEC).info_hash for e in ds.get_collection(TorrentEC)]
+
+
+def get_recent(ds: DataStorage) -> List[bytes]:
+	# "recently-active" (and the spec's alternate spelling) -> all torrents.
+	# TODO: track a real recently active set (torrents touched since the last
+	#  such request) instead of returning everything.
+
+	return get_all_hashes(ds)
+
+
+def index_to_info_hash(ds: DataStorage, index: int) -> Optional[bytes]:
+	for e in ds.get_collection(TorrentEC):
+		torrent: TorrentEC = e.get_component(TorrentEC)
+		if torrent.index == index:
+			return torrent.info_hash
+	return None
+
+
+def resolve_hashes(ds: DataStorage, arguments: Dict[str, Any]) -> List[bytes]:
 	"""Resolve the Transmission ``ids`` argument to a list of info_hash bytes.
 
 	Accepts an integer id, a 40-char hex hashString, a list mixing both, the
 	string ``"recently-active"``, or nothing at all (meaning "all torrents").
 	"""
-	ds = server.env.data_storage
-	all_hashes = [e.get_component(TorrentEC).info_hash for e in ds.get_collection(TorrentEC)]
 
 	ids_arg = arguments.get("ids", None)
-	# "recently-active" (and the spec's alternate spelling) -> all torrents.
-	# TODO: track a real recently-active set (torrents touched since the last
-	#  such request) instead of returning everything.
 	if ids_arg is None or ids_arg in ("recently-active", "recently_active"):
-		return all_hashes
+		return get_recent(ds)
 
 	if not isinstance(ids_arg, list):
 		ids_arg = [ids_arg]
 
 	hashes: List[bytes] = []
 	for ref in ids_arg:
-		if isinstance(ref, bool):
-			continue
 		if isinstance(ref, int):
-			info_hash_hex = server.ids.hash_for_id(ref)
+			info_hash_hex = index_to_info_hash(ds, ref)
 			if info_hash_hex:
-				hashes.append(bytes.fromhex(info_hash_hex))
+				hashes.append(info_hash_hex)
 		elif isinstance(ref, str):
 			try:
 				hashes.append(bytes.fromhex(ref))
@@ -87,9 +124,9 @@ def resolve_hashes(server, arguments: Dict[str, Any]) -> List[bytes]:
 # torrent action requests (rpc-spec 3.1)
 # ---------------------------------------------------------------------------
 @method("torrent-start")
-async def torrent_start(server, arguments):
-	for info_hash in resolve_hashes(server, arguments):
-		server.env.event_bus.dispatch("request.torrent.start", info_hash)
+async def torrent_start(env, info, arguments):
+	for info_hash in resolve_hashes(env.data_storage, arguments):
+		env.event_bus.dispatch("request.torrent.start", info_hash)
 	return "success", {}
 
 
@@ -98,17 +135,17 @@ METHODS["torrent-start-now"] = torrent_start
 
 
 @method("torrent-stop")
-async def torrent_stop(server, arguments):
-	for info_hash in resolve_hashes(server, arguments):
-		server.env.event_bus.dispatch("request.torrent.stop", info_hash)
+async def torrent_stop(env, info, arguments):
+	for info_hash in resolve_hashes(env.data_storage, arguments):
+		env.event_bus.dispatch("request.torrent.stop", info_hash)
 	return "success", {}
 
 
 @method("torrent-verify")
-async def torrent_verify(server, arguments):
+async def torrent_verify(env, info, arguments):
 	# Maps to the ECS "invalidate" request which re-checks piece hashes on disk.
-	for info_hash in resolve_hashes(server, arguments):
-		server.env.event_bus.dispatch("request.torrent.invalidate", info_hash)
+	for info_hash in resolve_hashes(env.data_storage, arguments):
+		env.event_bus.dispatch("request.torrent.invalidate", info_hash)
 	return "success", {}
 
 
@@ -116,12 +153,14 @@ async def torrent_verify(server, arguments):
 # removing torrents (rpc-spec 3.5)
 # ---------------------------------------------------------------------------
 @method("torrent-remove")
-async def torrent_remove(server, arguments):
-	# TODO: the "delete-local-data" argument is not honoured. Core removal
-	#  (request.torrent.remove) leaves downloaded files on disk; deleting them
-	#  would need to walk TorrentInfo.files under the torrent path.
-	for info_hash in resolve_hashes(server, arguments):
-		server.env.event_bus.dispatch("request.torrent.remove", info_hash)
+async def torrent_remove(env, info, arguments):
+	for info_hash in resolve_hashes(env.data_storage, arguments):
+		if arguments.get("delete-local-data"):
+			# TODO: support "delete-local-data" in torrent app
+			env.event_bus.dispatch("request.torrent.files.remove", info_hash)
+
+		env.event_bus.dispatch("request.torrent.remove", info_hash)
+
 	return "success", {}
 
 
@@ -129,19 +168,19 @@ async def torrent_remove(server, arguments):
 # torrent accessors (rpc-spec 3.3)
 # ---------------------------------------------------------------------------
 @method("torrent-get")
-async def torrent_get(server, arguments):
+async def torrent_get(env, info, arguments):
 	fields = arguments.get("fields") or list(DEFAULT_FIELDS)
 	# TODO: the "table" format is not supported; results are always objects.
 	wanted = None
 	if arguments.get("ids") is not None:
-		wanted = set(resolve_hashes(server, arguments))
+		wanted = set(resolve_hashes(env.data_storage, arguments))
 
 	torrents = []
-	for entity in server.env.data_storage.get_collection(TorrentEC):
+	for entity in env.data_storage.get_collection(TorrentEC):
 		info_hash = entity.get_component(TorrentEC).info_hash
 		if wanted is not None and info_hash not in wanted:
 			continue
-		torrents.append(build_torrent(entity, fields, server.ids, server.env))
+		torrents.append(build_torrent(entity, fields, env))
 	return "success", {"torrents": torrents}
 
 
@@ -149,110 +188,100 @@ async def torrent_get(server, arguments):
 # adding a torrent (rpc-spec 3.4)
 # ---------------------------------------------------------------------------
 @method("torrent-add")
-async def torrent_add(server, arguments):
+async def torrent_add(env, info, arguments):
 	download_dir = arguments.get("download-dir")
 	paused = bool(arguments.get("paused", False))
-	metainfo = arguments.get("metainfo")
-	filename = arguments.get("filename")
+	metainfo: str = arguments.get("metainfo", "")
+	filename: str = arguments.get("filename", "")
 
 	if metainfo:
 		try:
 			data = base64.b64decode(metainfo)
 		except (ValueError, TypeError) as ex:
 			return f"invalid metainfo: {ex}", {}
-		return _add_metainfo(server, data, download_dir, paused)
+		return await _add_metainfo(env, data, download_dir, paused)
 
 	if filename:
 		if filename.startswith("magnet:"):
-			return _add_magnet(server, filename)
+			return await _add_magnet(env, filename, paused)
 		if filename.startswith("http://") or filename.startswith("https://"):
-			data = await server.fetch_url(filename)
+			data = await fetch_url(filename)
 			if data is None:
 				return "download of torrent file failed", {}
-			return _add_metainfo(server, data, download_dir, paused)
+			return await _add_metainfo(env, data, download_dir, paused)
 		# Otherwise treat it as a local .torrent file path.
 		try:
 			with open(filename, "rb") as handle:
 				data = handle.read()
 		except OSError as ex:
 			return f"unable to read torrent file: {ex}", {}
-		return _add_metainfo(server, data, download_dir, paused)
+		return await _add_metainfo(env, data, download_dir, paused)
 
 	return 'either "filename" or "metainfo" must be included', {}
 
 
-def _added_stub(server, entity) -> Dict[str, Any]:
-	info_hash_hex = entity.get_component(TorrentEC).info_hash.hex()
+def _added_stub(entity: Entity) -> Dict[str, Any]:
 	return {
-		"id": server.ids.id_for_hash(info_hash_hex),
-		"hashString": info_hash_hex,
+		"id": entity.get_component(TorrentEC).index,
+		"hashString": entity.get_component(TorrentEC).info_hash.hex(),
 		"name": get_torrent_name(entity),
 	}
 
 
-def _add_metainfo(server, data: bytes, download_dir, paused: bool):
+async def _add_metainfo(env: Env, data: bytes, download_dir, paused: bool):
 	try:
-		file_info = TorrentFileInfo(decode(data))
+		file_info = Metainfo(decode(data))
 		info_hash = file_info.make_info_hash()
 	except Exception as ex:  # noqa: BLE001 - any parse failure is a client error
 		return f"invalid or corrupt torrent metainfo: {ex}", {}
 
-	env = server.env
 	existing = get_torrent_entity(env, info_hash)
 	if existing is not None:
-		return "success", {"torrent-duplicate": _added_stub(server, existing)}
+		return "success", {"torrent-duplicate": _added_stub(existing)}
 
-	# Mirror WatcherSystem's add path (no request.* event exists for metainfo).
-	path = Path(download_dir) if download_dir else Path(env.config.download_folder)
-	entity = create_torrent_entity(env, info_hash, path, {}, file_info.info)
+	await asyncio.gather(*env.event_bus.dispatch("request.metainfo.add", file_info, download_dir))
 
-	announce_list = file_info.announce_list
-	if announce_list:
-		entity.add_component(TorrentTrackerEC(announce_list))
-		entity.add_component(TorrentTrackerDataEC())
-
-	entity.add_component(SaveTorrentEC())
-	entity.add_component(ValidateTorrentEC())
+	torrent_entity = get_torrent_entity(env, info_hash)
+	if not torrent_entity:
+		return "Add torrent operation failed", {}
 
 	if paused:
 		env.event_bus.dispatch("request.torrent.stop", info_hash)
 
 	logger.info("torrent-add: added %s", info_hash.hex())
-	return "success", {"torrent-added": _added_stub(server, entity)}
+	return "success", {"torrent-added": _added_stub(torrent_entity)}
 
 
-def _add_magnet(server, magnet_link: str):
+async def _add_magnet(env: Env, magnet_link: str, paused):
 	magnet = MagnetInfo(magnet_link)
 	if not magnet.is_valid():
 		return "invalid magnet link", {}
 
-	env = server.env
 	info_hash = magnet.info_hash
 	existing = get_torrent_entity(env, info_hash)
 	if existing is not None:
-		return "success", {"torrent-duplicate": _added_stub(server, existing)}
+		return "success", {"torrent-duplicate": _added_stub(existing)}
 
-	# Idiomatic magnet path: the MagnetSystem creates the entity asynchronously.
-	# TODO: the "paused" flag is ignored for magnets because the entity does not
-	#  exist yet when this returns; pausing would race the MagnetSystem.
-	env.event_bus.dispatch("request.magnet.add", magnet_link)
+	await asyncio.gather(*env.event_bus.dispatch("request.magnet.add", magnet_link))
 
-	info_hash_hex = info_hash.hex()
-	stub = {
-		"id": server.ids.id_for_hash(info_hash_hex),
-		"hashString": info_hash_hex,
-		"name": magnet.name or info_hash_hex,
-	}
-	logger.info("torrent-add: queued magnet %s", info_hash_hex)
-	return "success", {"torrent-added": stub}
+	torrent_entity = get_torrent_entity(env, info_hash)
+	if not torrent_entity:
+		return "add magnet operation failed", {}
+
+	if paused:
+		env.event_bus.dispatch("request.torrent.stop", info_hash)
+
+	logger.info("torrent-add: queued magnet %s, paused %s", info_hash.hex(), paused)
+
+	return "success", {"torrent-added": _added_stub(torrent_entity)}
 
 
 # ---------------------------------------------------------------------------
 # session accessors (rpc-spec 4.2 / 4.3)
 # ---------------------------------------------------------------------------
 @method("session-get")
-async def session_get(server, arguments):
-	cfg = server.env.config
+async def session_get(env, info, arguments):
+	cfg = env.config
 	download_dir = Path(cfg.download_folder).as_posix()
 	session = {
 		"rpc-version": 17,
@@ -294,7 +323,7 @@ async def session_get(server, arguments):
 		"blocklist-enabled": False,
 		"blocklist-size": 0,
 		"config-dir": Path(cfg.data_folder).as_posix(),
-		"session-id": server.session_id,
+		"session-id": info.session_id,
 		"units": {
 			"speed-units": ["kB/s", "MB/s", "GB/s", "TB/s"],
 			"speed-bytes": 1000,
@@ -304,19 +333,20 @@ async def session_get(server, arguments):
 			"memory-bytes": 1024,
 		},
 	}
-	fields = arguments.get("fields")
+
+	fields: Set[str] = set(arguments.get("fields", []))
 	if fields:
-		return "success", {key: session[key] for key in fields if key in session}
+		return "success", {key: session[key] for key in fields.intersection(session.keys())}
 	return "success", session
 
 
 @method("session-stats")
-async def session_stats(server, arguments):
-	entities = list(server.env.data_storage.get_collection(TorrentEC))
+async def session_stats(env, info, arguments):
+	entities = list(env.data_storage.get_collection(TorrentEC))
 	active = sum(1 for e in entities if is_torrent_active(e))
 	downloaded = sum(e.get_component(TorrentStatsEC).downloaded for e in entities)
 	uploaded = sum(e.get_component(TorrentStatsEC).uploaded for e in entities)
-	seconds_active = int(time.monotonic() - server.start_time)
+	seconds_active = int(time.monotonic() - info.start_time)
 
 	# TODO: downloadSpeed / uploadSpeed are 0 because core has no rate metering.
 	totals = {
@@ -348,8 +378,8 @@ def _free_space(path: str) -> int:
 
 
 @method("free-space")
-async def free_space(server, arguments):
-	path = arguments.get("path") or server.env.config.download_folder
+async def free_space(env, info, arguments):
+	path = arguments.get("path") or env.config.download_folder
 	try:
 		usage = shutil.disk_usage(path)
 	except OSError as ex:

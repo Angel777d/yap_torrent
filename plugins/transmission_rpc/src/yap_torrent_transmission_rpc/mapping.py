@@ -55,25 +55,6 @@ DEFAULT_FIELDS = (
 	"downloadDir",
 )
 
-
-class IdManager:
-	def __init__(self):
-		self._by_hash: Dict[str, int] = {}
-		self._next_id = 1
-
-	def id_for_hash(self, info_hash_hex: str) -> int:
-		if info_hash_hex not in self._by_hash:
-			self._by_hash[info_hash_hex] = self._next_id
-			self._next_id += 1
-		return self._by_hash[info_hash_hex]
-
-	def hash_for_id(self, torrent_id: int) -> Optional[str]:
-		for info_hash_hex, assigned in self._by_hash.items():
-			if assigned == torrent_id:
-				return info_hash_hex
-		return None
-
-
 def _torrent_info(entity: Entity) -> Optional[TorrentInfo]:
 	if entity.has_component(TorrentInfoEC):
 		return entity.get_component(TorrentInfoEC).info
@@ -124,7 +105,7 @@ def _trackers(entity: Entity) -> List[Dict[str, Any]]:
 	return result
 
 
-def build_torrent(entity: Entity, fields, ids: IdManager, env: Env) -> Dict[str, Any]:
+def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 	"""Build a single torrent object containing only the requested ``fields``."""
 	torrent_ec = entity.get_component(TorrentEC)
 	info_hash_hex = torrent_ec.info_hash.hex()
@@ -140,7 +121,7 @@ def build_torrent(entity: Entity, fields, ids: IdManager, env: Env) -> Dict[str,
 
 	# Every getter is lazy so we only compute what the client asked for.
 	getters: Dict[str, Callable[[], Any]] = {
-		"id": lambda: ids.id_for_hash(info_hash_hex),
+		"id": lambda: torrent_ec.index,
 		"hashString": lambda: info_hash_hex,
 		"name": lambda: get_torrent_name(entity),
 		"status": lambda: status_code(entity),
@@ -187,7 +168,7 @@ def build_torrent(entity: Entity, fields, ids: IdManager, env: Env) -> Dict[str,
 		"seedRatioMode": lambda: 0,
 		"seedIdleLimit": lambda: 0,
 		"seedIdleMode": lambda: 0,
-		"queuePosition": lambda: ids.id_for_hash(info_hash_hex) - 1,
+		"queuePosition": lambda: 0,  # TODO
 		"labels": lambda: [],
 		"group": lambda: "",
 		"downloadLimit": lambda: 0,
@@ -213,5 +194,5 @@ def build_torrent(entity: Entity, fields, ids: IdManager, env: Env) -> Dict[str,
 		getter = getters.get(field)
 		if getter is not None:
 			result[field] = getter()
-		# Unsupported fields are omitted; Transmission clients tolerate absent keys.
+	# Unsupported fields are omitted; Transmission clients tolerate absent keys.
 	return result
