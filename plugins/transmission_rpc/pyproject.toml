@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/*",
+]
+
+[project.entry-points.'yap_torrent.plugins']
+yap_torrent_transmission_rpc = 'yap_torrent_transmission_rpc'
+
+[project]
+name = "yap_torrent_transmission_rpc"
+version = "0.0.1"
+description = "Transmission RPC server API for yap torrent"
+readme = { file = "README.md", content-type = "text/markdown" }
+
+authors = [
+    { name = "Angelovich", email = "angel777da@gmail.com" },
+]
+maintainers = []
+
+requires-python = ">=3.13"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "yap_torrent",
+    "aiohttp",
+]
+
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+keywords = ["Torrent", "BitTorrent", "Transmission", "RPC"]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-aiohttp",
+]
+
+[project.urls]
+Homepage = "https://github.com/Angel777d/yap_torrent/tree/master/plugins/transmission_rpc"
+Issues = "https://github.com/Angel777d/yap_torrent/issues"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
