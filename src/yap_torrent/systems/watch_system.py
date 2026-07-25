@@ -3,12 +3,9 @@ import os
 from pathlib import Path
 from typing import List, Tuple
 
-from yap_torrent.components.torrent_ec import ValidateTorrentEC, TorrentEC, SaveTorrentEC
-from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import load_torrent_file
 from yap_torrent.system import System
-from yap_torrent.systems import create_torrent_entity
 
 logger = logging.getLogger(__name__)
 
@@ -40,31 +37,11 @@ class WatcherSystem(System):
 
 				files_list.append((file_path, file_name))
 				torrent_file_data = load_torrent_file(file_path)
+
 				if not torrent_file_data:
 					logger.info(f"Torrent file {file_path} is invalid")
 					continue
 
-				info_hash = torrent_file_data.make_info_hash()
-				if self.env.data_storage.get_collection(TorrentEC).find(info_hash):
-					logger.info(f"Torrent from {file_path} is already exist")
-					continue
-
-				# create a new torrent entity
-				path = Path(self.env.config.download_folder)
-				torrent_entity = create_torrent_entity(self.env, info_hash, path, {}, torrent_file_data.info)
-
-				# add tracker info
-				announce_list = torrent_file_data.announce_list
-				if announce_list:
-					torrent_entity.add_component(TorrentTrackerEC(announce_list))
-					torrent_entity.add_component(TorrentTrackerDataEC())
-
-				# save torrent to local data
-				torrent_entity.add_component(SaveTorrentEC())
-
-				# mark for files validation in case there are already downloaded files
-				torrent_entity.add_component(ValidateTorrentEC())
-
-				logger.info(f"New torrent added from {file_path}")
+				self.env.event_bus.dispatch("request.metainfo.add", torrent_file_data)
 
 		return files_list

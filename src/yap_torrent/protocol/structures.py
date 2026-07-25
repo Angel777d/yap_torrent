@@ -162,7 +162,7 @@ class TorrentInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class TorrentFileInfo:
+class Metainfo:
 	_data: Dict[str, Any]
 
 	@property

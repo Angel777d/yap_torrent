@@ -31,7 +31,7 @@ def calculate_downloaded(torrent_entity: Entity) -> float:
 	return info.calculate_downloaded(bitfield.have_num)
 
 
-def create_torrent_entity(env: Env, info_hash: bytes, path: Optional[Path], stats: Dict[str, int],
+def create_torrent_entity(env: Env, info_hash: InfoHash, path:Path, stats: Dict[str, int],
                           torrent_info: Optional[TorrentInfo] = None, ) -> Entity:
 	torrent_entity = env.data_storage.create_entity()
 	torrent_entity.add_component(TorrentPathEC(path))

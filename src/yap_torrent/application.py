@@ -18,6 +18,7 @@ from yap_torrent.systems.extension_system import ExtensionSystem
 from yap_torrent.systems.intrest_system import InterestedSystem
 from yap_torrent.systems.local_data_system import LocalDataSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
+from yap_torrent.systems.metainfo_system import MetainfoSystem
 from yap_torrent.systems.upload_system import UploadSystem
 from yap_torrent.systems.validation_system import ValidationSystem
 from yap_torrent.systems.peer_system import PeerSystem
@@ -57,6 +58,7 @@ class Application:
 		env = Env(create_peer_id(), ip, external_ip, config)
 		print(f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
+			MetainfoSystem(env),
 			PeerSystem(env),
 			ChokeSystem(env),
 			InterestedSystem(env),

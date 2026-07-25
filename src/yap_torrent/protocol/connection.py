@@ -88,7 +88,7 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 	pstrlen, pstr, reserved, remote_info_hash, remote_peer_id = handshake_response
 	logger.debug("Received handshake from: %s %s, message: %s", remote_peer_id, peer_info, handshake_response)
 
-	logger.info("Connected to peer: %s. Peer id: %s", peer_info, remote_peer_id)
+	logger.debug("Connected to peer: %s. Peer id: %s", peer_info, remote_peer_id)
 	return remote_peer_id, reader, writer, reserved
 
 

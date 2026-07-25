@@ -1,5 +1,6 @@
 import json
 import logging
+from pathlib import Path
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -18,11 +19,11 @@ class Config:
 		except json.JSONDecodeError:
 			logger.warning(f"Config file at {path} is invalid. Using default settings.")
 
-		self.data_folder: str = data.get("data_folder", "data")
+		self.data_folder: Path = Path(data.get("data_folder", "data"))
 
-		self.active_folder: str = data.get("active_folder", f"{self.data_folder}/active")
-		self.watch_folder: str = data.get("watch_folder", f"{self.data_folder}/watch")
-		self.download_folder: str = data.get("download_folder", f"{self.data_folder}/download")
+		self.active_folder: Path = Path(data.get("active_folder", f"{self.data_folder}/active"))
+		self.watch_folder: Path = Path(data.get("watch_folder", f"{self.data_folder}/watch"))
+		self.download_folder: Path = Path(data.get("download_folder", f"{self.data_folder}/download"))
 
 		self.use_log_file:bool = data.get("use_log_file", True)
 		self.log_path:str = data.get("log_path", f"{self.data_folder}/torrent.log")

@@ -51,7 +51,7 @@ class PeerSystem(System):
 		to_remove = ds.get_collection(PeerDisconnectedEC).entities
 		for peer_entity in to_remove:
 			peer_ec = peer_entity.get_component(PeerConnectionEC)
-			logger.info("Disconnect %s", peer_ec)
+			logger.debug("Disconnect %s", peer_ec)
 			peer_ec.disconnect()
 			ds.remove_entity(peer_entity)
 
@@ -71,14 +71,14 @@ class PeerSystem(System):
 			if time.monotonic() - peer_ec.connection.connection_time < 30:
 				continue
 
-			logger.info("Removing outdated peer %s", peer_ec)
+			logger.debug("Removing outdated peer %s", peer_ec)
 			peer_entity.add_component(PeerDisconnectedEC())
 
 	def overflow_check(self):
 		peers_count = len(self.env.data_storage.get_collection(PeerConnectionEC))
 		if peers_count <= self.env.config.max_connections:
 			return
-		logger.info("Too much connected peers: %s", peers_count)
+		logger.debug("Too much connected peers: %s", peers_count)
 
 		def sort_key(_e: Entity):
 			peer_ec = _e.get_component(PeerConnectionEC)
@@ -87,7 +87,7 @@ class PeerSystem(System):
 		to_remove = sorted((e for e in self.env.data_storage.get_collection(PeerConnectionEC)), key=sort_key)[
 			:-self.env.config.max_connections]
 		for peer_entity in to_remove:
-			logger.info("Max capacity disconnect: %s", peer_entity.get_component(PeerConnectionEC))
+			logger.debug("Max capacity disconnect: %s", peer_entity.get_component(PeerConnectionEC))
 			peer_entity.add_component(PeerDisconnectedEC())
 
 	def connect_to_peers(self):
@@ -136,7 +136,7 @@ class PeerSystem(System):
 	async def _on_torrent_complete(self, torrent_entity: Entity):
 		# TODO: replace with update logic
 		info_hash = torrent_entity.get_component(TorrentEC).info_hash
-		logger.info("Disconnect on torrent complete")
+		logger.debug("Disconnect on torrent complete")
 		_disconnect_peers(
 			p for p in iterate_peers(self.env, info_hash) if
 			not p.get_component(PeerConnectionEC).remote_interested
@@ -144,7 +144,7 @@ class PeerSystem(System):
 
 	async def _on_torrent_stop(self, torrent_entity: Entity):
 		info_hash = get_info_hash(torrent_entity)
-		logger.info("Disconnect on torrent stop")
+		logger.debug("Disconnect on torrent stop")
 		_disconnect_peers(p for p in iterate_peers(self.env, info_hash))
 
 	async def _on_torrent_start(self, torrent_entity: Entity):
@@ -159,7 +159,7 @@ class PeerSystem(System):
 
 	async def _server_callback(self, reader: StreamReader, writer: StreamWriter):
 		peer_info = PeerInfo(*writer.transport.get_extra_info('peername'))
-		logger.info('%s connected to us', peer_info)
+		logger.debug('%s connected to us', peer_info)
 
 		# parse handshake
 		local_peer_id = self.env.peer_id
@@ -249,7 +249,7 @@ class PeerSystem(System):
 			torrent_entity.get_component(KnownPeersEC).mark_failed(peer_info)
 			break
 
-		logger.info("No more messages %s", peer_info.host)
+		logger.debug("No more messages %s", peer_info.host)
 		peer_entity.add_component(PeerDisconnectedEC())
 
 

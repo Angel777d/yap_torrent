@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 class TorrentEC(EntityHashComponent):
+	__index = 0
 	def __init__(self, info_hash: InfoHash) -> None:
 		super().__init__()
+		TorrentEC.__index += 1
+		self.index: int = TorrentEC.__index
 		self.info_hash: InfoHash = info_hash
 		self.bitfield: Bitfield = Bitfield()
 
