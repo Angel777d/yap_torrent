@@ -379,7 +379,7 @@ async def free_space(env, info, arguments):
 
 
 @method("port-test")
-async def port_test(server, arguments):
+async def port_test(env, info, arguments):
 	# TODO: no real inbound-connectivity probe is performed; this optimistically
 	#  reports the configured peer port as reachable.
 	return "success", {"port-is-open": True, "ipProtocol": "ipv4"}
