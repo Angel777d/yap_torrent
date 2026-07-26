@@ -1,7 +1,10 @@
 """Unit tests for the Transmission RPC plugin.
 
 Run with:  pytest plugins/transmission_rpc
-(requires the "test" extra: pip install -e "plugins/transmission_rpc[test]")
+
+Only the test runner needs installing (pytest + pytest-aiohttp); yap_torrent, the
+plugin, and angelovich.core are imported from source by conftest.py, so no
+`pip install -e` of the packages is required.
 
 These exercise the RPC layer directly through aiohttp's test client; no real
 Transmission client or network sockets are involved.
@@ -14,6 +17,8 @@ import pytest
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import encode
+from yap_torrent.systems.magnet_system import MagnetSystem
+from yap_torrent.systems.metainfo_system import MetainfoSystem
 from yap_torrent_transmission_rpc.server import CSRF_HEADER, RpcServer
 
 RPC_PATH = "/transmission/rpc"
@@ -25,11 +30,18 @@ def make_metainfo(name: bytes = b"hello.txt") -> bytes:
 
 
 @pytest.fixture
-def server() -> RpcServer:
+async def server():
 	# Config() with a missing path falls back to defaults, so tests do not depend
 	# on the repo's config.json.
 	env = Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", Config(path="__no_such_config__.json"))
-	return RpcServer(env)
+	# torrent-add delegates entity creation to core systems via
+	# request.metainfo.add / request.magnet.add, so those listeners must be live.
+	systems = [MetainfoSystem(env), MagnetSystem(env)]
+	for system in systems:
+		await system.start()
+	yield RpcServer(env)
+	for system in systems:
+		system.close()
 
 
 @pytest.fixture

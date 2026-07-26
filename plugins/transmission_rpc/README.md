@@ -58,7 +58,9 @@ on what each one needs. `torrent-add` accepts a magnet link or `.torrent` path/U
 ## Tests
 
 ```bash
-pip install -e "plugins/transmission_rpc[test]"
+# only the test runner is needed; yap_torrent / angelovich.core are imported
+# from source by conftest.py (no package install required)
+pip install pytest pytest-aiohttp
 pytest plugins/transmission_rpc
 
 # manual smoke test against a running instance:
