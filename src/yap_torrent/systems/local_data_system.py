@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import pickle
@@ -8,13 +7,14 @@ from typing import Any, Dict, Set
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.peer_ec import KnownPeersEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, \
-	TorrentPathEC, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, TorrentPathEC, \
+	TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
 from yap_torrent.systems import create_torrent_entity
+from yap_torrent.utils import execute_in_pool
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +41,11 @@ class LocalDataSystem(System):
 	async def _update(self, delta_time: float):
 		# save local protocol data
 		to_save = self.collection.entities
-		for entity in to_save:
-			entity.remove_component(SaveTorrentEC)
-			self.add_task(_save_local(self.env, entity))
+		for torrent_entity in to_save:
+			torrent_entity.remove_component(SaveTorrentEC)
+			path = _path_from_entity(self.env, torrent_entity)
+			save_data = _export_torrent_data(self.env, torrent_entity)
+			self.add_task(execute_in_pool(_save, path, save_data))
 
 	async def _on_torrent_remove(self, info_hash: bytes):
 		path = _path_from_info_hash(self.env, info_hash)
@@ -59,13 +61,6 @@ async def _load_local(env: Env, active_path: Path):
 				logger.debug(f"Loading save from {file_path}")
 				save_data = pickle.load(f)
 				_import_torrent_data(env, save_data)
-
-
-async def _save_local(env: Env, torrent_entity: Entity):
-	loop = asyncio.get_running_loop()
-	path = _path_from_entity(env, torrent_entity)
-	save_data = _export_torrent_data(torrent_entity)
-	await loop.run_in_executor(None, _save, path, save_data)
 
 
 def _path_from_info_hash(env, info_hash: bytes) -> Path:

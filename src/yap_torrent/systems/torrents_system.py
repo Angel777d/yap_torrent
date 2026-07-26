@@ -35,7 +35,7 @@ class TorrentSystem(System):
 		await self.env.event_bus.dispatch_async("action.torrent.stop", torrent_entity)
 		logger.info(f"Stopping torrent {info_hash.hex()} complete")
 
-	async def _on_torrent_remove(self, info_hash: bytes):
+	async def _on_torrent_remove(self, info_hash: bytes, delete_data: bool = False):
 		logger.info(f"Remove torrent {info_hash.hex()}")
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity:

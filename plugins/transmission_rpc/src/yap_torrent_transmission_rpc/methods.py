@@ -166,17 +166,14 @@ async def torrent_verify(env, info, arguments):
 # ---------------------------------------------------------------------------
 @method("torrent-remove")
 async def torrent_remove(env: Env, info: ServerInfo, arguments):
+	delete_data = bool(arguments.get("delete-local-data", False))
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(env, ids, info.removed):
 		torrent = entity.get_component(TorrentEC)
-		logger.info("[torrent-remove] remove torrent: %s", get_torrent_name(entity))
+		logger.info("[torrent-remove] remove torrent: %s (delete_data=%s)", get_torrent_name(entity), delete_data)
 
 		info.removed.add(torrent.index)
-
-		if arguments.get("delete-local-data"):
-			# TODO: support "delete-local-data" in torrent app
-			env.event_bus.dispatch("request.torrent.files.remove", torrent.info_hash)
-		env.event_bus.dispatch("request.torrent.remove", torrent.info_hash)
+		env.event_bus.dispatch("request.torrent.remove", torrent.info_hash, delete_data)
 
 	return "success", {}
 
@@ -298,8 +295,14 @@ async def _add_magnet(env: Env, info: ServerInfo, magnet_link: str, paused):
 
 	info.recent.add(torrent_entity.get_component(TorrentEC).index)
 
+	# a magnet has no metadata yet, so prefer its display name (dn) over the
+	# entity's placeholder name until real metadata arrives
+	stub = _added_stub(torrent_entity)
+	if magnet.name:
+		stub["name"] = magnet.name
+
 	logger.info("torrent-add: queued magnet %s, paused %s", info_hash.hex(), paused)
-	return "success", {"torrent-added": _added_stub(torrent_entity)}
+	return "success", {"torrent-added": stub}
 
 
 # ---------------------------------------------------------------------------
