@@ -3,6 +3,7 @@ from typing import Optional, Dict, Generator
 
 from angelovich.core.DataStorage import Entity
 
+from yap_torrent.components.file_ec import TorrentFileEC
 from yap_torrent.components.peer_ec import KnownPeersEC, PeerConnectionEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
 	ValidateTorrentEC, TorrentState
@@ -62,4 +63,10 @@ def get_torrent_name(entity: Entity):
 def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
 	for e in env.data_storage.get_collection(PeerConnectionEC):
 		if e.get_component(PeerConnectionEC).info_hash == info_hash:
+			yield e
+
+
+def iterate_files(env: Env, info_hash: bytes) -> Generator[Entity]:
+	for e in env.data_storage.get_collection(TorrentFileEC):
+		if e.get_component(TorrentFileEC).info_hash == info_hash:
 			yield e

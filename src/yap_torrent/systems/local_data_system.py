@@ -6,6 +6,7 @@ from typing import Any, Dict, Set
 
 from angelovich.core.DataStorage import Entity
 
+from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC, RestoreFileSelectionEC
 from yap_torrent.components.peer_ec import KnownPeersEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, TorrentPathEC, \
 	TorrentStatsEC
@@ -13,6 +14,7 @@ from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrack
 from yap_torrent.env import Env
 from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
+from yap_torrent.systems import iterate_files
 from yap_torrent.systems import create_torrent_entity
 from yap_torrent.utils import execute_in_pool
 
@@ -34,7 +36,7 @@ class LocalDataSystem(System):
 		to_save = self.env.data_storage.get_collection(TorrentEC).entities
 		for torrent_entity in to_save:
 			path = _path_from_entity(self.env, torrent_entity)
-			save_data = _export_torrent_data(torrent_entity)
+			save_data = _export_torrent_data(self.env, torrent_entity)
 			_save(path, save_data)
 		super().close()
 
@@ -80,7 +82,7 @@ def _save(path: Path, save_data: dict[str, Any]):
 		pickle.dump(save_data, f, pickle.DEFAULT_PROTOCOL)
 
 
-def _export_torrent_data(torrent_entity: Entity) -> dict[str, Any]:
+def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:
 	result: dict[str, Any] = {
 		"info_hash": torrent_entity.get_component(TorrentEC).info_hash,
 		"peers": torrent_entity.get_component(KnownPeersEC).peers,
@@ -96,8 +98,29 @@ def _export_torrent_data(torrent_entity: Entity) -> dict[str, Any]:
 	if torrent_entity.has_component(TorrentTrackerEC):
 		result['announce_list'] = torrent_entity.get_component(TorrentTrackerEC).announce_list
 		result['tracker_data'] = torrent_entity.get_component(TorrentTrackerDataEC).export()
+
+	files = _export_file_selection(env, torrent_entity)
+	if files:
+		result['files'] = files
+
 	result['validate'] = torrent_entity.has_component(ValidateTorrentEC)
 	return result
+
+
+def _export_file_selection(env: Env, torrent_entity: Entity) -> Dict[int, Dict[str, Any]]:
+	info_hash = torrent_entity.get_component(TorrentEC).info_hash
+	selection: Dict[int, Dict[str, Any]] = {}
+	for file_entity in iterate_files(env, info_hash):
+		file_ec = file_entity.get_component(TorrentFileEC)
+		state = file_entity.get_component(TorrentFileStateEC)
+		selection[file_ec.index] = {"wanted": state.wanted, "priority": int(state.priority)}
+
+	# file entities not materialized yet (magnet awaiting metadata) -> keep pending selection
+	if not selection and torrent_entity.has_component(RestoreFileSelectionEC):
+		for index, (wanted, priority) in torrent_entity.get_component(RestoreFileSelectionEC).selection.items():
+			selection[index] = {"wanted": bool(wanted), "priority": int(priority)}
+
+	return selection
 
 
 def _import_torrent_data(env, save_data: dict[str, Any]):
@@ -122,6 +145,15 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 		torrent_entity.add_component(TorrentTrackerEC(announce_list))
 		tracker_data: Dict[str, Any] = save_data.get('tracker_data', {})
 		torrent_entity.add_component(TorrentTrackerDataEC(**tracker_data))
+
+	# restore per-file selection; FileSystem applies it when file entities materialize
+	files = save_data.get('files')
+	if files:
+		selection = {
+			int(index): (data.get('wanted', True), data.get('priority', 0))
+			for index, data in files.items()
+		}
+		torrent_entity.add_component(RestoreFileSelectionEC(selection))
 
 	# update validate option
 	validate = save_data.get('validate', False)

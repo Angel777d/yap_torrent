@@ -15,6 +15,7 @@ from yap_torrent.systems.dht_system import DHTSystem
 from yap_torrent.systems.download_system import DownloadSystem
 from yap_torrent.systems.ext_metadata_system import ExtMetadataSystem
 from yap_torrent.systems.extension_system import ExtensionSystem
+from yap_torrent.systems.file_system import FileSystem
 from yap_torrent.systems.intrest_system import InterestedSystem
 from yap_torrent.systems.local_data_system import LocalDataSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
@@ -60,6 +61,7 @@ class Application:
 			f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
 			MetainfoSystem(env),
+			FileSystem(env),
 			PeerSystem(env),
 			ChokeSystem(env),
 			InterestedSystem(env),
