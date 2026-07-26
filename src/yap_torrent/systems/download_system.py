@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import random
 from functools import partial
@@ -100,7 +99,7 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 		if data:
 			piece_entity = _complete_piece(env, torrent_entity, index, data)
 			# wait for all systems to finish
-			await asyncio.gather(*env.event_bus.dispatch("piece.complete", torrent_entity, piece_entity))
+			await env.event_bus.dispatch_async("piece.complete", torrent_entity, piece_entity)
 		else:
 			# nothing at the moment
 			pass

@@ -107,8 +107,8 @@ def _export_torrent_data(torrent_entity: Entity) -> dict[str, Any]:
 
 def _import_torrent_data(env, save_data: dict[str, Any]):
 	# create the basic torrent entity
-	info_hash:bytes = save_data.get('info_hash')
-	path:Path = Path(save_data.get('path'))
+	info_hash: bytes = save_data.get('info_hash')
+	path: Path = Path(save_data.get('path'))
 	torrent_info = save_data.get('torrent_info', None)
 	stats = save_data.get('stats', {})
 	torrent_entity = create_torrent_entity(env, info_hash, path, stats, torrent_info)

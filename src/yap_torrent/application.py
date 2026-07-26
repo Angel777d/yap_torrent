@@ -19,11 +19,11 @@ from yap_torrent.systems.intrest_system import InterestedSystem
 from yap_torrent.systems.local_data_system import LocalDataSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
 from yap_torrent.systems.metainfo_system import MetainfoSystem
-from yap_torrent.systems.upload_system import UploadSystem
-from yap_torrent.systems.validation_system import ValidationSystem
 from yap_torrent.systems.peer_system import PeerSystem
 from yap_torrent.systems.piece_system import PieceSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
+from yap_torrent.systems.upload_system import UploadSystem
+from yap_torrent.systems.validation_system import ValidationSystem
 from yap_torrent.systems.watch_system import WatcherSystem
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,8 @@ class Application:
 		open_port(ip, config.port, config.dht_port)
 
 		env = Env(create_peer_id(), ip, external_ip, config)
-		print(f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
+		print(
+			f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
 			MetainfoSystem(env),
 			PeerSystem(env),

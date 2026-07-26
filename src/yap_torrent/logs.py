@@ -1,12 +1,11 @@
 import logging
-from pathlib import Path
-
 import sys
+from pathlib import Path
 
 _LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 
-def setup_logger(path:Path, logger, use_file=True, level=logging.DEBUG):
+def setup_logger(path: Path, logger, use_file=True, level=logging.DEBUG):
 	logger.setLevel(level)
 	if use_file:
 		path.parent.mkdir(parents=True, exist_ok=True)

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class TorrentEC(EntityHashComponent):
 	__index = 0
+
 	def __init__(self, info_hash: InfoHash) -> None:
 		super().__init__()
 		TorrentEC.__index += 1

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from yap_torrent.components.torrent_ec import TorrentState, TorrentStatsEC
@@ -24,8 +23,7 @@ class TorrentSystem(System):
 			logger.warning(f"[TorrentSystem] _on_torrent_start: torrent {info_hash.hex()} not found")
 			return
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Active
-		await asyncio.gather(*self.env.event_bus.dispatch("action.torrent.start", torrent_entity))
-
+		await self.env.event_bus.dispatch_async("action.torrent.start", torrent_entity)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
 		logger.info(f"Stopping torrent {info_hash.hex()}")
@@ -34,9 +32,8 @@ class TorrentSystem(System):
 			logger.warning(f"[TorrentSystem] _on_torrent_stop: torrent {info_hash.hex()} not found")
 			return
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Inactive
-		await asyncio.gather(*self.env.event_bus.dispatch("action.torrent.stop", torrent_entity))
+		await self.env.event_bus.dispatch_async("action.torrent.stop", torrent_entity)
 		logger.info(f"Stopping torrent {info_hash.hex()} complete")
-
 
 	async def _on_torrent_remove(self, info_hash: bytes):
 		logger.info(f"Remove torrent {info_hash.hex()}")
@@ -45,6 +42,6 @@ class TorrentSystem(System):
 			logger.warning(f"[TorrentSystem] can't remove torrent {info_hash.hex()}. Not found")
 			return
 		await self._on_torrent_stop(info_hash)
-		await asyncio.gather(*self.env.event_bus.dispatch("action.torrent.remove", info_hash))
+		await self.env.event_bus.dispatch_async("action.torrent.remove", info_hash)
 		self.env.data_storage.remove_entity(get_torrent_entity(self.env, info_hash))
 		logger.info(f"Remove torrent {info_hash.hex()} complete")

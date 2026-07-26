@@ -8,7 +8,7 @@ from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_entity, iterate_peers, get_info_hash
+from yap_torrent.systems import iterate_peers, get_info_hash
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class ChokeSystem(System):
 			return
 
 		peer_connection_ec.local_choked = new_value
-		await asyncio.gather(*self.env.event_bus.dispatch("peer.local.choked_changed", torrent_entity, peer_entity))
+		await self.env.event_bus.dispatch_async("peer.local.choked_changed", torrent_entity, peer_entity)
 
 
 async def _update_remote_choked(env: Env, torrent_entity: Entity, peer_entity: Entity, new_choked: bool):

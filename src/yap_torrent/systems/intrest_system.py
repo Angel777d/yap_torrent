@@ -99,4 +99,4 @@ async def _update_local_peer_interested(env: Env, torrent_entity: Entity, peer_e
 	else:
 		await peer_connection_ec.connection.send(msg.not_interested())
 
-	await asyncio.gather(*env.event_bus.dispatch("peer.local.interested_changed", torrent_entity, peer_entity))
+	await env.event_bus.dispatch_async("peer.local.interested_changed", torrent_entity, peer_entity)

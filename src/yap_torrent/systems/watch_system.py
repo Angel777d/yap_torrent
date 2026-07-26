@@ -28,7 +28,7 @@ class WatcherSystem(System):
 			file_path.rename(file_path.parent.joinpath(file_name + ".added"))
 
 	async def _load_from_path(self, path: Path):
-		files_list:List[Tuple[Path, str]] = []
+		files_list: List[Tuple[Path, str]] = []
 		for root, dirs, files in os.walk(path):
 			for file_name in files:
 				file_path = Path(root).joinpath(file_name)
