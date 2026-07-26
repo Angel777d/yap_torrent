@@ -186,14 +186,13 @@ class DHTClientProtocol(DatagramProtocol):
 
 async def __send_message(message: Dict[str, Any], host: str, port: int, timeout=2) -> Optional[KRPCMessage]:
 	message["v"] = CLIENT_VERSION
-	loop = asyncio.get_running_loop()
-	on_con_lost = loop.create_future()
-	transport, protocol = await loop.create_datagram_endpoint(
-		lambda: DHTClientProtocol(encode(message), on_con_lost),
-		remote_addr=(host, port)
-	)
-
 	try:
+		loop = asyncio.get_running_loop()
+		on_con_lost = loop.create_future()
+		transport, protocol = await loop.create_datagram_endpoint(
+			lambda: DHTClientProtocol(encode(message), on_con_lost),
+			remote_addr=(host, port)
+		)
 		async with asyncio.timeout(timeout):
 			await on_con_lost
 	except TimeoutError:
