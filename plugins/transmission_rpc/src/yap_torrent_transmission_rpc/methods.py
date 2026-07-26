@@ -1,14 +1,3 @@
-"""Transmission RPC method handlers.
-
-Each handler has the signature ``async def handler(server, arguments) -> (result, args)``
-where ``result`` is the Transmission result string (``"success"`` on success, any other
-string is treated as an error by clients) and ``args`` is the ``arguments`` object of the
-response.
-
-Implemented methods are registered with the :func:`method` decorator.  Every other method
-named by the spec is listed in :data:`UNIMPLEMENTED` so it is *recognised* (returns an
-explanatory error) rather than reported as an unknown method.
-"""
 import asyncio
 import base64
 import logging
@@ -109,9 +98,9 @@ def resolve_hashes(ds: DataStorage, arguments: Dict[str, Any]) -> List[bytes]:
 	hashes: List[bytes] = []
 	for ref in ids_arg:
 		if isinstance(ref, int):
-			info_hash_hex = index_to_info_hash(ds, ref)
-			if info_hash_hex:
-				hashes.append(info_hash_hex)
+			info_hash = index_to_info_hash(ds, ref)
+			if info_hash:
+				hashes.append(info_hash)
 		elif isinstance(ref, str):
 			try:
 				hashes.append(bytes.fromhex(ref))
@@ -190,6 +179,8 @@ async def torrent_get(env, info, arguments):
 @method("torrent-add")
 async def torrent_add(env, info, arguments):
 	download_dir = arguments.get("download-dir")
+	if download_dir:
+		download_dir = Path(str(download_dir))
 	paused = bool(arguments.get("paused", False))
 	metainfo: str = arguments.get("metainfo", "")
 	filename: str = arguments.get("filename", "")
@@ -228,7 +219,7 @@ def _added_stub(entity: Entity) -> Dict[str, Any]:
 	}
 
 
-async def _add_metainfo(env: Env, data: bytes, download_dir, paused: bool):
+async def _add_metainfo(env: Env, data: bytes, download_dir: Optional[Path], paused: bool):
 	try:
 		file_info = Metainfo(decode(data))
 		info_hash = file_info.make_info_hash()
@@ -370,7 +361,7 @@ async def session_stats(env, info, arguments):
 # ---------------------------------------------------------------------------
 # free space (rpc-spec 4.8) and port test (rpc-spec 4.5)
 # ---------------------------------------------------------------------------
-def _free_space(path: str) -> int:
+def _free_space(path: Path) -> int:
 	try:
 		return shutil.disk_usage(path).free
 	except OSError:
@@ -379,9 +370,9 @@ def _free_space(path: str) -> int:
 
 @method("free-space")
 async def free_space(env, info, arguments):
-	path = arguments.get("path") or env.config.download_folder
+	path = arguments.get("path", "")
 	try:
-		usage = shutil.disk_usage(path)
+		usage = shutil.disk_usage(Path(path) if path else env.config.download_folder)
 	except OSError as ex:
 		return f"free-space failed: {ex}", {}
 	return "success", {"path": path, "size-bytes": usage.free, "total_size": usage.total}
