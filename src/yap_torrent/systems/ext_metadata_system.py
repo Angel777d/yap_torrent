@@ -67,7 +67,7 @@ class ExtMetadataSystem(System):
 		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
 
 		info_hash = torrent_entity.get_component(TorrentEC).info_hash
-		logger.info(f"Start metadata load for torrent [{info_hash}]")
+		logger.debug(f"Start metadata load for torrent [{info_hash}]")
 
 		ext_message = encode({"msg_type": 0, "piece": 0})
 		message = msg.extended(remote_ext_id, ext_message)
@@ -131,7 +131,7 @@ class ExtMetadataSystem(System):
 			downloaded = sum(len(i) for i in metadata_ec.pieces.values())
 
 			# metadata download completed
-			logger.info(f"Metadata download progress {downloaded} {total_size}")
+			logger.debug(f"Metadata download progress {downloaded} {total_size}")
 			if downloaded == total_size:
 				metadata = bytearray()
 				for i in range(len(metadata_ec.pieces)):

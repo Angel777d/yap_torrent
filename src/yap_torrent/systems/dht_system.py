@@ -233,7 +233,7 @@ class DHTSystem(System, DHTServerProtocolHandler):
 					node.host,
 					node.port
 				)
-				logger.info(f'announce peer result: {res}')
+				logger.debug(f'announce peer result: {res}')
 
 	# async def update_node_state(self, node: DHTNode):
 	# 	logger.info(f'update state of {node}')
