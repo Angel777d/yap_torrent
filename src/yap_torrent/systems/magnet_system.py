@@ -12,11 +12,7 @@ logger = logging.getLogger(__name__)
 
 class MagnetSystem(System):
 	async def start(self):
-		self.env.event_bus.add_listener("request.magnet.add", self.__on_magnet_add, scope=self)
-
-	def close(self) -> None:
-		super().close()
-		self.env.event_bus.remove_all_listeners(scope=self)
+		self.add_listener("request.magnet.add", self.__on_magnet_add)
 
 	async def __on_magnet_add(self, value: str) -> None:
 		magnet = MagnetInfo(value)

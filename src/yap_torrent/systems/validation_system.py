@@ -24,7 +24,7 @@ class ValidationSystem(System):
 		self._task: Optional[Task[Set[int]]] = None
 
 	async def start(self):
-		self.env.event_bus.add_listener("request.torrent.invalidate", self._on_torrent_invalidate, scope=self)
+		self.add_listener("request.torrent.invalidate", self._on_torrent_invalidate)
 
 	async def _on_torrent_invalidate(self, info_hash: bytes):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
@@ -35,7 +35,6 @@ class ValidationSystem(System):
 		self.env.event_bus.dispatch("action.torrent.stop", torrent_entity)
 
 	def close(self):
-		self.env.event_bus.remove_all_listeners(scope=self)
 		if self._task:
 			self._task.cancel()
 		super().close()

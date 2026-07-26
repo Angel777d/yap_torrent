@@ -18,7 +18,7 @@ class System:
 		pass
 
 	async def stop(self):
-		pass
+		self.env.event_bus.remove_all_listeners(scope=self)
 
 	async def update(self, delta_time: float):
 		await self._update(delta_time)
@@ -42,7 +42,7 @@ class System:
 		return task
 
 	def add_listener(self, event: str, callback: DispatcherCallbackType):
-		self.env.event_bus.add_listener(event, callback, scope=self)
+		self.env.event_bus.add_listener(event, callback)
 
 	def close(self) -> None:
 		for task in self.__tasks:

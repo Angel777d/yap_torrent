@@ -34,16 +34,15 @@ class PeerSystem(System):
 		host = self.env.ip
 		self.server = await asyncio.start_server(self._server_callback, host, port)
 
-		self.env.event_bus.add_listener("peers.update", self._on_peers_update, scope=self)
-		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
-		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
-		self.env.event_bus.add_listener("action.torrent.start", self._on_torrent_start, scope=self)
+		self.add_listener("peers.update", self._on_peers_update)
+		self.add_listener("action.torrent.complete", self._on_torrent_complete)
+		self.add_listener("action.torrent.stop", self._on_torrent_stop)
+		self.add_listener("action.torrent.start", self._on_torrent_start)
 
 	def close(self):
 		# TODO: disconnect all peers
 
 		self.server.close()
-		self.env.event_bus.remove_all_listeners(scope=self)
 		super().close()
 
 	def process_disconnected(self):

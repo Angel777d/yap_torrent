@@ -17,9 +17,9 @@ class ChokeSystem(System):
 	_CHOKE_MESSAGES = (msg.MessageId.CHOKE.value, msg.MessageId.UNCHOKE.value)
 
 	async def start(self):
-		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
-		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
+		self.add_listener("peer.message", self.__on_message)
+		self.add_listener("peer.connected", self.__on_peer_connected)
+		self.add_listener("action.torrent.stop", self._on_torrent_stop)
 
 	async def _on_torrent_stop(self, torrent_entity: Entity):
 		info_hash = get_info_hash(torrent_entity)

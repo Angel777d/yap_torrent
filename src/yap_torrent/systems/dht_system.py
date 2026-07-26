@@ -81,9 +81,9 @@ class DHTSystem(System, DHTServerProtocolHandler):
 		self.pending_torrents: List[bytes] = []
 
 	async def start(self):
-		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
-		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-		self.env.event_bus.add_listener("request.torrent.dht_ask_peers", self.__on_request_more_peers, scope=self)
+		self.add_listener("peer.connected", self.__on_peer_connected)
+		self.add_listener("peer.message", self.__on_message)
+		self.add_listener("request.torrent.dht_ask_peers", self.__on_request_more_peers)
 
 		# subscribe to torrents added event
 		collection = self.env.data_storage.get_collection(TorrentEC)
@@ -104,8 +104,6 @@ class DHTSystem(System, DHTServerProtocolHandler):
 			local_addr=(host, port))
 
 	def close(self):
-		self.env.event_bus.remove_all_listeners(self)
-
 		# stop listening for incoming DHT connections
 		transport, protocol = self.__server
 		transport.close()

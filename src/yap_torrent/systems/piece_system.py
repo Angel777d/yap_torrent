@@ -33,10 +33,6 @@ class PieceSystem(TimeSystem):
 		self.add_listener("action.torrent.complete", self.__on_torrent_complete)
 		self.add_listener("action.torrent.remove", self._on_torrent_remove)
 
-	def close(self) -> None:
-		super().close()
-		self.env.event_bus.remove_all_listeners(scope=self)
-
 	async def __on_torrent_complete(self, _: Entity):
 		await self._save()
 

@@ -16,12 +16,8 @@ logger = logging.getLogger(__name__)
 
 class ExtensionSystem(System):
 	async def start(self):
-		self.env.event_bus.add_listener("peer.connected", self.__on_peer_connected, scope=self)
-		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-
-	def close(self):
-		self.env.event_bus.remove_all_listeners(scope=self)
-		super().close()
+		self.add_listener("peer.connected", self.__on_peer_connected)
+		self.add_listener("peer.message", self.__on_message)
 
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message) -> None:
 		if message.message_id != msg.EXTENDED:

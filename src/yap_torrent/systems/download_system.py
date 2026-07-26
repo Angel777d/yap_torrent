@@ -25,12 +25,9 @@ class DownloadSystem(System):
 		super().__init__(env)
 
 	async def start(self):
-		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-		self.env.event_bus.add_listener("peer.local.interested_changed", self._on_local_peer_changed, scope=self)
-		self.env.event_bus.add_listener("peer.local.choked_changed", self._on_local_peer_changed, scope=self)
-
-	def close(self) -> None:
-		self.env.event_bus.remove_all_listeners(scope=self)
+		self.add_listener("peer.message", self.__on_message)
+		self.add_listener("peer.local.interested_changed", self._on_local_peer_changed)
+		self.add_listener("peer.local.choked_changed", self._on_local_peer_changed)
 
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
 		if message.message_id != msg.MessageId.PIECE.value:

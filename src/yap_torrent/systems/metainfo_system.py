@@ -13,10 +13,7 @@ logger = logging.getLogger(__name__)
 
 class MetainfoSystem(System):
 	async def start(self):
-		self.env.event_bus.add_listener("request.metainfo.add", self._on_metainfo, scope=self)
-
-	async def stop(self) -> None:
-		self.env.event_bus.remove_all_listeners(scope=self)
+		self.add_listener("request.metainfo.add", self._on_metainfo)
 
 	async def _on_metainfo(self, metainfo: Metainfo, path: Optional[Path] = None):
 		info_hash = metainfo.make_info_hash()

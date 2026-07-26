@@ -33,23 +33,19 @@ class AnnounceSystem(System):
 
 	async def start(self):
 		await super().start()
-		self.env.event_bus.add_listener("action.torrent.complete", self._on_torrent_complete, scope=self)
-		self.env.event_bus.add_listener("action.torrent.stop", self._on_torrent_stop, scope=self)
-		self.env.event_bus.add_listener("action.torrent.start", self._on_torrent_start, scope=self)
+		self.add_listener("action.torrent.complete", self._on_torrent_complete)
+		self.add_listener("action.torrent.stop", self._on_torrent_stop)
+		self.add_listener("action.torrent.start", self._on_torrent_start)
 
 		# make "started" announcements
 		for torrent_entity in _iterate_active_torrents(self.env):
 			self.add_task(self.__tracker_announce(torrent_entity, "started"))
 
 	async def stop(self):
-		await super().stop()
 		# make "stopped" announcements
 		for torrent_entity in _iterate_active_torrents(self.env):
 			await self.__tracker_announce(torrent_entity, "stopped")
-
-	def close(self) -> None:
-		super().close()
-		self.env.event_bus.remove_all_listeners(scope=self)
+		await super().stop()
 
 	async def _on_torrent_complete(self, torrent_entity: Entity):
 		await self.__tracker_announce(torrent_entity, "completed")

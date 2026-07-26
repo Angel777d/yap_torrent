@@ -11,13 +11,9 @@ logger = logging.getLogger(__name__)
 class TorrentSystem(System):
 
 	async def start(self):
-		self.env.event_bus.add_listener("request.torrent.start", self._on_torrent_start, scope=self)
-		self.env.event_bus.add_listener("request.torrent.stop", self._on_torrent_stop, scope=self)
-		self.env.event_bus.add_listener("request.torrent.remove", self._on_torrent_remove, scope=self)
-
-	def close(self) -> None:
-		super().close()
-		self.env.event_bus.remove_all_listeners(scope=self)
+		self.add_listener("request.torrent.start", self._on_torrent_start)
+		self.add_listener("request.torrent.stop", self._on_torrent_stop)
+		self.add_listener("request.torrent.remove", self._on_torrent_remove)
 
 	async def _update(self, delta_time: float):
 		pass

@@ -19,9 +19,9 @@ class UploadSystem(System):
 	_UPLOAD_MESSAGES = (msg.MessageId.REQUEST.value, msg.MessageId.CANCEL.value)
 
 	async def start(self):
-		self.env.event_bus.add_listener("peer.message", self.__on_message, scope=self)
-		self.env.event_bus.add_listener("peer.remote.interested_changed", self.__on_remote_peer_changed, scope=self)
-		self.env.event_bus.add_listener("peer.remote.choked_changed", self.__on_remote_peer_changed, scope=self)
+		self.add_listener("peer.message", self.__on_message)
+		self.add_listener("peer.remote.interested_changed", self.__on_remote_peer_changed)
+		self.add_listener("peer.remote.choked_changed", self.__on_remote_peer_changed)
 
 	async def __on_remote_peer_changed(self, torrent_entity: Entity, peer_entity: Entity) -> None:
 		pass

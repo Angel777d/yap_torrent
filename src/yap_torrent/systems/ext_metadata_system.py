@@ -19,9 +19,9 @@ class ExtMetadataSystem(System):
 	async def start(self):
 		PeerExtensionsEC.add_supported(UT_METADATA)
 
-		self.env.event_bus.add_listener(f"protocol.extensions.message.{UT_METADATA}", self.__on_ext_message, scope=self)
-		self.env.event_bus.add_listener("protocol.extensions.create_handshake", self.__on_create_handshake, scope=self)
-		self.env.event_bus.add_listener("protocol.extensions.got_handshake", self.__on_got_handshake, scope=self)
+		self.add_listener(f"protocol.extensions.message.{UT_METADATA}", self.__on_ext_message)
+		self.add_listener("protocol.extensions.create_handshake", self.__on_create_handshake)
+		self.add_listener("protocol.extensions.got_handshake", self.__on_got_handshake)
 
 		collection = self.env.data_storage.get_collection(TorrentEC)
 		collection.add_listener(collection.EVENT_ADDED, self.__on_torrent_added, self)
@@ -31,8 +31,6 @@ class ExtMetadataSystem(System):
 		return await super().start()
 
 	def close(self):
-		self.env.event_bus.remove_all_listeners(scope=self)
-
 		collection = self.env.data_storage.get_collection(TorrentEC)
 		collection.remove_all_listeners(self)
 		super().close()
