@@ -52,7 +52,7 @@ class TorrentStatsEC(EntityComponent):
 		self._session_downloaded = 0
 		self._session_uploaded = 0
 
-		self.state: TorrentState = TorrentState(kwargs.get("state", TorrentState.Inactive))
+		self.state: TorrentState = TorrentState(kwargs.get("state", TorrentState.Active))
 
 	def export(self) -> Dict[str, int]:
 		return {

@@ -199,6 +199,9 @@ async def __send_message(message: Dict[str, Any], host: str, port: int, timeout=
 	except TimeoutError:
 		logger.debug("Message %s to %s:%s failed by timeout", message, host, port)
 		return None
+	except Exception as ex:
+		logger.debug("Message %s to %s:%s failed: %s", message, host, port, ex)
+		return None
 
 	if protocol.response:
 		try:

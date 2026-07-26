@@ -5,12 +5,12 @@ from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.peer_ec import PeerConnectionEC
 from yap_torrent.components.piece_ec import PieceEC
-from yap_torrent.components.torrent_ec import TorrentEC, TorrentStatsEC, TorrentState
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.system import System
-from yap_torrent.systems import iterate_peers, get_torrent_entity, get_info_hash
+from yap_torrent.systems import iterate_peers, get_info_hash
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class InterestedSystem(System):
 		self.env.event_bus.dispatch("peer.remote.interested_changed", torrent_entity, peer_entity)
 
 	async def update_local_interested(self, torrent_entity: Entity, peer_entity: Entity):
-		if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Inactive:
+		if not torrent_entity.has_component(TorrentInfoEC):
 			return
 
 		remote_bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
