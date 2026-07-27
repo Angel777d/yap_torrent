@@ -41,11 +41,6 @@ class TorrentFileStateEC(EntityComponent):
 
 
 class RestoreFileSelectionEC(EntityComponent):
-	"""Transient marker on a torrent entity carrying file selection restored from
-	disk. Applied by FileSystem once the file entities are materialized, then removed.
-	"""
-
 	def __init__(self, selection: Dict[int, Tuple[bool, int]]) -> None:
 		super().__init__()
-		# index -> (wanted, priority value)
 		self.selection: Dict[int, Tuple[bool, int]] = selection

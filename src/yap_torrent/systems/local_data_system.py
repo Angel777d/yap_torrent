@@ -2,12 +2,11 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Dict, Set
+from typing import Any, Dict, Set, Tuple
 
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC, RestoreFileSelectionEC
-from yap_torrent.components.peer_ec import KnownPeersEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, TorrentPathEC, \
 	TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
@@ -85,7 +84,6 @@ def _save(path: Path, save_data: dict[str, Any]):
 def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:
 	result: dict[str, Any] = {
 		"info_hash": torrent_entity.get_component(TorrentEC).info_hash,
-		"peers": torrent_entity.get_component(KnownPeersEC).peers,
 		"path": torrent_entity.get_component(TorrentPathEC).root_path,
 		"stats": torrent_entity.get_component(TorrentStatsEC).export(),
 	}
@@ -99,26 +97,21 @@ def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:
 		result['announce_list'] = torrent_entity.get_component(TorrentTrackerEC).announce_list
 		result['tracker_data'] = torrent_entity.get_component(TorrentTrackerDataEC).export()
 
-	files = _export_file_selection(env, torrent_entity)
-	if files:
-		result['files'] = files
-
+	result['files'] = _export_file_selection(env, torrent_entity)
 	result['validate'] = torrent_entity.has_component(ValidateTorrentEC)
 	return result
 
 
-def _export_file_selection(env: Env, torrent_entity: Entity) -> Dict[int, Dict[str, Any]]:
+def _export_file_selection(env: Env, torrent_entity: Entity) -> Dict[int, Tuple[bool, int]]:
+	if torrent_entity.has_component(RestoreFileSelectionEC):
+		return torrent_entity.get_component(RestoreFileSelectionEC).selection
+
 	info_hash = torrent_entity.get_component(TorrentEC).info_hash
-	selection: Dict[int, Dict[str, Any]] = {}
+	selection: Dict[int, Tuple[bool, int]] = {}
 	for file_entity in iterate_files(env, info_hash):
 		file_ec = file_entity.get_component(TorrentFileEC)
 		state = file_entity.get_component(TorrentFileStateEC)
-		selection[file_ec.index] = {"wanted": state.wanted, "priority": int(state.priority)}
-
-	# file entities not materialized yet (magnet awaiting metadata) -> keep pending selection
-	if not selection and torrent_entity.has_component(RestoreFileSelectionEC):
-		for index, (wanted, priority) in torrent_entity.get_component(RestoreFileSelectionEC).selection.items():
-			selection[index] = {"wanted": bool(wanted), "priority": int(priority)}
+		selection[file_ec.index] = (state.wanted, state.priority.value)
 
 	return selection
 
@@ -135,9 +128,7 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	bitfield = save_data.get('bitfield', bytes())
 	torrent_entity.get_component(TorrentEC).bitfield.update(bitfield)
 
-	# update peers
-	peers: Set[PeerInfo] = save_data.get('peers', {})
-	torrent_entity.get_component(KnownPeersEC).update_peers(peers)
+	# peers are persisted separately by PeerDataSystem (global store)
 
 	# update tracker data if any
 	if 'announce_list' in save_data:
@@ -147,13 +138,7 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 		torrent_entity.add_component(TorrentTrackerDataEC(**tracker_data))
 
 	# restore per-file selection; FileSystem applies it when file entities materialize
-	files = save_data.get('files')
-	if files:
-		selection = {
-			int(index): (data.get('wanted', True), data.get('priority', 0))
-			for index, data in files.items()
-		}
-		torrent_entity.add_component(RestoreFileSelectionEC(selection))
+	torrent_entity.add_component(RestoreFileSelectionEC(save_data.get('files', {})))
 
 	# update validate option
 	validate = save_data.get('validate', False)

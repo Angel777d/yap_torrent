@@ -1,16 +1,31 @@
-import asyncio
 import logging
+from typing import Set
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.peer_ec import PeerConnectionEC
-from yap_torrent.components.piece_ec import PieceEC
-from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC
+from yap_torrent.components.peer_ec import (
+	FullPeerEC,
+	LocalInterestedEC,
+	PeerConnectionEC,
+	RemoteInterestedEC,
+)
+from yap_torrent.components.torrent_ec import InProgressEC, TorrentEC, TorrentInfoEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.system import System
-from yap_torrent.systems import iterate_peers, get_info_hash
+from yap_torrent.systems import get_info_hash, is_torrent_complete, iterate_peers
+
+
+def interested_pieces(torrent_entity: Entity, remote_bitfield) -> Set[int]:
+	"""Pieces the remote has that we want and lack (wanted-masked)."""
+	local = torrent_entity.get_component(TorrentEC).bitfield
+	missing = local.interested_in(remote_bitfield)  # remote has, we don't
+	if torrent_entity.has_component(InProgressEC):
+		wanted = torrent_entity.get_component(InProgressEC).wanted
+		return {i for i in missing if wanted.have_index(i)}
+	return missing
+
 
 logger = logging.getLogger(__name__)
 
@@ -27,29 +42,24 @@ class InterestedSystem(System):
 		self.add_listener("action.torrent.start", self._on_torrent_start)
 
 	async def _on_torrent_stop(self, torrent_entity: Entity):
-		info_hash = get_info_hash(torrent_entity)
-		tasks = [_update_local_peer_interested(self.env, torrent_entity, peer_entity, False) for peer_entity in
-		         iterate_peers(self.env, info_hash)]
-		await asyncio.gather(*tasks)
+		for peer_entity in list(iterate_peers(self.env, get_info_hash(torrent_entity))):
+			await self._set_local_interested(torrent_entity, peer_entity, False)
 
 	async def _on_torrent_start(self, torrent_entity: Entity):
-		info_hash = get_info_hash(torrent_entity)
-		for peer_entity in iterate_peers(self.env, info_hash):
+		for peer_entity in list(iterate_peers(self.env, get_info_hash(torrent_entity))):
 			await self.update_local_interested(torrent_entity, peer_entity)
 
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity):
 		await self.update_local_interested(torrent_entity, peer_entity)
 
 	async def __on_piece_complete(self, torrent_entity: Entity, piece_entity: Entity):
-		info_hash = torrent_entity.get_component(TorrentEC).info_hash
+		from yap_torrent.components.piece_ec import PieceEC
+		info_hash = get_info_hash(torrent_entity)
 		index = piece_entity.get_component(PieceEC).info.index
 
-		# notify all
-		peers_collection = self.env.data_storage.get_collection(PeerConnectionEC).entities
-		for peer_entity in peers_collection:
-			if peer_entity.get_component(PeerConnectionEC).info_hash == info_hash:
-				await peer_entity.get_component(PeerConnectionEC).connection.send(msg.have(index))
-				await self.update_local_interested(torrent_entity, peer_entity)
+		for peer_entity in list(iterate_peers(self.env, info_hash)):
+			await peer_entity.get_component(PeerConnectionEC).send(msg.have(index))
+			await self.update_local_interested(torrent_entity, peer_entity)
 
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
 		if message.message_id not in self._INTERESTED_MESSAGES:
@@ -60,43 +70,61 @@ class InterestedSystem(System):
 
 		if message_id == msg.MessageId.HAVE:
 			remote_bitfield.set_index(msg.payload_index(message))
+			self._update_full(torrent_entity, peer_entity, remote_bitfield)
 			await self.update_local_interested(torrent_entity, peer_entity)
 		elif message_id == msg.MessageId.BITFIELD:
 			remote_bitfield.update(msg.payload_bitfield(message))
+			self._update_full(torrent_entity, peer_entity, remote_bitfield)
 			await self.update_local_interested(torrent_entity, peer_entity)
 		elif message_id == msg.MessageId.INTERESTED:
-			await self.update_remote_interested(torrent_entity, peer_entity, True)
+			self._set_remote_interested(peer_entity, True)
+			await self.env.event_bus.dispatch_async("peer.remote.interested_changed", torrent_entity, peer_entity)
 		elif message_id == msg.MessageId.NOT_INTERESTED:
-			await self.update_remote_interested(torrent_entity, peer_entity, False)
+			self._set_remote_interested(peer_entity, False)
+			await self.env.event_bus.dispatch_async("peer.remote.interested_changed", torrent_entity, peer_entity)
 
-	async def update_remote_interested(self, torrent_entity: Entity, peer_entity: Entity, new_value: bool):
-		peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
-		if peer_connection_ec.local_interested == new_value:
+	def _update_full(self, torrent_entity: Entity, peer_entity: Entity, remote_bitfield):
+		if not torrent_entity.has_component(TorrentInfoEC):
 			return
+		pieces_num = torrent_entity.get_component(TorrentInfoEC).info.pieces_num
+		is_full = remote_bitfield.have_num >= pieces_num
+		if is_full and not peer_entity.has_component(FullPeerEC):
+			peer_entity.add_component(FullPeerEC())
+		elif not is_full and peer_entity.has_component(FullPeerEC):
+			peer_entity.remove_component(FullPeerEC)
 
-		peer_connection_ec.remote_interested = new_value
-		self.env.event_bus.dispatch("peer.remote.interested_changed", torrent_entity, peer_entity)
+	@staticmethod
+	def _set_remote_interested(peer_entity: Entity, value: bool):
+		if value and not peer_entity.has_component(RemoteInterestedEC):
+			peer_entity.add_component(RemoteInterestedEC())
+		elif not value and peer_entity.has_component(RemoteInterestedEC):
+			peer_entity.remove_component(RemoteInterestedEC)
 
 	async def update_local_interested(self, torrent_entity: Entity, peer_entity: Entity):
 		if not torrent_entity.has_component(TorrentInfoEC):
 			return
-
 		remote_bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
-		local_bitfield = torrent_entity.get_component(TorrentEC).bitfield
-		new_interested = local_bitfield.interested_in(remote_bitfield)
-		await _update_local_peer_interested(self.env, torrent_entity, peer_entity, len(new_interested) > 0)
+		want = len(interested_pieces(torrent_entity, remote_bitfield)) > 0
+		# respect the download-peers limit when declaring new interest
+		if want and not peer_entity.has_component(LocalInterestedEC):
+			if self._interested_count(get_info_hash(torrent_entity)) >= self.env.config.download_peers_limit:
+				return
+		await self._set_local_interested(torrent_entity, peer_entity, want)
 
+	def _interested_count(self, info_hash: bytes) -> int:
+		return sum(
+			1 for p in iterate_peers(self.env, info_hash) if p.has_component(LocalInterestedEC)
+		)
 
-async def _update_local_peer_interested(env: Env, torrent_entity: Entity, peer_entity: Entity, new_interested: bool):
-	peer_connection_ec = peer_entity.get_component(PeerConnectionEC)
-	if peer_connection_ec.local_interested == new_interested:
-		return
-
-	logger.debug(f"Interested in: %s", peer_connection_ec)
-	peer_connection_ec.local_interested = new_interested
-	if new_interested:
-		await peer_connection_ec.connection.send(msg.interested())
-	else:
-		await peer_connection_ec.connection.send(msg.not_interested())
-
-	await env.event_bus.dispatch_async("peer.local.interested_changed", torrent_entity, peer_entity)
+	async def _set_local_interested(self, torrent_entity: Entity, peer_entity: Entity, want: bool):
+		if not peer_entity.has_component(PeerConnectionEC):
+			return
+		has = peer_entity.has_component(LocalInterestedEC)
+		if want and not has:
+			peer_entity.add_component(LocalInterestedEC())
+			await peer_entity.get_component(PeerConnectionEC).send(msg.interested())
+			await self.env.event_bus.dispatch_async("peer.local.interested_changed", torrent_entity, peer_entity)
+		elif has and not want:
+			peer_entity.remove_component(LocalInterestedEC)
+			await peer_entity.get_component(PeerConnectionEC).send(msg.not_interested())
+			await self.env.event_bus.dispatch_async("peer.local.interested_changed", torrent_entity, peer_entity)

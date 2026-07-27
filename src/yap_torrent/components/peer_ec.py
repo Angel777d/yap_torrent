@@ -1,9 +1,10 @@
 import logging
 import time
 from asyncio import Task
-from typing import Set, Iterable, Iterator, Dict
+from enum import IntEnum
+from typing import Hashable
 
-from angelovich.core.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.connection import Connection
@@ -12,7 +13,106 @@ from yap_torrent.protocol.structures import PeerInfo, PieceBlockInfo, Bitfield
 logger = logging.getLogger(__name__)
 
 
+class PeerState(IntEnum):
+	Unknown = 0
+	Questionable = 1
+	NoConnection = 2
+	Suspicious = 3
+	Good = 4
+
+
+class PeerEC(EntityHashComponent):
+	"""Every known peer of a torrent, stored regardless of behaviour (Part C).
+
+	Identity is (info_hash, host); carries the connection state machine data.
+	"""
+
+	def __init__(self, info_hash: bytes, peer_info: PeerInfo, state: PeerState = PeerState.Unknown) -> None:
+		super().__init__()
+		self.info_hash: bytes = info_hash
+		self.peer_info: PeerInfo = peer_info
+		self.state: PeerState = state
+		self.fail_count: int = 0
+		self.last_attempt: float = 0.0
+
+	@staticmethod
+	def make_hash(info_hash: bytes, host: str, port: int) -> Hashable:
+		return info_hash, host, port
+
+	def __hash__(self):
+		return hash(self.make_hash(self.info_hash, self.peer_info.host, self.peer_info.port))
+
+
+# -- queue marker pairs (Part C) -------------------------------------------
+class FullPeerEC(EntityComponent):
+	"""Peer's remote_bitfield is complete (a seed)."""
+	pass
+
+
+class LocalInterestedEC(EntityComponent):
+	"""We are interested in this peer (it has pieces in our wanted set)."""
+	pass
+
+
+class RemoteUnchokedEC(EntityComponent):
+	"""The remote peer has unchoked us (we may request)."""
+	pass
+
+
+class RemoteInterestedEC(EntityComponent):
+	"""The peer is interested in our pieces."""
+	pass
+
+
+class LocalUnchokedEC(EntityComponent):
+	"""We have unchoked this peer (we serve it)."""
+	pass
+
+
+class FreePeerEC(EntityComponent):
+	"""Download-queue peer that is ready to be assigned its next piece (Part D)."""
+	pass
+
+
+class PeerStatsEC(EntityComponent):
+	"""Cumulative bytes + rolling rate to/from this peer, for the choke algorithm."""
+
+	def __init__(self) -> None:
+		super().__init__()
+		self.uploaded: int = 0
+		self.downloaded: int = 0
+		self.up_rate: float = 0.0
+		self.down_rate: float = 0.0
+		self._up_window: int = 0
+		self._down_window: int = 0
+		self._last_sample: float = time.monotonic()
+
+	def add_uploaded(self, n: int) -> None:
+		self.uploaded += n
+		self._up_window += n
+
+	def add_downloaded(self, n: int) -> None:
+		self.downloaded += n
+		self._down_window += n
+
+	def sample_rate(self, now: float) -> None:
+		dt = now - self._last_sample
+		if dt <= 0:
+			return
+		self.up_rate = self._up_window / dt
+		self.down_rate = self._down_window / dt
+		self._up_window = 0
+		self._down_window = 0
+		self._last_sample = now
+
+
 class PeerConnectionEC(EntityComponent):
+	"""Live connection to a peer. Present only while a socket is open.
+
+	Choke/interest state lives in marker components (LocalInterestedEC,
+	RemoteUnchokedEC, RemoteInterestedEC, LocalUnchokedEC), not here.
+	"""
+
 	def __init__(self, info_hash: bytes, peer_info: PeerInfo, connection: Connection, reserved: bytes) -> None:
 		super().__init__()
 
@@ -25,94 +125,39 @@ class PeerConnectionEC(EntityComponent):
 
 		self.reserved: bytes = reserved
 
-		self.local_choked = True
-		self.local_interested = False
-
-		self.remote_choked = True
-		self.remote_interested = False
-
 		self.remote_bitfield: Bitfield = Bitfield()
 
-	def __hash__(self):
-		return hash(self.peer_info.host)
+		# blocks we have requested from this peer and are still awaiting (pipeline)
+		self.requested: set = set()
 
 	def disconnect(self):
-		self.task.cancel()
+		if self.task:
+			self.task.cancel()
 		self.connection.close()
 
 	def _reset(self):
-		self.task.cancel()
+		if self.task:
+			self.task.cancel()
 		self.connection.close()
-
 		super()._reset()
-
-	async def choke(self) -> None:
-		if self.remote_choked:
-			return
-		await self.connection.send(msg.choke())
-		self.remote_choked = True
-
-	async def unchoke(self) -> None:
-		if not self.remote_choked:
-			return
-		await self.connection.send(msg.unchoke())
-		self.remote_choked = False
 
 	async def request(self, block: PieceBlockInfo) -> None:
 		await self.connection.send(msg.request(block.index, block.begin, block.length))
+
+	async def send(self, message: bytes) -> None:
+		await self.connection.send(message)
+
+	@property
+	def connection_time(self) -> float:
+		return self.connection.connection_time
 
 	def __repr__(self):
 		return f"Peer {self.peer_info.host} [{self.connection.remote_peer_id}]"
 
 
-class KnownPeersEC(EntityComponent):
-	_MAX_CONNECT_ATTEMPTS = 5
-	_COOLDOWN_DURATION = 30
-
-	def __init__(self):
-		super().__init__()
-		self._peers: Set[PeerInfo] = set()
-		self._fails: Dict[str, int] = {}
-		self._last_attempts: Dict[str, float] = {}
-
-	@property
-	def peers(self) -> Set[PeerInfo]:
-		return set(p for p in self._peers if self._fails[p.host] < self._MAX_CONNECT_ATTEMPTS)
-
-	def update_peers(self, peers: Iterable[PeerInfo]):
-		new_peers = set(peers) - self._peers
-		logger.debug("New peers amount: %s", len(new_peers))
-		self._peers.update(new_peers)
-
-		for peer in new_peers:
-			self._fails[peer.host] = 0
-			self._last_attempts[peer.host] = 0
-
-	def get_fails_count(self, peer: PeerInfo):
-		return self._fails.get(peer.host, 0)
-
-	def mark_good(self, peer: PeerInfo):
-		self._fails[peer.host] = 0
-
-	def mark_failed(self, peer: PeerInfo):
-		self._fails[peer.host] += 1
-		self._last_attempts[peer.host] = time.monotonic()
-
-	def get_peers_to_connect(self, active_peers: Set[str]) -> Iterator[PeerInfo]:
-		for peer in self._peers:
-			if peer.host in active_peers:
-				continue
-
-			# give up after 5 failed attempts
-			if self._fails[peer.host] > self._MAX_CONNECT_ATTEMPTS:
-				continue
-
-			# on a cooldown, skip
-			if time.monotonic() - self._last_attempts[peer.host] < self._COOLDOWN_DURATION:
-				continue
-
-			# finally, return a peer to connect
-			yield peer
+class PeerConnectingEC(EntityComponent):
+	"""Marker: an outbound connection attempt is in flight (avoids double-connect)."""
+	pass
 
 
 class PeerDisconnectedEC(EntityComponent):

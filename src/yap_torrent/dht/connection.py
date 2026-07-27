@@ -133,11 +133,13 @@ class DHTServerProtocol(DatagramProtocol):
 
 	def datagram_received(self, data: bytes, addr: tuple[str | Any, int]):
 		# logger.debug(f'got KRPCMessage {data} from addr {addr}')
+		# NOTE: this is the shared server socket — never close it per-datagram (UDP is
+		# connectionless; it must stay open to serve many requests). It is closed only
+		# when DHTSystem shuts down.
 		try:
 			decoded = decode(data)
 		except Exception as ex:
 			logger.error(f'DHT message {data} from addr {addr} failed to decode. {ex}')
-			self.transport.close()
 			return
 
 		message = KRPCMessage(decoded)
@@ -146,7 +148,6 @@ class DHTServerProtocol(DatagramProtocol):
 		else:
 			send_data = encode(self.process_query(message, addr))
 		self.transport.sendto(send_data, addr)
-		self.transport.close()
 
 	def process_query(self, message: KRPCMessage, addr):
 		if message.message_type != KRPCMessageType.QUERY:

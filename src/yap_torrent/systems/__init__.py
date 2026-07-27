@@ -4,19 +4,26 @@ from typing import Optional, Dict, Generator
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.file_ec import TorrentFileEC
-from yap_torrent.components.peer_ec import KnownPeersEC, PeerConnectionEC
+from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState
+from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
-	ValidateTorrentEC, TorrentState
+	ValidateTorrentEC, TorrentState, InProgressEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
+from yap_torrent.protocol.structures import Bitfield
 
 
 def is_torrent_complete(torrent_entity: Entity) -> bool:
 	if not torrent_entity.has_component(TorrentInfoEC):
 		return False
-	info = torrent_entity.get_component(TorrentInfoEC).info
 	bitfield = torrent_entity.get_component(TorrentEC).bitfield
+	# wanted-aware: complete once every wanted piece is present (partial selection).
+	# InProgressEC holds the wanted set and stays for the torrent's life, so this is stable.
+	if torrent_entity.has_component(InProgressEC):
+		wanted = torrent_entity.get_component(InProgressEC).wanted
+		return len(bitfield.interested_in(wanted)) == 0
+	info = torrent_entity.get_component(TorrentInfoEC).info
 	return info.is_complete(bitfield.have_num)
 
 
@@ -37,7 +44,6 @@ def create_torrent_entity(env: Env, info_hash: InfoHash, path: Path, stats: Dict
 	torrent_entity = env.data_storage.create_entity()
 	torrent_entity.add_component(TorrentPathEC(path))
 	torrent_entity.add_component(TorrentStatsEC(**stats))
-	torrent_entity.add_component(KnownPeersEC())
 
 	if torrent_info:
 		torrent_entity.add_component(TorrentInfoEC(torrent_info))
@@ -61,9 +67,54 @@ def get_torrent_name(entity: Entity):
 
 
 def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
+	"""Iterate the *connected* peer entities of a torrent (have PeerConnectionEC)."""
 	for e in env.data_storage.get_collection(PeerConnectionEC):
 		if e.get_component(PeerConnectionEC).info_hash == info_hash:
 			yield e
+
+
+def iterate_peer_entities(env: Env, info_hash: bytes) -> Generator[Entity]:
+	"""Iterate all known peer entities of a torrent (have PeerEC), connected or not."""
+	for e in env.data_storage.get_collection(PeerEC):
+		if e.get_component(PeerEC).info_hash == info_hash:
+			yield e
+
+
+def find_peer_entity(env: Env, info_hash: bytes, host: str, port: int) -> Optional[Entity]:
+	return env.data_storage.get_collection(PeerEC).find(PeerEC.make_hash(info_hash, host, port))
+
+
+def add_known_peer(env: Env, info_hash: bytes, peer_info: PeerInfo) -> Entity:
+	"""Find-or-create the peer entity for (info_hash, host, port). New peers start Unknown."""
+	entity = find_peer_entity(env, info_hash, peer_info.host, peer_info.port)
+	if entity is None:
+		entity = env.data_storage.create_entity()
+		entity.add_component(PeerEC(info_hash, peer_info, PeerState.Unknown))
+	return entity
+
+
+def compute_wanted_bitfield(env: Env, torrent_entity: Entity) -> Bitfield:
+	"""The set of piece indices this torrent wants, from per-file selection.
+
+	Falls back to all pieces when no file entities exist yet.
+	"""
+	from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
+
+	info = torrent_entity.get_component(TorrentInfoEC).info
+	wanted = Bitfield()
+	files = list(iterate_files(env, get_info_hash(torrent_entity)))
+	if not files:
+		for index in range(info.pieces_num):
+			wanted.set_index(index)
+		return wanted
+
+	for file_entity in files:
+		if not file_entity.get_component(TorrentFileStateEC).wanted:
+			continue
+		file_ec = file_entity.get_component(TorrentFileEC)
+		for index in range(file_ec.first_piece, file_ec.first_piece + file_ec.pieces_length):
+			wanted.set_index(index)
+	return wanted
 
 
 def iterate_files(env: Env, info_hash: bytes) -> Generator[Entity]:

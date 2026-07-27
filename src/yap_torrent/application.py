@@ -20,6 +20,7 @@ from yap_torrent.systems.intrest_system import InterestedSystem
 from yap_torrent.systems.local_data_system import LocalDataSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
 from yap_torrent.systems.metainfo_system import MetainfoSystem
+from yap_torrent.systems.peer_data_system import PeerDataSystem
 from yap_torrent.systems.peer_system import PeerSystem
 from yap_torrent.systems.piece_system import PieceSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
@@ -46,17 +47,12 @@ def open_port(ip: str, port: int, dht_port: int):
 		logger.info(f"open UDP port: {open_res}")
 
 
-def create_peer_id():
-	# TODO: generate and/or save peer id
-	return b'-PY0001-111111111111'
-
-
 class Application:
 	def __init__(self, config: Config):
 		ip, external_ip = network_setup()
 		open_port(ip, config.port, config.dht_port)
 
-		env = Env(create_peer_id(), ip, external_ip, config)
+		env = Env(config.peer_id, ip, external_ip, config)
 		print(
 			f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
@@ -75,6 +71,7 @@ class Application:
 			MagnetSystem(env),
 			TorrentSystem(env),
 			LocalDataSystem(env),
+			PeerDataSystem(env),
 			WatcherSystem(env),
 			AnnounceSystem(env),
 		]
