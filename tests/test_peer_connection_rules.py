@@ -7,6 +7,7 @@ the answer after the socket is gone.
 import time
 from pathlib import Path
 
+from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import (
 	LocalInterestedEC,
 	LocalUnchokedEC,
@@ -45,6 +46,19 @@ class _FakeConnection:
 
 	def close(self):
 		self.closed = True
+
+
+def _attach_connection(peer_entity) -> _FakeConnection:
+	"""Mirror what PeerSystem._add_peer does to a peer that just connected."""
+	connection = _FakeConnection()
+	peer_entity.add_component(PeerConnectionEC(b"h" * 20, PeerInfo("127.0.0.1", 1), connection, bytes(8)))
+	peer_entity.get_component(IdleEC).touch()  # created with the entity, never re-added
+	return connection
+
+
+def _backdate(idle: IdleEC, seconds: float) -> None:
+	"""Pretend the component has been idle for `seconds`. IdleEC has no public setter."""
+	setattr(idle, "_IdleEC__last_update", time.monotonic() - seconds)
 
 
 def _env() -> Env:
@@ -180,8 +194,7 @@ def test_add_component_does_not_replace_an_existing_connection():
 	# the assumption _add_peer's duplicate guard rests on: a second add is silently
 	# dropped, so without the guard the newer socket would leak un-closed
 	_, _, peer = _torrent_and_peer()
-	first = _FakeConnection()
-	peer.add_component(PeerConnectionEC(b"h" * 20, PeerInfo("127.0.0.1", 1), first, bytes(8)))
+	first = _attach_connection(peer)
 
 	peer.add_component(PeerConnectionEC(b"h" * 20, PeerInfo("127.0.0.1", 1), _FakeConnection(), bytes(8)))
 
@@ -195,29 +208,48 @@ def test_connecting_marker_is_not_torn_down_with_the_connection():
 	assert PeerConnectingEC not in _CONNECTION_COMPONENTS
 
 
+def test_idle_marker_outlives_the_connection():
+	# IdleEC belongs to the peer entity, not the connection: add_known_peer attaches it only
+	# to entities it creates, and _add_peer touches it rather than re-adding. Tearing it down
+	# with the connection would crash the next _add_peer on any reconnect.
+	from yap_torrent.systems.peer_system import _CONNECTION_COMPONENTS
+	assert IdleEC not in _CONNECTION_COMPONENTS
+
+	env, torrent, peer = _torrent_and_peer()
+	_attach_connection(peer)
+
+	for component in _CONNECTION_COMPONENTS:  # what _process_disconnected strips
+		if peer.has_component(component):
+			peer.remove_component(component)
+
+	# the redial path: find-or-create returns the surviving entity (so nothing re-attaches
+	# IdleEC), and _add_peer touches it — this raises if teardown took it away
+	again = add_known_peer(env, get_info_hash(torrent), PeerInfo("127.0.0.1", 6881))
+	assert again is peer
+	again.get_component(IdleEC).touch()
+
+
 def test_idle_timer_runs_from_leaving_the_queue_not_from_connect():
 	env, _, peer = _torrent_and_peer()
 	env.config.peer_idle_timeout = 30
+	_attach_connection(peer)
+	idle = peer.get_component(IdleEC)
 
-	connection = _FakeConnection()
-	peer.add_component(PeerConnectionEC(b"h" * 20, PeerInfo("127.0.0.1", 1), connection, bytes(8)))
-	conn = peer.get_component(PeerConnectionEC)
-	conn.last_queue_time = time.monotonic() - 600  # long-lived connection
-
-	# while it holds a queue place the stamp is refreshed, so it is never dropped
+	# a long-lived connection still holding a queue place is refreshed, never dropped
+	_backdate(idle, 600)
 	for component in (LocalInterestedEC, RemoteUnchokedEC):
 		peer.add_component(component())
 	PeerSystem(env)._drop_idle_connections()
 	assert not peer.has_component(PeerDisconnectedEC)
-	assert time.monotonic() - conn.last_queue_time < 1
+	assert not idle.overlives_period(1)
 
-	# once it leaves, it gets the full timeout from that moment rather than being
+	# once it leaves it gets the full timeout from that moment, rather than being
 	# judged on how long ago it connected
 	peer.remove_component(LocalInterestedEC)
 	PeerSystem(env)._drop_idle_connections()
 	assert not peer.has_component(PeerDisconnectedEC)
 
-	conn.last_queue_time = time.monotonic() - 31
+	_backdate(idle, 31)
 	PeerSystem(env)._drop_idle_connections()
 	assert peer.has_component(PeerDisconnectedEC)
 

@@ -4,7 +4,6 @@ from typing import Set
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.peer_ec import (
-	FullPeerEC,
 	LocalInterestedEC,
 	PeerConnectionEC,
 	PeerEC,
@@ -72,11 +71,9 @@ class InterestedSystem(System):
 
 		if message_id == msg.MessageId.HAVE:
 			remote_bitfield.set_index(msg.payload_index(message))
-			self._update_full(torrent_entity, peer_entity, remote_bitfield)
 			await self.update_local_interested(torrent_entity, peer_entity)
 		elif message_id == msg.MessageId.BITFIELD:
 			remote_bitfield.update(msg.payload_bitfield(message))
-			self._update_full(torrent_entity, peer_entity, remote_bitfield)
 			await self.update_local_interested(torrent_entity, peer_entity)
 		elif message_id == msg.MessageId.INTERESTED:
 			self._set_remote_interested(peer_entity, True)
@@ -84,16 +81,6 @@ class InterestedSystem(System):
 		elif message_id == msg.MessageId.NOT_INTERESTED:
 			self._set_remote_interested(peer_entity, False)
 			await self.env.event_bus.dispatch_async("peer.remote.interested_changed", torrent_entity, peer_entity)
-
-	def _update_full(self, torrent_entity: Entity, peer_entity: Entity, remote_bitfield):
-		if not torrent_entity.has_component(TorrentInfoEC):
-			return
-		pieces_num = torrent_entity.get_component(TorrentInfoEC).info.pieces_num
-		is_full = remote_bitfield.have_num >= pieces_num
-		if is_full and not peer_entity.has_component(FullPeerEC):
-			peer_entity.add_component(FullPeerEC())
-		elif not is_full and peer_entity.has_component(FullPeerEC):
-			peer_entity.remove_component(FullPeerEC)
 
 	@staticmethod
 	def _set_remote_interested(peer_entity: Entity, value: bool):

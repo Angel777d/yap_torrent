@@ -7,8 +7,8 @@ from typing import Iterable, List
 from angelovich.core.DataStorage import Entity
 
 import yap_torrent.protocol.connection as net
+from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import (
-	FullPeerEC,
 	LocalInterestedEC,
 	LocalUnchokedEC,
 	PeerConnectingEC,
@@ -45,12 +45,20 @@ logger = logging.getLogger(__name__)
 LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 
 # Components attached only while a peer is connected — cleared on disconnect (PeerEC stays).
-# PeerConnectingEC is deliberately NOT here: it is owned by the in-flight _connect task and
-# stripping it early would let _connect_to_peers dial a peer that is already being dialled.
+# Two deliberate exclusions:
+#   PeerConnectingEC — owned by the in-flight _connect task; stripping it early would let
+#     _connect_to_peers dial a peer that is already being dialled.
+#   IdleEC — created with the peer entity and touched on each connect, so it lives as long
+#     as PeerEC does. Removing it here would crash the next _add_peer, since add_known_peer
+#     only attaches it to entities it creates.
+
+# TODO: claude review: components have to be managed by related systems. LocalInterestedEC, RemoteUnchokedEC etc have to be removed by Choke/Interested systems
+# TODO: claude review: PeerStatsEC looks like a whole peer lifetime component. Upload/download speed have to be moved to own component
+
 _CONNECTION_COMPONENTS = (
 	PeerConnectionEC, PeerStatsEC,
-	LocalInterestedEC, RemoteUnchokedEC, RemoteInterestedEC, LocalUnchokedEC,
-	FullPeerEC,
+	LocalInterestedEC, RemoteUnchokedEC,
+	RemoteInterestedEC, LocalUnchokedEC,
 )
 
 
@@ -149,13 +157,14 @@ class PeerSystem(System):
 		now = time.monotonic()
 		for peer_entity in list(self.env.data_storage.get_collection(PeerConnectionEC)):
 			conn = peer_entity.get_component(PeerConnectionEC)
+			idle = peer_entity.get_component(IdleEC)
 			if _in_any_queue(peer_entity):
-				conn.last_queue_time = now
+				idle.touch()
 				continue
 			torrent_entity = get_torrent_entity(self.env, conn.info_hash)
 			if torrent_entity is not None and not _has_metadata(torrent_entity):
 				continue  # this peer is the magnet's only metadata source
-			if now - conn.last_queue_time < timeout:
+			if not idle.overlives_period(timeout):
 				continue
 			_mark_disconnected(peer_entity)
 
@@ -320,6 +329,7 @@ class PeerSystem(System):
 		# attach the live connection to the (persistent) peer entity
 		peer_entity.add_component(PeerConnectionEC(info_hash, peer_info, connection, reserved))
 		peer_entity.add_component(PeerStatsEC())
+		peer_entity.get_component(IdleEC).touch()
 
 		await asyncio.gather(*self.env.event_bus.dispatch("peer.connected", torrent_entity, peer_entity))
 

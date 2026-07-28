@@ -5,11 +5,11 @@ from typing import List, Set, Tuple
 
 from angelovich.core.DataStorage import Entity
 
+from yap_torrent.components.common import IdleEC
 from yap_torrent.components.piece_ec import (
 	CompletePieceDataEC,
 	PieceDownloadProgressEC,
 	PieceEC,
-	PieceTtlEC,
 	UploadRequestedEC,
 )
 from yap_torrent.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentEC
@@ -64,13 +64,13 @@ class PieceSystem(TimeSystem):
 		ttl = self.env.config.piece_cache_ttl
 		evictable = sorted(
 			(
-				e for e in ds.get_collection(PieceTtlEC)
+				e for e in ds.get_collection(IdleEC)
 				if e.has_component(CompletePieceDataEC)
-				and not e.has_component(PieceDownloadProgressEC)
-				and not e.has_component(UploadRequestedEC)
-				and e.get_component(PieceTtlEC).can_remove(ttl)
+				   and not e.has_component(PieceDownloadProgressEC)
+				   and not e.has_component(UploadRequestedEC)
+				   and e.get_component(IdleEC).overlives_period(ttl)
 			),
-			key=lambda e: e.get_component(PieceTtlEC).last_update,
+			key=lambda e: e.get_component(IdleEC).last_update,
 		)
 		for entity in evictable[:total - max_cached]:
 			ds.remove_entity(entity)

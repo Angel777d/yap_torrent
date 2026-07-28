@@ -3,6 +3,7 @@ from typing import Optional, Dict, Generator
 
 from angelovich.core.DataStorage import Entity
 
+from yap_torrent.components.common import IdleEC
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
@@ -86,6 +87,8 @@ def add_known_peer(env: Env, info_hash: bytes, peer_info: PeerInfo) -> Entity:
 	if entity is None:
 		entity = env.data_storage.create_entity()
 		entity.add_component(PeerEC(info_hash, peer_info, PeerState.Unknown))
+		entity.add_component(IdleEC())
+
 	return entity
 
 

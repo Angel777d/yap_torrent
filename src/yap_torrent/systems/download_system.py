@@ -4,8 +4,9 @@ from typing import Dict, Generator, Optional, Set
 
 from angelovich.core.DataStorage import Entity
 
+from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerStatsEC, RemoteUnchokedEC
-from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceDownloadProgressEC, PieceEC, PieceTtlEC
+from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceDownloadProgressEC, PieceEC
 from yap_torrent.components.torrent_ec import ActiveTorrentEC, TorrentEC, TorrentInfoEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
@@ -217,7 +218,7 @@ async def _finish_piece(env, torrent_entity, peer_entity, piece_entity, progress
 	downloading_by = set(progress.downloading_by)
 	piece_entity.remove_component(PieceDownloadProgressEC)
 	piece_entity.add_component(CompletePieceDataEC(data))
-	piece_entity.add_component(PieceTtlEC())
+	piece_entity.add_component(IdleEC())
 	torrent_entity.get_component(TorrentEC).bitfield.set_index(index)
 
 	await env.event_bus.dispatch_async("piece.complete", torrent_entity, piece_entity)

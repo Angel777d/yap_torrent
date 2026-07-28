@@ -44,12 +44,6 @@ class PeerEC(EntityHashComponent):
 		return hash(self.key())
 
 
-# -- queue marker pairs (Part C) -------------------------------------------
-class FullPeerEC(EntityComponent):
-	"""Peer's remote_bitfield is complete (a seed)."""
-	pass
-
-
 class LocalInterestedEC(EntityComponent):
 	"""We are interested in this peer (it has pieces in our wanted set)."""
 	pass
@@ -116,11 +110,6 @@ class PeerConnectionEC(EntityComponent):
 
 		self.reserved: bytes = reserved
 
-		# when this peer was last in a queue, so a productive peer that drops out of one
-		# gets the full idle timeout to re-qualify rather than being judged on connect time
-		self.last_queue_time: float = time.monotonic()
-
-		# blocks we have requested from this peer and are still awaiting (pipeline)
 		self.requested: set = set()
 
 	def disconnect(self):

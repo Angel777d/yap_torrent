@@ -1,10 +1,12 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
 from angelovich.core.DataStorage import Entity
 
+from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import LocalUnchokedEC, PeerConnectionEC, PeerStatsEC
-from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceEC, PieceTtlEC, UploadRequestedEC
+from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceEC, UploadRequestedEC
 from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentState, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
@@ -31,14 +33,17 @@ class UploadSystem(System):
 			_process_cancel_message(self.env, peer_entity, torrent_entity, message)
 
 
-def _find_or_load_piece(env: Env, torrent_entity: Entity, index: int) -> Entity:
+def _find_or_load_piece(env: Env, torrent_entity: Entity, index: int) -> Optional[Entity]:
 	ds = env.data_storage
 	info_hash = torrent_entity.get_component(TorrentEC).info_hash
 	torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 
 	piece_entity = ds.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))
-	if piece_entity is not None and piece_entity.has_component(CompletePieceDataEC):
-		return piece_entity
+	if piece_entity:
+		if piece_entity.has_component(CompletePieceDataEC):
+			return piece_entity
+		else:
+			return None
 
 	# lazily read from disk into a hash-verified CompletePieceDataEC + TTL
 	root = Path(env.config.download_folder)
@@ -48,44 +53,36 @@ def _find_or_load_piece(env: Env, torrent_entity: Entity, index: int) -> Entity:
 		logger.error("Piece %s in %s is broken on request", index, torrent_info.name)
 		return None
 
-	if piece_entity is None:
-		piece_entity = ds.create_entity().add_component(PieceEC(info_hash, piece_info))
-	piece_entity.add_component(CompletePieceDataEC(data))
-	piece_entity.add_component(PieceTtlEC())
-	return piece_entity
+	return (ds.create_entity()
+	        .add_component(PieceEC(info_hash, piece_info))
+	        .add_component(CompletePieceDataEC(data))
+	        .add_component(IdleEC()))
 
 
 async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity: Entity, message: Message):
-	# 1) torrent-state gate: stopped/paused torrents upload to no one
 	if torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Inactive:
 		return
 
-	# 2) choke gate: never serve a choked peer
 	if not peer_entity.has_component(LocalUnchokedEC):
 		return
 
-	torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 	connection = peer_entity.get_component(PeerConnectionEC).connection
 	index, begin, length = msg.payload_request(message)
 
-	# 3) get piece data (cached or loaded from disk)
 	piece_entity = _find_or_load_piece(env, torrent_entity, index)
-	if piece_entity is None:
+	if not piece_entity:
+		logger.warning("Peer request a piece we don't have yet")
 		return
 
-	# 4) track pending request (residency + CANCEL)
 	if not piece_entity.has_component(UploadRequestedEC):
 		piece_entity.add_component(UploadRequestedEC())
 	piece_entity.get_component(UploadRequestedEC).peers.add(peer_entity)
-	if piece_entity.has_component(PieceTtlEC):
-		piece_entity.get_component(PieceTtlEC).touch()
+	piece_entity.get_component(IdleEC).touch()
 
-	# 5) send the block
 	data = piece_entity.get_component(CompletePieceDataEC).get_block(begin, length)
 	await connection.send(msg.piece(index, begin, data))
 
-	if peer_entity.has_component(PeerStatsEC):
-		peer_entity.get_component(PeerStatsEC).add_uploaded(length)
+	peer_entity.get_component(PeerStatsEC).add_uploaded(length)
 	torrent_entity.get_component(TorrentStatsEC).update_uploaded(length)
 
 
