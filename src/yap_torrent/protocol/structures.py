@@ -273,12 +273,13 @@ class Bitfield:
 	def interested_in(self, remote: "Bitfield") -> Set[int]:
 		return remote._have.difference(self._have)
 
-	def intersection(self, other: Set[int]) -> Set[int]:
-		return self._have.intersection(other)
-
 	@property
 	def have_num(self) -> int:
 		return len(self._have)
+
+	@property
+	def have(self) -> Set[int]:
+		return self._have
 
 	def dump(self, length) -> bytes:
 		return bytes(

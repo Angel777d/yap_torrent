@@ -59,28 +59,19 @@ def next_state_on_failure(state: PeerState, fail_count: int) -> Tuple[PeerState,
 
 @dataclass(frozen=True)
 class ChokeCandidate:
-	key: Hashable          # peer identity (orderable for deterministic ties)
-	interested: bool       # the peer is interested in our pieces
-	reciprocated: bool     # the peer has uploaded to us at least once
-	rate: float            # the peer's transfer rate (bytes/s)
+	key: Hashable  # peer identity (orderable for deterministic ties)
+	interested: bool  # the peer is interested in our pieces
+	took: int  # download from us
+	gave: int  # uploaded to us
 
 
 def select_unchoked(candidates: Iterable[ChokeCandidate], limit: int, seeding: bool) -> Set[Hashable]:
-	"""Return the peers to keep UNCHOKED (at most ``limit``); everyone else is choked.
-
-	Choke order (least desirable first, dropped first when over the limit):
-	  1. not-interested peers,
-	  2. non-reciprocators (never uploaded to us) — unless we're seeding,
-	  3. remaining pure downloaders by rate, smallest first.
-	Under the limit, everyone is kept unchoked.
-	"""
+	"""Return the peers to keep UNCHOKED (at most ``limit``); everyone else is choked.	"""
 	if limit <= 0:
 		return set()
 
-	def rank(c: ChokeCandidate):
-		reciprocated = 1 if (seeding or c.reciprocated) else 0
-		# higher tuple = more desirable = kept unchoked; key breaks ties deterministically
-		return (1 if c.interested else 0, reciprocated, c.rate, c.key)
-
-	ordered = sorted(candidates, key=rank, reverse=True)
+	ordered = sorted(candidates,
+	                 key=lambda c: ((c.interested, -c.took, c.key) if seeding
+	                                else (c.interested, c.gave - c.took, c.key)),
+	                 reverse=True)
 	return {c.key for c in ordered[:limit]}

@@ -38,8 +38,8 @@ from yap_torrent.systems import (
 	get_torrent_entity,
 	is_torrent_complete,
 	iterate_files,
-	iterate_torrent_peers,
 	iterate_peers,
+	iterate_connected_peers,
 )
 from yap_torrent.systems.choke_system import ChokeSystem
 from yap_torrent.systems.download_system import DownloadSystem
@@ -154,7 +154,8 @@ async def scenario_basic_transfer(work: Path) -> bool:
 	seeder = Instance(6801, work / "s1_seed", b"-PY0001-SEEDER000001")
 	leecher = Instance(6802, work / "s1_leech", b"-PY0001-LEECHER00001")
 	write_files(seeder.env.config.download_folder, meta.info, content)
-	await seeder.start(); await leecher.start()
+	await seeder.start();
+	await leecher.start()
 
 	seed = create_torrent_entity(seeder.env, ih, seeder.env.config.download_folder, {}, meta.info)
 	for i in range(meta.info.pieces_num):
@@ -167,7 +168,8 @@ async def scenario_basic_transfer(work: Path) -> bool:
 
 	ok = await run_until([seeder, leecher], lambda: is_torrent_complete(leech))
 	ok = ok and reconstruct(leecher.env, ih, meta.info.pieces_num, len(content)) == content
-	await leecher.stop(); await seeder.stop()
+	await leecher.stop();
+	await seeder.stop()
 	return ok
 
 
@@ -179,7 +181,8 @@ async def scenario_paused_seeder(work: Path) -> bool:
 	seeder = Instance(6811, work / "s2_seed", b"-PY0001-SEEDER000002")
 	leecher = Instance(6812, work / "s2_leech", b"-PY0001-LEECHER00002")
 	write_files(seeder.env.config.download_folder, meta.info, content)
-	await seeder.start(); await leecher.start()
+	await seeder.start();
+	await leecher.start()
 
 	seed = create_torrent_entity(seeder.env, ih, seeder.env.config.download_folder, {}, meta.info)
 	for i in range(meta.info.pieces_num):
@@ -194,7 +197,8 @@ async def scenario_paused_seeder(work: Path) -> bool:
 	# expect: leecher never completes, seeder uploads nothing
 	completed = await run_until([seeder, leecher], lambda: is_torrent_complete(leech), rounds=40)
 	uploaded = seed.get_component(TorrentStatsEC).uploaded
-	await leecher.stop(); await seeder.stop()
+	await leecher.stop();
+	await seeder.stop()
 	return (not completed) and uploaded == 0
 
 
@@ -207,7 +211,8 @@ async def scenario_partial_selection(work: Path) -> bool:
 	seeder = Instance(6821, work / "s3_seed", b"-PY0001-SEEDER000003")
 	leecher = Instance(6822, work / "s3_leech", b"-PY0001-LEECHER00003")
 	write_files(seeder.env.config.download_folder, meta.info, content)
-	await seeder.start(); await leecher.start()
+	await seeder.start();
+	await leecher.start()
 
 	seed = create_torrent_entity(seeder.env, ih, seeder.env.config.download_folder, {}, meta.info)
 	for i in range(meta.info.pieces_num):
@@ -235,7 +240,8 @@ async def scenario_partial_selection(work: Path) -> bool:
 	      and bitfield.have_index(2) and bitfield.have_index(3)
 	      and not bitfield.have_index(0) and not bitfield.have_index(1)
 	      and bitfield.have_num == 2)
-	await leecher.stop(); await seeder.stop()
+	await leecher.stop();
+	await seeder.stop()
 	return ok
 
 
@@ -452,7 +458,7 @@ async def scenario_peer_drop_recovery(work: Path) -> bool:
 	leecher.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6881)])
 	await run_until([seeder_a, leecher],
 	                lambda: 3 <= bitfield.have_num < meta.info.pieces_num, rounds=100, sleep=0.03)
-	for peer_entity in list(iterate_peers(leecher.env, ih)):
+	for peer_entity in list(iterate_connected_peers(leecher.env, ih)):
 		peer_entity.add_component(PeerDisconnectedEC())
 
 	# offer seeder B; the leecher must recover the stalled blocks and complete
@@ -479,7 +485,8 @@ async def scenario_uninteresting_peer_released(work: Path) -> bool:
 	seed_b = Instance(6892, work / "s10_b", b"-PY0001-SEEDERB00010")
 	for inst in (seed_a, seed_b):
 		write_files(inst.env.config.download_folder, meta.info, content)
-	await seed_a.start(); await seed_b.start()
+	await seed_a.start();
+	await seed_b.start()
 
 	for inst in (seed_a, seed_b):
 		entity = create_torrent_entity(inst.env, ih, inst.env.config.download_folder, {}, meta.info)
@@ -497,21 +504,22 @@ async def scenario_uninteresting_peer_released(work: Path) -> bool:
 	learned = await run_until(
 		[seed_a, seed_b],
 		lambda: (lambda p: p is not None and p.get_component(PeerEC).remote_bitfield.have_num
-		         >= meta.info.pieces_num)(find_peer_entity(seed_a.env, ih, "127.0.0.1", 6892)),
+		                   >= meta.info.pieces_num)(find_peer_entity(seed_a.env, ih, "127.0.0.1", 6892)),
 		rounds=60, sleep=0.03)
 
 	# ...then the purposeless connection is released on both sides
 	released = await run_until(
 		[seed_a, seed_b],
-		lambda: not list(iterate_peers(seed_a.env, ih)) and not list(iterate_peers(seed_b.env, ih)),
+		lambda: not list(iterate_connected_peers(seed_a.env, ih)) and not list(iterate_connected_peers(seed_b.env, ih)),
 		rounds=60, sleep=0.03)
 
 	# and stays released — a peer useful to neither side is not dialled again
 	await settle([seed_a, seed_b], 20, sleep=0.03)
-	stayed_off = not list(iterate_peers(seed_a.env, ih))
+	stayed_off = not list(iterate_connected_peers(seed_a.env, ih))
 
 	ok = learned and released and stayed_off
-	await seed_a.stop(); await seed_b.stop()
+	await seed_a.stop();
+	await seed_b.stop()
 	return ok
 
 
@@ -524,7 +532,8 @@ async def scenario_torrent_remove_clears_swarm(work: Path) -> bool:
 	seeder = Instance(6901, work / "s11_seed", b"-PY0001-SEEDER000011")
 	leecher = Instance(6902, work / "s11_leech", b"-PY0001-LEECHER00011")
 	write_files(seeder.env.config.download_folder, meta.info, content)
-	await seeder.start(); await leecher.start()
+	await seeder.start();
+	await leecher.start()
 
 	seed = create_torrent_entity(seeder.env, ih, seeder.env.config.download_folder, {}, meta.info)
 	for i in range(meta.info.pieces_num):
@@ -535,21 +544,22 @@ async def scenario_torrent_remove_clears_swarm(work: Path) -> bool:
 	leecher.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6901)])
 
 	connected = await run_until(
-		[seeder, leecher], lambda: bool(list(iterate_peers(leecher.env, ih))), rounds=60, sleep=0.03)
+		[seeder, leecher], lambda: bool(list(iterate_connected_peers(leecher.env, ih))), rounds=60, sleep=0.03)
 
 	await asyncio.gather(*leecher.env.event_bus.dispatch("request.torrent.remove", ih))
 	await settle([seeder, leecher], 3)
 
 	# no connections, no peer entities, and nothing redials the vanished torrent
-	cleared = (not list(iterate_peers(leecher.env, ih))
-	           and not list(iterate_torrent_peers(leecher.env, ih))
+	cleared = (not list(iterate_connected_peers(leecher.env, ih))
+	           and not list(iterate_peers(leecher.env, ih))
 	           and len(leecher.env.data_storage.get_collection(PeerEC)) == 0)
 
 	await settle([seeder, leecher], 10, sleep=0.03)
-	stayed_clear = not list(iterate_torrent_peers(leecher.env, ih))
+	stayed_clear = not list(iterate_peers(leecher.env, ih))
 
 	ok = connected and cleared and stayed_clear
-	await leecher.stop(); await seeder.stop()
+	await leecher.stop();
+	await seeder.stop()
 	return ok
 
 

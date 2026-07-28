@@ -53,8 +53,10 @@ def test_should_attempt_respects_cooldown():
 
 
 # --- choke selection -------------------------------------------------------
-def _c(key, interested=True, reciprocated=True, rate=0.0):
-	return ChokeCandidate(key=key, interested=interested, reciprocated=reciprocated, rate=rate)
+# Field meanings are from the PEER's side: took = bytes it took from us, gave = bytes it
+# gave us.
+def _c(key, interested=True, took=0, gave=0):
+	return ChokeCandidate(key=key, interested=interested, took=took, gave=gave)
 
 
 def test_under_limit_keeps_everyone():
@@ -62,30 +64,57 @@ def test_under_limit_keeps_everyone():
 	assert select_unchoked(peers, limit=5, seeding=False) == {"a", "b"}
 
 
-def test_not_interested_choked_first():
-	peers = [_c("keep", interested=True, rate=1), _c("drop", interested=False, rate=100)]
-	assert select_unchoked(peers, limit=1, seeding=False) == {"keep"}
-
-
-def test_non_reciprocators_choked_before_reciprocators():
-	peers = [
-		_c("recip", interested=True, reciprocated=True, rate=1),
-		_c("leech", interested=True, reciprocated=False, rate=100),
-	]
-	# not seeding: reciprocator kept despite lower rate
-	assert select_unchoked(peers, limit=1, seeding=False) == {"recip"}
-	# seeding: reciprocation ignored -> higher rate kept
-	assert select_unchoked(peers, limit=1, seeding=True) == {"leech"}
-
-
-def test_pure_downloaders_ordered_by_rate_smallest_choked_first():
-	peers = [
-		_c("fast", interested=True, reciprocated=False, rate=100),
-		_c("slow", interested=True, reciprocated=False, rate=1),
-	]
-	# not seeding, neither reciprocates -> keep the faster one, choke the slowest
-	assert select_unchoked(peers, limit=1, seeding=False) == {"fast"}
-
-
 def test_limit_zero():
 	assert select_unchoked([_c("a")], limit=0, seeding=False) == set()
+
+
+def test_not_interested_choked_first():
+	# interest outranks every balance term: serving a peer that wants nothing is wasted
+	peers = [_c("keep", interested=True), _c("drop", interested=False, gave=10_000)]
+	assert select_unchoked(peers, limit=1, seeding=False) == {"keep"}
+	assert select_unchoked(peers, limit=1, seeding=True) == {"keep"}
+
+
+def test_leeching_prefers_the_better_net_balance():
+	# tit-for-tat: rank on what a peer gave us minus what it took
+	peers = [
+		_c("generous", gave=10_000, took=1_000),  # net +9000
+		_c("freeloader", gave=0, took=10_000),  # net -10000
+	]
+	assert select_unchoked(peers, limit=1, seeding=False) == {"generous"}
+
+
+def test_leeching_counts_the_balance_not_the_raw_total():
+	# a peer that gave us a lot but took even more ranks below a modest net contributor
+	peers = [
+		_c("big_but_even", gave=100_000, took=100_000),  # net 0
+		_c("small_surplus", gave=5, took=0),  # net +5
+	]
+	assert select_unchoked(peers, limit=1, seeding=False) == {"small_surplus"}
+
+
+def test_seeding_shares_out_by_who_has_taken_least():
+	# complete: nobody can reciprocate, so rank on least served to spread upload around
+	peers = [
+		_c("already_fed", took=10_000),
+		_c("barely_fed", took=1),
+	]
+	assert select_unchoked(peers, limit=1, seeding=True) == {"barely_fed"}
+
+
+def test_seeding_ignores_what_a_peer_gave_us():
+	# the leeching balance would keep "gave_us_lots"; seeding must not care
+	peers = [
+		_c("gave_us_lots", gave=10_000, took=10_000),
+		_c("gave_nothing", gave=0, took=0),
+	]
+	assert select_unchoked(peers, limit=1, seeding=False) == {"gave_us_lots"}
+	assert select_unchoked(peers, limit=1, seeding=True) == {"gave_nothing"}
+
+
+def test_ties_break_deterministically_on_key():
+	# identical peers must not depend on iteration order
+	peers = [_c("a"), _c("b"), _c("c")]
+	first = select_unchoked(peers, limit=2, seeding=False)
+	assert first == select_unchoked(list(reversed(peers)), limit=2, seeding=False)
+	assert len(first) == 2

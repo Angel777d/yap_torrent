@@ -14,7 +14,7 @@ from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.protocol.structures import PieceBlockInfo
 from yap_torrent.system import System
-from yap_torrent.systems import get_info_hash, is_torrent_complete, iterate_peers
+from yap_torrent.systems import get_info_hash, is_torrent_complete, iterate_connected_peers
 from yap_torrent.systems.intrest_system import interested_pieces
 from yap_torrent.utils import check_hash
 
@@ -37,7 +37,7 @@ class DownloadSystem(System):
 		# blocks freed by a disconnect — cases with no peer event to react to. It's cheap
 		# when pipelines are full (_request_from_peer no-ops).
 		for torrent_entity in list(self.env.data_storage.get_collection(ActiveTorrentEC)):
-			for peer_entity in list(iterate_peers(self.env, get_info_hash(torrent_entity))):
+			for peer_entity in list(iterate_connected_peers(self.env, get_info_hash(torrent_entity))):
 				await _request_from_peer(self.env, torrent_entity, peer_entity)
 
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
@@ -94,9 +94,9 @@ def _find_rarest(env: Env, torrent_entity: Entity, pieces: Set[int]) -> int:
 	info_hash = get_info_hash(torrent_entity)
 	counters: Dict[int, int] = {index: 0 for index in pieces}
 	for peer_entity in env.data_storage.get_collection(PeerConnectionEC):
-		if peer_entity.get_component(PeerConnectionEC).info_hash != info_hash:
+		if peer_entity.get_component(PeerEC).info_hash != info_hash:
 			continue
-		for index in peer_entity.get_component(PeerEC).remote_bitfield.intersection(pieces):
+		for index in peer_entity.get_component(PeerEC).remote_bitfield.have.intersection(pieces):
 			counters[index] = counters.get(index, 0) + 1
 
 	return sorted(counters.items(), key=lambda x: x[1]).pop(0)[0]

@@ -33,8 +33,8 @@ from yap_torrent.systems import (
 	get_info_hash,
 	get_torrent_entity,
 	is_torrent_active,
-	iterate_torrent_peers,
 	iterate_peers,
+	iterate_connected_peers,
 )
 from yap_torrent.systems.intrest_system import interested_pieces
 from yap_torrent.systems.peer_logic import next_state_on_failure, should_attempt
@@ -153,8 +153,7 @@ class PeerSystem(System):
 	def _drop_idle_connections(self):
 		timeout = self.env.config.peer_idle_timeout
 		for peer_entity in list(self.env.data_storage.get_collection(PeerConnectionEC)):
-			conn = peer_entity.get_component(PeerConnectionEC)
-			torrent_entity = get_torrent_entity(self.env, conn.info_hash)
+			torrent_entity = get_torrent_entity(self.env, peer_entity.get_component(PeerEC).info_hash)
 			if torrent_entity and not _has_metadata(torrent_entity):
 				continue  # this peer is the magnet's only metadata source
 
@@ -192,7 +191,7 @@ class PeerSystem(System):
 
 		download = self.env.config.download_peers_limit
 		upload = self.env.config.upload_peers_limit
-		for peer_entity in iterate_peers(self.env, get_info_hash(torrent_entity)):
+		for peer_entity in iterate_connected_peers(self.env, get_info_hash(torrent_entity)):
 			if _in_download_queue(peer_entity):
 				download -= 1
 			if _in_upload_queue(peer_entity):
@@ -208,7 +207,7 @@ class PeerSystem(System):
 		download_queue: List[Tuple[int, Entity]] = []
 		upload_queue: List[Tuple[int, Entity]] = []
 
-		for peer_entity in iterate_torrent_peers(self.env, get_info_hash(torrent_entity)):
+		for peer_entity in iterate_peers(self.env, get_info_hash(torrent_entity)):
 			if peer_entity.has_component(PeerConnectionEC) or peer_entity.has_component(PeerConnectionInProgressEC):
 				continue
 
@@ -356,17 +355,17 @@ class PeerSystem(System):
 		info_hash = get_info_hash(torrent_entity)
 		logger.debug("Disconnect uninterested peers on torrent complete")
 		_disconnect_peers(
-			p for p in iterate_peers(self.env, info_hash)
+			p for p in iterate_connected_peers(self.env, info_hash)
 			if not p.has_component(RemoteInterestedEC)
 		)
 
 	async def _on_torrent_stop(self, torrent_entity: Entity):
 		info_hash = get_info_hash(torrent_entity)
 		logger.debug("Disconnect all peers on torrent stop")
-		_disconnect_peers(iterate_peers(self.env, info_hash))
+		_disconnect_peers(iterate_connected_peers(self.env, info_hash))
 
 	async def _on_torrent_remove(self, info_hash: bytes):
-		for peer_entity in list(iterate_torrent_peers(self.env, info_hash)):
+		for peer_entity in list(iterate_peers(self.env, info_hash)):
 			_mark_to_remove(peer_entity)
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):

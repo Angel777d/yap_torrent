@@ -23,7 +23,7 @@ from yap_torrent.components.torrent_ec import (
 from yap_torrent.components.tracker_ec import TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
-from yap_torrent.systems import get_torrent_name, is_torrent_complete, iterate_peers
+from yap_torrent.systems import get_torrent_name, is_torrent_complete, iterate_connected_peers
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ DEFAULT_FIELDS = (
 	"errorString",
 	"downloadDir",
 )
+
 
 def _torrent_info(entity: Entity) -> Optional[TorrentInfo]:
 	if entity.has_component(TorrentInfoEC):
@@ -116,7 +117,7 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 	percent = info.calculate_downloaded(torrent_ec.bitfield.have_num) if info else 0.0
 	downloaded = stats.downloaded
 	uploaded = stats.uploaded
-	peers = list(iterate_peers(env, torrent_ec.info_hash))
+	peers = list(iterate_connected_peers(env, torrent_ec.info_hash))
 	path_ec = entity.get_component(TorrentPathEC)
 
 	# Every getter is lazy so we only compute what the client asked for.
