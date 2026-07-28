@@ -7,6 +7,7 @@ from yap_torrent.components.peer_ec import (
 	FullPeerEC,
 	LocalInterestedEC,
 	PeerConnectionEC,
+	PeerEC,
 	RemoteInterestedEC,
 )
 from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentEC, TorrentInfoEC
@@ -37,6 +38,7 @@ class InterestedSystem(System):
 		self.add_listener("peer.message", self.__on_message)
 		self.add_listener("piece.complete", self.__on_piece_complete)
 		self.add_listener("peer.connected", self.__on_peer_connected)
+		self.add_listener("peer.disconnected", self._on_peer_disconnected)
 		self.add_listener("action.torrent.stop", self._on_torrent_stop)
 		self.add_listener("action.torrent.start", self._on_torrent_start)
 
@@ -64,7 +66,8 @@ class InterestedSystem(System):
 		if message.message_id not in self._INTERESTED_MESSAGES:
 			return
 
-		remote_bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
+		peer_ec = peer_entity.get_component(PeerEC)
+		remote_bitfield = peer_ec.remote_bitfield
 		message_id = msg.MessageId(message.message_id)
 
 		if message_id == msg.MessageId.HAVE:
@@ -102,9 +105,9 @@ class InterestedSystem(System):
 	async def update_local_interested(self, torrent_entity: Entity, peer_entity: Entity):
 		if not torrent_entity.has_component(TorrentInfoEC):
 			return
-		remote_bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
+		remote_bitfield = peer_entity.get_component(PeerEC).remote_bitfield
 		want = len(interested_pieces(torrent_entity, remote_bitfield)) > 0
-		# respect the download-peers limit when declaring new interest
+		# LocalInterestedEC is half the download queue, so this counter is what caps it
 		if want and not peer_entity.has_component(LocalInterestedEC):
 			if self._interested_count(get_info_hash(torrent_entity)) >= self.env.config.download_peers_limit:
 				return
@@ -114,6 +117,16 @@ class InterestedSystem(System):
 		return sum(
 			1 for p in iterate_peers(self.env, info_hash) if p.has_component(LocalInterestedEC)
 		)
+
+	async def _on_peer_disconnected(self, torrent_entity: Entity, peer_entity: Entity):
+		"""Offer the freed download slot to the peers we still hold.
+
+		Otherwise it is only refilled when some other peer happens to send a HAVE/BITFIELD.
+		"""
+		for other in list(iterate_peers(self.env, get_info_hash(torrent_entity))):
+			if other is peer_entity or other.has_component(LocalInterestedEC):
+				continue
+			await self.update_local_interested(torrent_entity, other)
 
 	async def _set_local_interested(self, torrent_entity: Entity, peer_entity: Entity, want: bool):
 		if not peer_entity.has_component(PeerConnectionEC):

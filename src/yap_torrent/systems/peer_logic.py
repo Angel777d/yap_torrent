@@ -1,4 +1,4 @@
-"""Pure, network-free peer logic for Part C — unit-tested in isolation.
+"""Pure, network-free peer logic — unit-tested in isolation.
 
 Two concerns live here so systems stay thin and the tricky rules are testable:
 - the connection-attempt state machine (`PeerState` transitions + retry schedule);

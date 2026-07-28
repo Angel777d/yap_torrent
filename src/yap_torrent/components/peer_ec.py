@@ -30,12 +30,18 @@ class PeerEC(EntityHashComponent):
 		self.fail_count: int = 0
 		self.last_attempt: float = 0.0
 
+		self.remote_bitfield: Bitfield = Bitfield()
+
 	@staticmethod
 	def make_hash(info_hash: bytes, host: str, port: int) -> Hashable:
 		return info_hash, host, port
 
+	def key(self) -> Hashable:
+		"""Stable identity, unlike id(), which entity reuse invalidates."""
+		return self.make_hash(self.info_hash, self.peer_info.host, self.peer_info.port)
+
 	def __hash__(self):
-		return hash(self.make_hash(self.info_hash, self.peer_info.host, self.peer_info.port))
+		return hash(self.key())
 
 
 # -- queue marker pairs (Part C) -------------------------------------------
@@ -61,11 +67,6 @@ class RemoteInterestedEC(EntityComponent):
 
 class LocalUnchokedEC(EntityComponent):
 	"""We have unchoked this peer (we serve it)."""
-	pass
-
-
-class FreePeerEC(EntityComponent):
-	"""Download-queue peer that is ready to be assigned its next piece (Part D)."""
 	pass
 
 
@@ -115,7 +116,9 @@ class PeerConnectionEC(EntityComponent):
 
 		self.reserved: bytes = reserved
 
-		self.remote_bitfield: Bitfield = Bitfield()
+		# when this peer was last in a queue, so a productive peer that drops out of one
+		# gets the full idle timeout to re-qualify rather than being judged on connect time
+		self.last_queue_time: float = time.monotonic()
 
 		# blocks we have requested from this peer and are still awaiting (pipeline)
 		self.requested: set = set()

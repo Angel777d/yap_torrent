@@ -24,8 +24,6 @@ logger = logging.getLogger(__name__)
 
 PieceToSave = Tuple[InfoHash, TorrentInfo, int, bytes]
 
-MAX_PIECES = 100  # TODO: move to config
-
 
 class PieceSystem(TimeSystem):
 
@@ -58,23 +56,23 @@ class PieceSystem(TimeSystem):
 
 	def _cleanup(self):
 		ds = self.env.data_storage
+		max_cached = self.env.config.max_cached_pieces
 		total = len(ds.get_collection(PieceEC))
-		if total <= MAX_PIECES:
+		if total <= max_cached:
 			return
 
-		# evict idle cached pieces: complete data, TTL expired, not being uploaded or downloaded
+		ttl = self.env.config.piece_cache_ttl
 		evictable = sorted(
 			(
 				e for e in ds.get_collection(PieceTtlEC)
 				if e.has_component(CompletePieceDataEC)
 				and not e.has_component(PieceDownloadProgressEC)
 				and not e.has_component(UploadRequestedEC)
-				and e.get_component(PieceTtlEC).can_remove()
+				and e.get_component(PieceTtlEC).can_remove(ttl)
 			),
 			key=lambda e: e.get_component(PieceTtlEC).last_update,
 		)
-		to_remove = evictable[:total - MAX_PIECES]
-		for entity in to_remove:
+		for entity in evictable[:total - max_cached]:
 			ds.remove_entity(entity)
 
 	async def _on_piece_complete(self, torrent_entity: Entity, piece_entity: Entity):

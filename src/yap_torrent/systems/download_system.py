@@ -4,7 +4,7 @@ from typing import Dict, Generator, Optional, Set
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerStatsEC, RemoteUnchokedEC
+from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerStatsEC, RemoteUnchokedEC
 from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceDownloadProgressEC, PieceEC, PieceTtlEC
 from yap_torrent.components.torrent_ec import ActiveTorrentEC, TorrentEC, TorrentInfoEC, TorrentStatsEC
 from yap_torrent.env import Env
@@ -92,17 +92,16 @@ def _find_rarest(env: Env, torrent_entity: Entity, pieces: Set[int]) -> int:
 	info_hash = get_info_hash(torrent_entity)
 	counters: Dict[int, int] = {index: 0 for index in pieces}
 	for peer_entity in env.data_storage.get_collection(PeerConnectionEC):
-		peer_ec = peer_entity.get_component(PeerConnectionEC)
-		if peer_ec.info_hash != info_hash:
+		if peer_entity.get_component(PeerConnectionEC).info_hash != info_hash:
 			continue
-		for index in peer_ec.remote_bitfield.intersection(pieces):
+		for index in peer_entity.get_component(PeerEC).remote_bitfield.intersection(pieces):
 			counters[index] = counters.get(index, 0) + 1
 
 	return sorted(counters.items(), key=lambda x: x[1]).pop(0)[0]
 
 
 def _next_block(env: Env, torrent_entity: Entity, peer_entity: Entity) -> Optional[PieceBlockInfo]:
-	remote_bitfield = peer_entity.get_component(PeerConnectionEC).remote_bitfield
+	remote_bitfield = peer_entity.get_component(PeerEC).remote_bitfield
 	interested = interested_pieces(torrent_entity, remote_bitfield)
 	if not interested:
 		return None

@@ -172,8 +172,7 @@ class DHTSystem(System, DHTServerProtocolHandler):
 
 		found_peers_count = 0
 		while True:
-			# TODO: move to config
-			if found_peers_count > 20:
+			if found_peers_count > self.env.config.dht_peers_per_lookup:
 				break
 
 			# find nodes

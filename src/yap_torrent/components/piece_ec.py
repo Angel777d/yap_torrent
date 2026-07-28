@@ -82,9 +82,7 @@ class UploadRequestedEC(EntityComponent):
 
 
 class PieceTtlEC(EntityComponent):
-	"""Eviction TTL for an idle cached piece (replaces PiecePendingRemoveEC)."""
-
-	REMOVE_TIMEOUT = 15  # TODO: move to config
+	"""Eviction TTL for an idle cached piece."""
 
 	def __init__(self) -> None:
 		super().__init__()
@@ -93,8 +91,8 @@ class PieceTtlEC(EntityComponent):
 	def touch(self):
 		self.__last_update = time.monotonic()
 
-	def can_remove(self) -> bool:
-		return time.monotonic() - self.__last_update > self.REMOVE_TIMEOUT
+	def can_remove(self, ttl: float) -> bool:
+		return time.monotonic() - self.__last_update > ttl
 
 	@property
 	def last_update(self) -> float:

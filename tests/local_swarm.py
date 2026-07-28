@@ -38,6 +38,7 @@ from yap_torrent.systems import (
 	get_torrent_entity,
 	is_torrent_complete,
 	iterate_files,
+	iterate_peer_entities,
 	iterate_peers,
 )
 from yap_torrent.systems.choke_system import ChokeSystem
@@ -463,6 +464,95 @@ async def scenario_peer_drop_recovery(work: Path) -> bool:
 	return ok
 
 
+async def scenario_uninteresting_peer_released(work: Path) -> bool:
+	"""Two complete seeds connect, enter neither queue, and are released on the idle timeout.
+
+	Neither can give the other anything, so the connection never joins a queue and the
+	timeout reaps it. The bitfield each learned meanwhile is what stops them from dialling
+	each other again afterwards.
+	"""
+	content = __import__("os").urandom(20000)
+	meta = single_file(content)
+	ih = meta.make_info_hash()
+
+	seed_a = Instance(6891, work / "s10_a", b"-PY0001-SEEDERA00010")
+	seed_b = Instance(6892, work / "s10_b", b"-PY0001-SEEDERB00010")
+	for inst in (seed_a, seed_b):
+		write_files(inst.env.config.download_folder, meta.info, content)
+	await seed_a.start(); await seed_b.start()
+
+	for inst in (seed_a, seed_b):
+		entity = create_torrent_entity(inst.env, ih, inst.env.config.download_folder, {}, meta.info)
+		for i in range(meta.info.pieces_num):
+			entity.get_component(TorrentEC).bitfield.set_index(i)
+
+	# the default is 30s of wall clock; shorten it so the scenario stays quick
+	for inst in (seed_a, seed_b):
+		inst.env.config.peer_idle_timeout = 0.5
+
+	await settle([seed_a, seed_b], 3)
+	seed_a.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6892)])
+
+	# they must genuinely connect and exchange bitfields first...
+	learned = await run_until(
+		[seed_a, seed_b],
+		lambda: (lambda p: p is not None and p.get_component(PeerEC).remote_bitfield.have_num
+		         >= meta.info.pieces_num)(find_peer_entity(seed_a.env, ih, "127.0.0.1", 6892)),
+		rounds=60, sleep=0.03)
+
+	# ...then the purposeless connection is released on both sides
+	released = await run_until(
+		[seed_a, seed_b],
+		lambda: not list(iterate_peers(seed_a.env, ih)) and not list(iterate_peers(seed_b.env, ih)),
+		rounds=60, sleep=0.03)
+
+	# and stays released — a peer useful to neither side is not dialled again
+	await settle([seed_a, seed_b], 20, sleep=0.03)
+	stayed_off = not list(iterate_peers(seed_a.env, ih))
+
+	ok = learned and released and stayed_off
+	await seed_a.stop(); await seed_b.stop()
+	return ok
+
+
+async def scenario_torrent_remove_clears_swarm(work: Path) -> bool:
+	"""Removing a torrent must disconnect its peers and delete their entities."""
+	content = __import__("os").urandom(20000)
+	meta = single_file(content)
+	ih = meta.make_info_hash()
+
+	seeder = Instance(6901, work / "s11_seed", b"-PY0001-SEEDER000011")
+	leecher = Instance(6902, work / "s11_leech", b"-PY0001-LEECHER00011")
+	write_files(seeder.env.config.download_folder, meta.info, content)
+	await seeder.start(); await leecher.start()
+
+	seed = create_torrent_entity(seeder.env, ih, seeder.env.config.download_folder, {}, meta.info)
+	for i in range(meta.info.pieces_num):
+		seed.get_component(TorrentEC).bitfield.set_index(i)
+	create_torrent_entity(leecher.env, ih, leecher.env.config.download_folder, {}, meta.info)
+
+	await settle([seeder, leecher], 3)
+	leecher.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6901)])
+
+	connected = await run_until(
+		[seeder, leecher], lambda: bool(list(iterate_peers(leecher.env, ih))), rounds=60, sleep=0.03)
+
+	await asyncio.gather(*leecher.env.event_bus.dispatch("request.torrent.remove", ih))
+	await settle([seeder, leecher], 3)
+
+	# no connections, no peer entities, and nothing redials the vanished torrent
+	cleared = (not list(iterate_peers(leecher.env, ih))
+	           and not list(iterate_peer_entities(leecher.env, ih))
+	           and len(leecher.env.data_storage.get_collection(PeerEC)) == 0)
+
+	await settle([seeder, leecher], 10, sleep=0.03)
+	stayed_clear = not list(iterate_peer_entities(leecher.env, ih))
+
+	ok = connected and cleared and stayed_clear
+	await leecher.stop(); await seeder.stop()
+	return ok
+
+
 SCENARIOS = [
 	("basic transfer", scenario_basic_transfer),
 	("paused seeder uploads nothing", scenario_paused_seeder),
@@ -473,6 +563,8 @@ SCENARIOS = [
 	("DHT discovery (announce -> discover -> download)", scenario_dht_discovery),
 	("queue promotion starts a queued torrent", scenario_queue_promotion),
 	("peer drop mid-download recovers via another peer", scenario_peer_drop_recovery),
+	("uninteresting peer released on idle, then not redialled", scenario_uninteresting_peer_released),
+	("torrent removal disconnects and clears its peers", scenario_torrent_remove_clears_swarm),
 ]
 
 

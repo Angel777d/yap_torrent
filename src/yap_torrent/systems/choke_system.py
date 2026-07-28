@@ -6,6 +6,7 @@ from angelovich.core.DataStorage import Entity
 from yap_torrent.components.peer_ec import (
 	LocalUnchokedEC,
 	PeerConnectionEC,
+	PeerEC,
 	PeerStatsEC,
 	RemoteInterestedEC,
 	RemoteUnchokedEC,
@@ -77,7 +78,7 @@ class ChokeSystem(System):
 			stats = peer_entity.get_component(PeerStatsEC)
 			stats.sample_rate(now)
 			candidates.append(ChokeCandidate(
-				key=id(peer_entity),
+				key=peer_entity.get_component(PeerEC).key(),
 				interested=peer_entity.has_component(RemoteInterestedEC),
 				reciprocated=stats.downloaded > 0,  # they gave us data at least once
 				rate=stats.up_rate,  # our serving rate to them
@@ -85,7 +86,7 @@ class ChokeSystem(System):
 
 		keep = select_unchoked(candidates, limit, seeding)
 		for peer_entity in peers:
-			await self._set_unchoked(torrent_entity, peer_entity, id(peer_entity) in keep)
+			await self._set_unchoked(torrent_entity, peer_entity, peer_entity.get_component(PeerEC).key() in keep)
 
 	async def _set_unchoked(self, torrent_entity: Entity, peer_entity: Entity, want: bool):
 		if not peer_entity.has_component(PeerConnectionEC):

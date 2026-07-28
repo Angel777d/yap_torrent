@@ -59,13 +59,25 @@ class Config:
 		# max torrents that may initiate new download piece requests at once
 		self.max_active_downloads: int = int(data.get("max_active_downloads", 5))
 
-		# per-torrent peer queue limits
+		# per-torrent peer queue limits, and the only cap on established connections
 		self.download_peers_limit: int = int(data.get("download_peers_limit", 8))
 		self.upload_peers_limit: int = int(data.get("upload_peers_limit", 4))
+
+		# seconds a connection may stay outside both queues before it is dropped
+		self.peer_idle_timeout: float = float(data.get("peer_idle_timeout", 30))
+		# seconds before redialling a peer that only *might* want our pieces
+		self.upload_retry_cooldown: float = float(data.get("upload_retry_cooldown", 300))
+
 		# global known-peers store
 		self.peers_file: str = data.get("peers_file", f"{self.data_folder}/peers.dat")
 
+		# completed pieces held in memory, and how long an idle one survives before eviction
+		self.max_cached_pieces: int = int(data.get("max_cached_pieces", 100))
+		self.piece_cache_ttl: float = float(data.get("piece_cache_ttl", 15))
+
 		self.dht_port: int = int(data.get("dht_port", 6999))
+		# peers to collect from a single DHT get_peers walk before stopping
+		self.dht_peers_per_lookup: int = int(data.get("dht_peers_per_lookup", 20))
 		self._data = data
 
 	def _save(self):
