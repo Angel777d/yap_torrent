@@ -258,7 +258,6 @@ class TorrentPriorityEC(EntityComponent):
 
 	def __init__(self, priority: int = 0) -> None:
 		super().__init__()
-		# TODO: claude review: store as persistent data.
 		self.priority: int = priority
 
 

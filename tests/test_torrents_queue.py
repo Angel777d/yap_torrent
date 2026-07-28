@@ -66,6 +66,25 @@ def test_iterate_filters_validating_inactive_complete_and_no_priority():
 	assert set(iterate_torrents_to_download(env.data_storage)) == {good}
 
 
+# --- restored queue position -----------------------------------------------
+def test_a_restored_priority_survives_the_torrent_added_hook():
+	# LocalDataSystem re-attaches the saved TorrentPriorityEC before TorrentSystem sees the
+	# torrent; without the guard the hook would overwrite it with "append to the end"
+	async def run():
+		env = _env(limit=1)
+		first, restored = _make(env, "first"), _make(env, "restored")
+		restored.add_component(TorrentPriorityEC(0))  # saved as the head of the queue
+
+		system = TorrentSystem(env)
+		await system.start()
+
+		assert restored.get_component(TorrentPriorityEC).priority == 0
+		assert first.get_component(TorrentPriorityEC).priority != 0
+		assert _active(first, restored) == [restored]  # the restored one holds the window
+
+	asyncio.run(run())
+
+
 # --- active window via TorrentSystem (event-driven) ------------------------
 def test_active_window_marks_top_n_by_priority():
 	async def run():

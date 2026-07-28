@@ -63,9 +63,10 @@ class TorrentSystem(System):
 		return await super().stop()
 
 	async def __on_torrent_added(self, entity: Entity, component: TorrentInfoEC):
-		# add to the end of the priority queue
-		initial_priority = len(self.env.data_storage.get_collection(TorrentPriorityEC))
-		entity.add_component(TorrentPriorityEC(initial_priority))
+		# a restored torrent already carries its saved queue position; a new one goes last
+		if not entity.has_component(TorrentPriorityEC):
+			initial_priority = len(self.env.data_storage.get_collection(TorrentPriorityEC))
+			entity.add_component(TorrentPriorityEC(initial_priority))
 
 		await self._update_active_download_queue()
 

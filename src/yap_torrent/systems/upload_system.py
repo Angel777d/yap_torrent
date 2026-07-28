@@ -5,7 +5,7 @@ from typing import Optional
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.common import IdleEC
-from yap_torrent.components.peer_ec import LocalUnchokedEC, PeerConnectionEC, PeerStatsEC
+from yap_torrent.components.peer_ec import LocalUnchokedEC, PeerConnectionEC, PeerRateEC, PeerStatsEC
 from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceEC, UploadRequestedEC
 from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentState, TorrentStatsEC
 from yap_torrent.env import Env
@@ -83,6 +83,7 @@ async def _process_request_message(env: Env, peer_entity: Entity, torrent_entity
 	await connection.send(msg.piece(index, begin, data))
 
 	peer_entity.get_component(PeerStatsEC).add_uploaded(length)
+	peer_entity.get_component(PeerRateEC).add_uploaded(length)
 	torrent_entity.get_component(TorrentStatsEC).update_uploaded(length)
 
 

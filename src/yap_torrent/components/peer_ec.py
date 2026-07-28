@@ -27,11 +27,9 @@ class PeerEC(EntityHashComponent):
 		self.info_hash: bytes = info_hash
 		self.peer_info: PeerInfo = peer_info
 
-		# TODO: claude review: move dynamic values to PeerStateEC
 		self.state: PeerState = state
 		self.fail_count: int = 0
 		self.last_attempt: float = 0.0
-		# TODO: claude review: reset remote_bitfield on new connection established
 		self.remote_bitfield: Bitfield = Bitfield()
 
 	@staticmethod
@@ -67,13 +65,21 @@ class LocalUnchokedEC(EntityComponent):
 
 
 class PeerStatsEC(EntityComponent):
-	"""Cumulative bytes + rolling rate to/from this peer, for the choke algorithm."""
-
-	# TODO: claude review: looks we dont need this for choke algorithm. just (upload/download) rate is good enough
 	def __init__(self) -> None:
 		super().__init__()
 		self.uploaded: int = 0
 		self.downloaded: int = 0
+
+	def add_uploaded(self, n: int) -> None:
+		self.uploaded += n
+
+	def add_downloaded(self, n: int) -> None:
+		self.downloaded += n
+
+
+class PeerRateEC(EntityComponent):
+	def __init__(self) -> None:
+		super().__init__()
 		self.up_rate: float = 0.0
 		self.down_rate: float = 0.0
 		self._up_window: int = 0
@@ -81,11 +87,9 @@ class PeerStatsEC(EntityComponent):
 		self._last_sample: float = time.monotonic()
 
 	def add_uploaded(self, n: int) -> None:
-		self.uploaded += n
 		self._up_window += n
 
 	def add_downloaded(self, n: int) -> None:
-		self.downloaded += n
 		self._down_window += n
 
 	def sample_rate(self, now: float) -> None:

@@ -48,12 +48,6 @@ class FileSystem(System):
 		info = torrent_entity.get_component(TorrentInfoEC).info
 		info_hash = get_info_hash(torrent_entity)
 
-		# TODO: claude review: do we need this?  TorrentInfoEC can be added to the entity just once
-		# idempotency guard: never materialize a torrent's files twice
-		if next(iterate_files(self.env, info_hash), None) is not None:
-			logger.warning("Torrent %s already has file entities; review lifecycle", info_hash.hex())
-			return
-
 		piece_length = info.piece_length
 
 		# apply per-file selection restored from disk, if any

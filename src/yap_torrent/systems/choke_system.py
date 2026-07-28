@@ -7,6 +7,7 @@ from yap_torrent.components.peer_ec import (
 	LocalUnchokedEC,
 	PeerConnectionEC,
 	PeerEC,
+	PeerRateEC,
 	PeerStatsEC,
 	RemoteInterestedEC,
 	RemoteUnchokedEC,
@@ -34,6 +35,7 @@ class ChokeSystem(System):
 	async def start(self):
 		self.add_listener("peer.message", self.__on_message)
 		self.add_listener("peer.connected", self.__on_peer_connected)
+		self.add_listener("peer.disconnected", self._on_peer_disconnected)
 		self.add_listener("action.torrent.stop", self._on_torrent_stop)
 
 	async def _update(self, delta_time: float):
@@ -48,6 +50,11 @@ class ChokeSystem(System):
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity) -> None:
 		# unchoke straight away if the upload queue still has room
 		await self._recompute(torrent_entity, time.monotonic())
+
+	async def _on_peer_disconnected(self, _torrent_entity: Entity, peer_entity: Entity):
+		for component in (LocalUnchokedEC, RemoteUnchokedEC):
+			if peer_entity.has_component(component):
+				peer_entity.remove_component(component)
 
 	async def _on_torrent_stop(self, torrent_entity: Entity):
 		for peer_entity in list(iterate_peers(self.env, get_info_hash(torrent_entity))):
@@ -75,13 +82,15 @@ class ChokeSystem(System):
 		peers = list(iterate_peers(self.env, info_hash))
 		candidates = []
 		for peer_entity in peers:
-			stats = peer_entity.get_component(PeerStatsEC)
-			stats.sample_rate(now)
+			rates = peer_entity.get_component(PeerRateEC)
+			rates.sample_rate(now)
 			candidates.append(ChokeCandidate(
 				key=peer_entity.get_component(PeerEC).key(),
 				interested=peer_entity.has_component(RemoteInterestedEC),
-				reciprocated=stats.downloaded > 0,  # they gave us data at least once
-				rate=stats.up_rate,  # our serving rate to them
+				# totals outlive the connection, so a peer that fed us before a reconnect
+				# still counts as having reciprocated
+				reciprocated=peer_entity.get_component(PeerStatsEC).downloaded > 0,
+				rate=rates.up_rate,  # our serving rate to them
 			))
 
 		keep = select_unchoked(candidates, limit, seeding)

@@ -15,8 +15,8 @@ from yap_torrent.components.peer_ec import (
 	PeerConnectionEC,
 	PeerDisconnectedEC,
 	PeerEC,
+	PeerRateEC,
 	PeerState,
-	PeerStatsEC,
 	RemoteInterestedEC,
 	RemoteUnchokedEC, PeerPendingRemoveEC,
 )
@@ -46,20 +46,16 @@ LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 
 MAX_CANDIDATES_PER_TICK = 10
 
-# TODO: claude review: components have to be managed by related systems. LocalInterestedEC, RemoteUnchokedEC etc have to be removed by Choke/Interested systems
-# TODO: claude review: PeerStatsEC looks like a whole peer lifetime component. Upload/download speed have to be moved to own component
-
-# Components attached only while a peer is connected — cleared on disconnect (PeerEC stays).
-# Two deliberate exclusions:
+# What PeerSystem owns and clears on disconnect. The queue markers are NOT here — each is
+# released by the system that sets it, on peer.disconnected (InterestedSystem for the
+# interest pair, ChokeSystem for the choke pair). Also excluded:
 #   PeerConnectingEC — owned by the in-flight _connect task; stripping it early would let
 #     _connect_to_peers dial a peer that is already being dialled.
-#   IdleEC — created with the peer entity and touched on each connect, so it lives as long
-#     as PeerEC does. Removing it here would crash the next _add_peer, since add_known_peer
-#     only attaches it to entities it creates.
+#   IdleEC, PeerStatsEC — created with the peer entity and kept for its whole life, so that
+#     idle timing and byte totals survive a reconnect. add_known_peer only attaches them to
+#     entities it creates, so removing them here would break the next connection.
 _CONNECTION_COMPONENTS = (
-	PeerConnectionEC, PeerStatsEC,
-	LocalInterestedEC, RemoteUnchokedEC,
-	RemoteInterestedEC, LocalUnchokedEC,
+	PeerConnectionEC, PeerRateEC,
 )
 
 
@@ -305,7 +301,8 @@ class PeerSystem(System):
 			connection.close()
 			return
 
-		peer_info = peer_entity.get_component(PeerEC).peer_info
+		peer_ec = peer_entity.get_component(PeerEC)
+		peer_info = peer_ec.peer_info
 
 		# send a BITFIELD message first
 		local_bitfield = torrent_entity.get_component(TorrentEC).bitfield
@@ -320,8 +317,11 @@ class PeerSystem(System):
 
 		# attach the live connection to the (persistent) peer entity
 		peer_entity.add_component(PeerConnectionEC(info_hash, peer_info, connection, reserved))
-		peer_entity.add_component(PeerStatsEC())
+		peer_entity.add_component(PeerRateEC())
 		peer_entity.get_component(IdleEC).touch()
+		# what it had last time is only a guess now — it may have dropped the data, and a peer
+		# holding nothing sends no BITFIELD to correct us. Re-learn from this connection.
+		peer_ec.remote_bitfield.reset(set())
 
 		await asyncio.gather(*self.env.event_bus.dispatch("peer.connected", torrent_entity, peer_entity))
 

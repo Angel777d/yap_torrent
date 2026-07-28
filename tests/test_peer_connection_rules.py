@@ -15,7 +15,9 @@ from yap_torrent.components.peer_ec import (
 	PeerConnectionEC,
 	PeerDisconnectedEC,
 	PeerEC,
+	PeerRateEC,
 	PeerState,
+	PeerStatsEC,
 	RemoteInterestedEC,
 	RemoteUnchokedEC,
 )
@@ -53,6 +55,7 @@ def _attach_connection(peer_entity) -> _FakeConnection:
 	"""Mirror what PeerSystem._add_peer does to a peer that just connected."""
 	connection = _FakeConnection()
 	peer_entity.add_component(PeerConnectionEC(b"h" * 20, PeerInfo("127.0.0.1", 1), connection, bytes(8)))
+	peer_entity.add_component(PeerRateEC())
 	peer_entity.get_component(IdleEC).touch()  # created with the entity, never re-added
 	return connection
 
@@ -236,6 +239,27 @@ def test_connecting_marker_is_not_torn_down_with_the_connection():
 	# _connect_to_peers dial a peer that is already being dialled
 	from yap_torrent.systems.peer_system import _CONNECTION_COMPONENTS
 	assert PeerConnectingEC not in _CONNECTION_COMPONENTS
+
+
+def test_byte_totals_outlive_the_connection_but_rates_do_not():
+	# a reconnect must not erase what the peer has given us — choke reads the total to
+	# decide whether it ever reciprocated. Rates are the opposite: carried across a gap
+	# they would describe a link that no longer exists.
+	from yap_torrent.systems.peer_system import _CONNECTION_COMPONENTS
+	assert PeerStatsEC not in _CONNECTION_COMPONENTS
+	assert PeerRateEC in _CONNECTION_COMPONENTS
+
+	env, _, peer = _torrent_and_peer()
+	_attach_connection(peer)
+	peer.get_component(PeerStatsEC).add_downloaded(4096)
+	peer.get_component(PeerRateEC).add_downloaded(4096)
+
+	for component in _CONNECTION_COMPONENTS:  # what _process_disconnected strips
+		if peer.has_component(component):
+			peer.remove_component(component)
+
+	assert peer.get_component(PeerStatsEC).downloaded == 4096  # still reciprocated
+	assert not peer.has_component(PeerRateEC)                  # stale rate is gone
 
 
 def test_idle_marker_outlives_the_connection():

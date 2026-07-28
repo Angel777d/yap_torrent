@@ -106,10 +106,10 @@ class InterestedSystem(System):
 		)
 
 	async def _on_peer_disconnected(self, torrent_entity: Entity, peer_entity: Entity):
-		"""Offer the freed download slot to the peers we still hold.
+		for component in (LocalInterestedEC, RemoteInterestedEC):
+			if peer_entity.has_component(component):
+				peer_entity.remove_component(component)
 
-		Otherwise it is only refilled when some other peer happens to send a HAVE/BITFIELD.
-		"""
 		for other in list(iterate_peers(self.env, get_info_hash(torrent_entity))):
 			if other is peer_entity or other.has_component(LocalInterestedEC):
 				continue
