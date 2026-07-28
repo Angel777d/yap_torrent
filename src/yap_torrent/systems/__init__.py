@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Dict, Generator
+from typing import Optional, Dict, Generator, Iterator
 
 from angelovich.core.DataStorage import Entity
 
@@ -77,6 +77,9 @@ def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
 			continue
 		if e.get_component(PeerEC).info_hash == info_hash:
 			yield e
+
+def iterate_active_torrents(env: Env) -> Generator[Entity]:
+	return (e for e in env.data_storage.get_collection(TorrentEC) if is_torrent_active(e))
 
 
 def find_peer_entity(env: Env, info_hash: bytes, host: str, port: int) -> Optional[Entity]:

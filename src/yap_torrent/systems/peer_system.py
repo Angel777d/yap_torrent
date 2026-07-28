@@ -1,10 +1,11 @@
 import asyncio
 import logging
+import math
 import time
 from asyncio import StreamReader, StreamWriter, Server
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, Optional, Tuple
 
-from angelovich.core.DataStorage import Entity
+from angelovich.core.DataStorage import Entity, DataStorage
 
 import yap_torrent.protocol.connection as net
 from yap_torrent.components.common import IdleEC
@@ -21,7 +22,7 @@ from yap_torrent.components.peer_ec import (
 	RemoteUnchokedEC, PeerPendingRemoveEC,
 )
 from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentInfoEC, TorrentEC, TorrentStatsEC, \
-	TorrentState
+	TorrentState, TorrentPriorityEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield
@@ -34,8 +35,7 @@ from yap_torrent.systems import (
 	get_torrent_entity,
 	is_torrent_active,
 	iterate_peers,
-	iterate_connected_peers,
-)
+	iterate_connected_peers, )
 from yap_torrent.systems.intrest_system import interested_pieces
 from yap_torrent.systems.peer_logic import next_state_on_failure, should_attempt
 
@@ -46,14 +46,6 @@ LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 
 MAX_METADATA_CANDIDATES_PER_TICK = 10
 
-# What PeerSystem owns and clears on disconnect. The queue markers are NOT here — each is
-# released by the system that sets it, on peer.disconnected (InterestedSystem for the
-# interest pair, ChokeSystem for the choke pair). Also excluded:
-#   PeerConnectionInProgressEC — owned by the in-flight _connect task; stripping it early would let
-#     _connect_to_peers dial a peer that is already being dialled.
-#   IdleEC, PeerStatsEC — created with the peer entity and kept for its whole life, so that
-#     idle timing and byte totals survive reconnection. add_known_peer only attaches them to
-#     entities it creates, so removing them here would break the next connection.
 _CONNECTION_COMPONENTS = (
 	PeerConnectionEC, PeerRateEC,
 )
@@ -92,6 +84,15 @@ def upload_value(torrent_entity: Entity, peer_entity: Entity) -> int:
 
 def _has_metadata(torrent_entity: Entity) -> bool:
 	return torrent_entity.has_component(TorrentInfoEC)
+
+
+def _calculate_queue_sizes(ds: DataStorage) -> tuple[int, int]:
+	download = 0
+	upload = 0
+	for e in ds.get_collection(PeerConnectionEC):
+		download += _in_download_queue(e)
+		upload += _in_upload_queue(e)
+	return download, upload
 
 
 class PeerSystem(System):
@@ -167,73 +168,14 @@ class PeerSystem(System):
 
 	# -- outbound connections (state machine) ------------------------------
 	def _connect_to_peers(self):
-		ds = self.env.data_storage
-		my_peer_id = self.env.peer_id
 		now = time.monotonic()
+		my_peer_id = self.env.peer_id
 
-		for torrent_entity in ds.get_collection(TorrentEC):
-			if not is_torrent_active(torrent_entity):
-				continue
-
-			free_download, free_upload = self._free_slots(torrent_entity)
-			if free_download <= 0 and free_upload <= 0:
-				continue
-
-			for peer_entity in self._connect_candidates(torrent_entity, free_download, free_upload, now):
-				peer_entity.get_component(PeerEC).last_attempt = now
-				peer_entity.add_component(PeerConnectionInProgressEC())
-				self.add_task(self._connect(my_peer_id, get_info_hash(torrent_entity), peer_entity))
-
-	def _free_slots(self, torrent_entity: Entity) -> tuple[int, int]:
-		if not _has_metadata(torrent_entity):
-			# a magnet has no queues yet, so never report it as full
-			return self.env.config.download_peers_limit, self.env.config.upload_peers_limit
-
-		download = self.env.config.download_peers_limit
-		upload = self.env.config.upload_peers_limit
-		for peer_entity in iterate_connected_peers(self.env, get_info_hash(torrent_entity)):
-			if _in_download_queue(peer_entity):
-				download -= 1
-			if _in_upload_queue(peer_entity):
-				upload -= 1
-		return download, upload
-
-	def _connect_candidates(self, torrent_entity: Entity, free_download: int, free_upload: int,
-	                        now: float) -> List[Entity]:
-		has_metadata = _has_metadata(torrent_entity)
-		cooldown = self.env.config.upload_retry_cooldown
-
-		metadata: List[Entity] = []
-		download_queue: List[Tuple[int, Entity]] = []
-		upload_queue: List[Tuple[int, Entity]] = []
-
-		for peer_entity in iterate_peers(self.env, get_info_hash(torrent_entity)):
-			if peer_entity.has_component(PeerConnectionEC) or peer_entity.has_component(PeerConnectionInProgressEC):
-				continue
-
+		for peer_entity in calculate_candidates(self.env, now):
 			peer_ec = peer_entity.get_component(PeerEC)
-			if not should_attempt(peer_ec.state, peer_ec.last_attempt, now):
-				continue
-
-			if not has_metadata:
-				metadata.append(peer_entity)
-				continue
-
-			if free_download > 0:
-				download = download_value(torrent_entity, peer_entity)
-				if download > 0:
-					download_queue.append((download, peer_entity))
-
-			if free_upload > 0 and now - peer_ec.last_attempt >= cooldown:
-				upload = upload_value(torrent_entity, peer_entity)
-				if upload > 0:
-					upload_queue.append((upload, peer_entity))
-
-		download_queue.sort(key=lambda item: item[0], reverse=True)
-		upload_queue.sort(key=lambda item: item[0], reverse=True)
-
-		return list(set(e for _, e in download_queue[:max(free_download, 0)]).union(
-			e for _, e in upload_queue[:max(free_upload, 0)])) + metadata[:MAX_METADATA_CANDIDATES_PER_TICK]
+			peer_ec.last_attempt = now
+			peer_entity.add_component(PeerConnectionInProgressEC())
+			self.add_task(self._connect(my_peer_id, peer_ec.info_hash, peer_entity))
 
 	async def _connect(self, my_peer_id: bytes, info_hash: bytes, peer_entity: Entity):
 		peer_ec = peer_entity.get_component(PeerEC)
@@ -389,3 +331,65 @@ def _mark_to_remove(peer_entity: Entity):
 def _disconnect_peers(peers: Iterable[Entity]):
 	for peer_entity in peers:
 		_mark_disconnected(peer_entity)
+
+
+def calculate_candidates(env, now):
+	ds = env.data_storage
+	cooldown = env.config.upload_retry_cooldown
+	download_limit = env.config.download_peers_limit
+	upload_limit = env.config.upload_peers_limit
+
+	download_size, upload_size = _calculate_queue_sizes(ds)
+
+	download_candidates: list[tuple[int, Entity]] = []
+	upload_candidates: list[tuple[int, Entity]] = []
+	metadata_candidates: list[Entity] = []
+	for peer_entity in ds.get_collection(PeerEC):
+		if peer_entity.has_component(PeerPendingRemoveEC):
+			continue
+		if peer_entity.has_component(PeerConnectionEC):
+			continue
+		if peer_entity.has_component(PeerConnectionInProgressEC):
+			continue
+		if not should_attempt(peer_entity.get_component(PeerEC).state, peer_entity.get_component(PeerEC).last_attempt,
+		                      now):
+			continue
+
+		torrent_entity = get_torrent_entity(env, peer_entity.get_component(PeerEC).info_hash)
+		if not torrent_entity:
+			continue
+
+		if torrent_entity.get_component(TorrentStatsEC).state != TorrentState.Active:
+			continue
+
+		if not torrent_entity.has_component(TorrentInfoEC):
+			metadata_candidates.append(peer_entity)
+			continue
+
+		if download_size < download_limit:
+			dv = download_value(torrent_entity, peer_entity)
+			if dv:
+				download_candidates.append((dv, peer_entity))
+
+		if upload_size < upload_limit:
+			uv = upload_value(torrent_entity, peer_entity)
+			if uv > 0 and now - peer_entity.get_component(PeerEC).last_attempt >= cooldown:
+				upload_candidates.append((uv, peer_entity))
+
+	# torrent hash to priority map. Keyed off the priority collection, not TorrentInfoEC:
+	# TorrentSystem assigns the priority from an event-bus task, so a torrent can carry
+	# metadata for a tick or two before it has a queue position. math.inf sorts those last.
+	priorities = {e.get_component(TorrentEC).info_hash: e.get_component(TorrentPriorityEC).priority
+	              for e in ds.get_collection(TorrentPriorityEC)}
+
+	def download_sort(item: Tuple[int, Entity]):
+		value, e = item
+		return priorities.get(e.get_component(PeerEC).info_hash, math.inf), -value
+
+	return set(e for _, e in sorted(upload_candidates,
+	                                key=lambda e: e[0],
+	                                reverse=True)[:max(upload_limit - upload_size, 0)]
+	           ).union(e for _, e in sorted(download_candidates,
+	                                        key=download_sort)[
+		:max(download_limit - download_size, 0)]
+	                   ).union(metadata_candidates[:MAX_METADATA_CANDIDATES_PER_TICK])

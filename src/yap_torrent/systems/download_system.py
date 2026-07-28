@@ -8,7 +8,7 @@ from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerRateEC, PeerStatsEC, \
 	RemoteUnchokedEC
 from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceDownloadProgressEC, PieceEC
-from yap_torrent.components.torrent_ec import ActiveTorrentEC, TorrentEC, TorrentInfoEC, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
@@ -31,15 +31,6 @@ class DownloadSystem(System):
 		self.add_listener("peer.local.interested_changed", self._on_ready)
 		self.add_listener("peer.disconnected", self._on_peer_disconnected)
 
-	async def _update(self, delta_time: float):
-		# keep each active torrent's ready peers requesting. This is the safety net that
-		# starts downloads when a torrent is promoted into the active window and picks up
-		# blocks freed by a disconnect — cases with no peer event to react to. It's cheap
-		# when pipelines are full (_request_from_peer no-ops).
-		for torrent_entity in list(self.env.data_storage.get_collection(ActiveTorrentEC)):
-			for peer_entity in list(iterate_connected_peers(self.env, get_info_hash(torrent_entity))):
-				await _request_from_peer(self.env, torrent_entity, peer_entity)
-
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
 		if message.message_id != msg.MessageId.PIECE.value:
 			return
@@ -49,7 +40,18 @@ class DownloadSystem(System):
 		await _request_from_peer(self.env, torrent_entity, peer_entity)
 
 	async def _on_peer_disconnected(self, torrent_entity: Entity, peer_entity: Entity):
+		"""Free the departing peer's blocks, then offer them to whoever is left.
+
+		Not a stall fix — endgame keeps an in-queue peer fed with redundant blocks either
+		way. It just stops the freed blocks waiting for those redundant requests to drain
+		before anyone picks them up.
+		"""
 		_release_peer_blocks(self.env, torrent_entity, peer_entity)
+
+		for other in list(iterate_connected_peers(self.env, get_info_hash(torrent_entity))):
+			if other is peer_entity:
+				continue
+			await _request_from_peer(self.env, torrent_entity, other)
 
 
 def _iter_progress_pieces(env: Env, info_hash: bytes) -> Generator[Entity, None, None]:
@@ -152,9 +154,6 @@ def _next_block(env: Env, torrent_entity: Entity, peer_entity: Entity) -> Option
 
 
 async def _request_from_peer(env: Env, torrent_entity: Entity, peer_entity: Entity) -> None:
-	# only active-window torrents initiate new requests, and only from ready peers
-	if not torrent_entity.has_component(ActiveTorrentEC):
-		return
 	if not (peer_entity.has_component(LocalInterestedEC) and peer_entity.has_component(RemoteUnchokedEC)):
 		return
 	if not peer_entity.has_component(PeerConnectionEC):

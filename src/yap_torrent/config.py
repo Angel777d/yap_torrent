@@ -56,10 +56,8 @@ class Config:
 
 		self.max_connections = int(data.get("max_connections", 30))
 
-		# max torrents that may initiate new download piece requests at once
-		self.max_active_downloads: int = int(data.get("max_active_downloads", 5))
-
-		# per-torrent peer queue limits, and the only cap on established connections
+		# client-wide peer queue limits, and the only cap on established connections.
+		# Contested slots go to the peer whose torrent has the lower priority number.
 		self.download_peers_limit: int = int(data.get("download_peers_limit", 8))
 		self.upload_peers_limit: int = int(data.get("upload_peers_limit", 4))
 

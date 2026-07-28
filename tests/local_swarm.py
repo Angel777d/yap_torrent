@@ -392,9 +392,9 @@ async def scenario_dht_discovery(work: Path) -> bool:
 
 
 async def scenario_queue_promotion(work: Path) -> bool:
-	# leecher with two torrents but max_active_downloads=1. Torrent A is active and
-	# downloads; torrent B is queued (no ActiveTorrentEC) with a ready peer already
-	# connected. When A completes, B must be promoted and actually start downloading.
+	# Two torrents, one client-wide download slot. A is created first so it holds the lower
+	# priority number and takes the slot; B only gets dialled once A completes and releases
+	# it. Both must finish — a stuck promotion shows up as B never starting.
 	content_a = __import__("os").urandom(20000)
 	content_b = __import__("os").urandom(20000)
 	meta_a = single_file(content_a, "a.bin")
@@ -403,7 +403,7 @@ async def scenario_queue_promotion(work: Path) -> bool:
 
 	seeder = Instance(6871, work / "s8_seed", b"-PY0001-SEEDER000008")
 	leecher = Instance(6872, work / "s8_leech", b"-PY0001-LEECHER00008")
-	leecher.env.config.max_active_downloads = 1
+	leecher.env.config.download_peers_limit = 1
 	write_files(seeder.env.config.download_folder, meta_a.info, content_a)
 	write_files(seeder.env.config.download_folder, meta_b.info, content_b)
 	await seeder.start()

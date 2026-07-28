@@ -21,7 +21,12 @@ from yap_torrent.components.peer_ec import (
 	RemoteInterestedEC,
 	RemoteUnchokedEC,
 )
-from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentEC, TorrentInfoEC
+from yap_torrent.components.torrent_ec import (
+	TorrentDownloadProgressEC,
+	TorrentEC,
+	TorrentInfoEC,
+	TorrentPriorityEC,
+)
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
@@ -30,6 +35,7 @@ from yap_torrent.systems import add_known_peer, create_torrent_entity, get_info_
 from yap_torrent.systems.peer_logic import QUESTIONABLE_RETRY
 from yap_torrent.systems.peer_system import (
 	PeerSystem,
+	calculate_candidates,
 	_in_any_queue,
 	_in_download_queue,
 	_in_upload_queue,
@@ -92,6 +98,9 @@ def _torrent_and_peer(local_pieces=(), remote_pieces=(), wanted=None, pieces=4, 
 		return env, torrent, peer
 
 	torrent = create_torrent_entity(env, meta.make_info_hash(), Path("."), {}, meta.info)
+	# TorrentSystem attaches this to every torrent that gains metadata; candidate selection
+	# reads it to order the queue, so mirror it here
+	torrent.add_component(TorrentPriorityEC(0))
 	for index in local_pieces:
 		torrent.get_component(TorrentEC).bitfield.set_index(index)
 
@@ -166,9 +175,11 @@ def test_bitfield_survives_disconnect():
 
 
 # --- redial cooldown -------------------------------------------------------
-def _candidates(env, torrent, now, free_download=8, free_upload=4):
-	system = PeerSystem(env)
-	return system._connect_candidates(torrent, free_download, free_upload, now)
+def _candidates(env, _torrent, now, free_download=8, free_upload=4):
+	# selection is global now; the limits are read off config rather than passed in
+	env.config.download_peers_limit = free_download
+	env.config.upload_peers_limit = free_upload
+	return calculate_candidates(env, now)
 
 
 def test_upload_only_prospect_waits_for_the_cooldown():

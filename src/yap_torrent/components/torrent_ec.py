@@ -260,9 +260,3 @@ class TorrentPriorityEC(EntityComponent):
 		super().__init__()
 		self.priority: int = priority
 
-
-class ActiveTorrentEC(EntityComponent):
-	"""Marker on the top-N queue torrents that are allowed to initiate new
-	download piece requests. Managed by TorrentSystem's queue recompute.
-	"""
-	pass

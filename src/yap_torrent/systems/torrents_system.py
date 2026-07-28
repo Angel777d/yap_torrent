@@ -1,35 +1,17 @@
 import logging
-from typing import Iterator
 
-from angelovich.core.DataStorage import Entity, DataStorage
+from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.torrent_ec import (
-	ActiveTorrentEC,
 	TorrentInfoEC,
 	TorrentPriorityEC,
 	TorrentState,
 	TorrentStatsEC,
-	ValidateTorrentEC,
 )
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_complete
+from yap_torrent.systems import get_torrent_entity, get_torrent_name
 
 logger = logging.getLogger(__name__)
-
-
-def iterate_torrents_to_download(ds: DataStorage) -> Iterator[Entity]:
-	# use only torrents with TorrentInfoEC
-	for torrent_entity in ds.get_collection(TorrentPriorityEC):
-		# skip validation torrents
-		if torrent_entity.has_component(ValidateTorrentEC):
-			continue
-		# skip non-active by user torrents
-		if torrent_entity.get_component(TorrentStatsEC).state != TorrentState.Active:
-			continue
-		# skip completed torrents
-		if is_torrent_complete(torrent_entity):
-			continue
-		yield torrent_entity
 
 
 class TorrentSystem(System):
@@ -42,11 +24,6 @@ class TorrentSystem(System):
 		self.add_listener("request.torrent.start", self._on_torrent_start)
 		self.add_listener("request.torrent.stop", self._on_torrent_stop)
 		self.add_listener("request.torrent.remove", self._on_torrent_remove)
-
-		# recompute the active-download window on any state transition
-		self.add_listener("action.torrent.start", self._on_queue_changed)
-		self.add_listener("action.torrent.stop", self._on_queue_changed)
-		self.add_listener("action.torrent.complete", self._on_queue_changed)
 
 		# subscribe to new torrents
 		collection = self.env.data_storage.get_collection(TorrentInfoEC)
@@ -62,28 +39,11 @@ class TorrentSystem(System):
 
 		return await super().stop()
 
-	async def __on_torrent_added(self, entity: Entity, component: TorrentInfoEC):
+	async def __on_torrent_added(self, entity: Entity, _component: TorrentInfoEC):
 		# a restored torrent already carries its saved queue position; a new one goes last
 		if not entity.has_component(TorrentPriorityEC):
 			initial_priority = len(self.env.data_storage.get_collection(TorrentPriorityEC))
 			entity.add_component(TorrentPriorityEC(initial_priority))
-
-		await self._update_active_download_queue()
-
-	async def _on_queue_changed(self, _torrent_entity: Entity):
-		await self._update_active_download_queue()
-
-	async def _update_active_download_queue(self):
-		new_queue = set(sorted(
-			iterate_torrents_to_download(self.env.data_storage),
-			key=lambda e: e.get_component(TorrentPriorityEC).priority
-		)[:self.env.config.max_active_downloads])
-		old_queue = set(self.env.data_storage.get_collection(ActiveTorrentEC))
-
-		for entity in new_queue.difference(old_queue):
-			entity.add_component(ActiveTorrentEC())
-		for entity in old_queue.difference(new_queue):
-			entity.remove_component(ActiveTorrentEC)
 
 	async def _on_torrent_start(self, info_hash: bytes):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
@@ -103,7 +63,7 @@ class TorrentSystem(System):
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Inactive
 		await self.env.event_bus.dispatch_async("action.torrent.stop", torrent_entity)
 
-	async def _on_torrent_remove(self, info_hash: bytes, delete_data: bool = False):
+	async def _on_torrent_remove(self, info_hash: bytes, _delete_data: bool = False):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity:
 			logger.warning(f"[TorrentSystem] can't remove torrent {info_hash.hex()}. Not found")

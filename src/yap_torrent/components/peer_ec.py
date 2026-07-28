@@ -6,7 +6,7 @@ from typing import Hashable
 
 from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
-from yap_torrent.protocol import bt_main_messages as msg
+from yap_torrent.protocol import bt_main_messages as msg, InfoHash
 from yap_torrent.protocol.connection import Connection
 from yap_torrent.protocol.structures import PeerInfo, PieceBlockInfo, Bitfield
 
@@ -24,7 +24,7 @@ class PeerState(IntEnum):
 class PeerEC(EntityHashComponent):
 	def __init__(self, info_hash: bytes, peer_info: PeerInfo, state: PeerState = PeerState.Unknown) -> None:
 		super().__init__()
-		self.info_hash: bytes = info_hash
+		self.info_hash: InfoHash = info_hash
 		self.peer_info: PeerInfo = peer_info
 
 		self.state: PeerState = state
