@@ -11,7 +11,7 @@ from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import (
 	LocalInterestedEC,
 	LocalUnchokedEC,
-	PeerConnectingEC,
+	PeerConnectionInProgressEC,
 	PeerConnectionEC,
 	PeerDisconnectedEC,
 	PeerEC,
@@ -235,10 +235,10 @@ def test_add_component_does_not_replace_an_existing_connection():
 
 
 def test_connecting_marker_is_not_torn_down_with_the_connection():
-	# PeerConnectingEC belongs to the in-flight _connect task; stripping it here would let
+	# PeerConnectionInProgressEC belongs to the in-flight _connect task; stripping it here would let
 	# _connect_to_peers dial a peer that is already being dialled
 	from yap_torrent.systems.peer_system import _CONNECTION_COMPONENTS
-	assert PeerConnectingEC not in _CONNECTION_COMPONENTS
+	assert PeerConnectionInProgressEC not in _CONNECTION_COMPONENTS
 
 
 def test_byte_totals_outlive_the_connection_but_rates_do_not():

@@ -143,7 +143,7 @@ class PeerConnectionEC(EntityComponent):
 		return f"Peer {self.peer_info.host} [{self.connection.remote_peer_id}]"
 
 
-class PeerConnectingEC(EntityComponent):
+class PeerConnectionInProgressEC(EntityComponent):
 	"""Marker: an outbound connection attempt is in flight (avoids double-connect)."""
 	pass
 
