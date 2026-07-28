@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from asyncio import StreamReader, StreamWriter, Server
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from angelovich.core.DataStorage import Entity
 
@@ -18,7 +18,7 @@ from yap_torrent.components.peer_ec import (
 	PeerState,
 	PeerStatsEC,
 	RemoteInterestedEC,
-	RemoteUnchokedEC,
+	RemoteUnchokedEC, PeerPendingRemoveEC,
 )
 from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentInfoEC, TorrentEC, TorrentStatsEC, \
 	TorrentState
@@ -33,7 +33,7 @@ from yap_torrent.systems import (
 	get_info_hash,
 	get_torrent_entity,
 	is_torrent_active,
-	iterate_peer_entities,
+	iterate_torrent_peers,
 	iterate_peers,
 )
 from yap_torrent.systems.intrest_system import interested_pieces
@@ -44,6 +44,11 @@ logger = logging.getLogger(__name__)
 # TODO: build dynamically from systems
 LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 
+MAX_CANDIDATES_PER_TICK = 10
+
+# TODO: claude review: components have to be managed by related systems. LocalInterestedEC, RemoteUnchokedEC etc have to be removed by Choke/Interested systems
+# TODO: claude review: PeerStatsEC looks like a whole peer lifetime component. Upload/download speed have to be moved to own component
+
 # Components attached only while a peer is connected — cleared on disconnect (PeerEC stays).
 # Two deliberate exclusions:
 #   PeerConnectingEC — owned by the in-flight _connect task; stripping it early would let
@@ -51,10 +56,6 @@ LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 #   IdleEC — created with the peer entity and touched on each connect, so it lives as long
 #     as PeerEC does. Removing it here would crash the next _add_peer, since add_known_peer
 #     only attaches it to entities it creates.
-
-# TODO: claude review: components have to be managed by related systems. LocalInterestedEC, RemoteUnchokedEC etc have to be removed by Choke/Interested systems
-# TODO: claude review: PeerStatsEC looks like a whole peer lifetime component. Upload/download speed have to be moved to own component
-
 _CONNECTION_COMPONENTS = (
 	PeerConnectionEC, PeerStatsEC,
 	LocalInterestedEC, RemoteUnchokedEC,
@@ -101,7 +102,7 @@ class PeerSystem(System):
 
 	def __init__(self, env: Env):
 		super().__init__(env)
-		self.server: Server = None
+		self.server: Optional[Server] = None
 
 	async def start(self):
 		port = self.env.config.port
@@ -123,7 +124,7 @@ class PeerSystem(System):
 
 	async def _update(self, delta_time: float):
 		await self._process_disconnected()
-		self._drop_suspicious()
+		await self._process_pending_remove()
 		self._drop_idle_connections()
 		self._connect_to_peers()
 
@@ -136,20 +137,20 @@ class PeerSystem(System):
 				# BEFORE its connection components are torn down
 				info_hash = peer_entity.get_component(PeerConnectionEC).info_hash
 				torrent_entity = get_torrent_entity(self.env, info_hash)
-				if torrent_entity is not None:
+				if torrent_entity:
 					await self.env.event_bus.dispatch_async("peer.disconnected", torrent_entity, peer_entity)
 				logger.debug("Disconnect %s", peer_entity.get_component(PeerConnectionEC))
 				peer_entity.get_component(PeerConnectionEC).disconnect()
 			for component in _CONNECTION_COMPONENTS:
 				if peer_entity.has_component(component):
 					peer_entity.remove_component(component)
-			if peer_entity.has_component(PeerDisconnectedEC):
-				peer_entity.remove_component(PeerDisconnectedEC)
 
-	def _drop_suspicious(self):
-		for peer_entity in list(self.env.data_storage.get_collection(PeerConnectionEC)):
-			if peer_entity.get_component(PeerEC).state == PeerState.Suspicious:
-				_mark_disconnected(peer_entity)
+			peer_entity.remove_component(PeerDisconnectedEC)
+
+	async def _process_pending_remove(self):
+		ds = self.env.data_storage
+		for peer_entity in ds.get_collection(PeerPendingRemoveEC).entities:
+			ds.remove_entity(peer_entity)
 
 	def _drop_idle_connections(self):
 		"""Drop connections that stay out of both queues: nothing to fetch, nothing to serve."""
@@ -162,7 +163,7 @@ class PeerSystem(System):
 				idle.touch()
 				continue
 			torrent_entity = get_torrent_entity(self.env, conn.info_hash)
-			if torrent_entity is not None and not _has_metadata(torrent_entity):
+			if torrent_entity and not _has_metadata(torrent_entity):
 				continue  # this peer is the magnet's only metadata source
 			if not idle.overlives_period(timeout):
 				continue
@@ -174,23 +175,18 @@ class PeerSystem(System):
 		my_peer_id = self.env.peer_id
 		now = time.monotonic()
 
-		# complete torrents are included: seeding still needs upload-slot connections
-		active_torrents: List[Entity] = [e for e in ds.get_collection(TorrentEC) if is_torrent_active(e)]
+		for torrent_entity in ds.get_collection(TorrentEC):
+			if not is_torrent_active(torrent_entity):
+				continue
 
-		for torrent_entity in active_torrents:
-			info_hash = get_info_hash(torrent_entity)
 			free_download, free_upload = self._free_slots(torrent_entity)
 			if free_download <= 0 and free_upload <= 0:
 				continue
 
 			for peer_entity in self._connect_candidates(torrent_entity, free_download, free_upload, now):
-				peer_ec = peer_entity.get_component(PeerEC)
-				if not should_attempt(peer_ec.state, peer_ec.last_attempt, now):
-					continue
-
-				peer_ec.last_attempt = now
+				peer_entity.get_component(PeerEC).last_attempt = now
 				peer_entity.add_component(PeerConnectingEC())
-				self.add_task(self._connect(my_peer_id, info_hash, peer_entity))
+				self.add_task(self._connect(my_peer_id, get_info_hash(torrent_entity), peer_entity))
 
 	def _free_slots(self, torrent_entity: Entity) -> tuple[int, int]:
 		if not _has_metadata(torrent_entity):
@@ -208,21 +204,18 @@ class PeerSystem(System):
 
 	def _connect_candidates(self, torrent_entity: Entity, free_download: int, free_upload: int,
 	                        now: float) -> List[Entity]:
-		"""Disconnected peers worth dialling, best first, scored from their stored bitfield.
-
-		A download score is evidence: the peer's bitfield showed us pieces we want. An upload
-		score is a guess — a peer that told us nothing scores as lacking everything — so it
-		is held off by upload_retry_cooldown to avoid a drop/redial loop.
-		"""
-		# TODO: hand out candidates a few per tick. _connect_to_peers consumes this whole
-		#  list, so a tracker or DHT reply carrying hundreds of peers dials them all in one
-		#  tick (should_attempt does not throttle Unknown peers, whose retry delay is 0).
 		has_metadata = _has_metadata(torrent_entity)
 		cooldown = self.env.config.upload_retry_cooldown
 		candidates: List[tuple[int, Entity]] = []
 
-		for peer_entity in iterate_peer_entities(self.env, get_info_hash(torrent_entity)):
+		for peer_entity in iterate_torrent_peers(self.env, get_info_hash(torrent_entity)):
 			if peer_entity.has_component(PeerConnectionEC) or peer_entity.has_component(PeerConnectingEC):
+				continue
+
+			# the connect state machine gates every dial, magnet or not: it is what keeps us
+			# off Suspicious peers and off the retry backoff of ones that keep failing
+			peer_ec = peer_entity.get_component(PeerEC)
+			if not should_attempt(peer_ec.state, peer_ec.last_attempt, now):
 				continue
 
 			if not has_metadata:
@@ -230,17 +223,18 @@ class PeerSystem(System):
 				continue
 
 			download = download_value(torrent_entity, peer_entity) if free_download > 0 else 0
-			upload = upload_value(torrent_entity, peer_entity) if free_upload > 0 else 0
 
-			if upload and now - peer_entity.get_component(PeerEC).last_attempt < cooldown:
+			if now - peer_ec.last_attempt < cooldown:
 				upload = 0
+			else:
+				upload = upload_value(torrent_entity, peer_entity) if free_upload > 0 else 0
 
 			value = max(download, upload)
 			if value > 0:
 				candidates.append((value, peer_entity))
 
 		candidates.sort(key=lambda item: item[0], reverse=True)
-		return [peer_entity for _, peer_entity in candidates]
+		return [peer_entity for _, peer_entity in candidates][:MAX_CANDIDATES_PER_TICK]
 
 	async def _connect(self, my_peer_id: bytes, info_hash: bytes, peer_entity: Entity):
 		peer_ec = peer_entity.get_component(PeerEC)
@@ -258,8 +252,7 @@ class PeerSystem(System):
 			peer_ec.fail_count = 0
 			await self._add_peer(info_hash, peer_entity, remote_peer_id, reader, writer, reserved)
 		finally:
-			if peer_entity.has_component(PeerConnectingEC):
-				peer_entity.remove_component(PeerConnectingEC)
+			peer_entity.remove_component(PeerConnectingEC)
 
 	# -- inbound connections ----------------------------------------------
 	async def _server_callback(self, reader: StreamReader, writer: StreamWriter):
@@ -281,8 +274,7 @@ class PeerSystem(System):
 
 		peer_entity = add_known_peer(self.env, info_hash, peer_info)
 		peer_ec = peer_entity.get_component(PeerEC)
-		# PeerConnectingEC matters here: without it a simultaneous connect (we dial them
-		# while they dial us) would attach a second connection to the same peer entity
+
 		if (peer_ec.state == PeerState.Suspicious
 				or peer_entity.has_component(PeerConnectionEC)
 				or peer_entity.has_component(PeerConnectingEC)):
@@ -370,21 +362,9 @@ class PeerSystem(System):
 		_disconnect_peers(iterate_peers(self.env, info_hash))
 
 	async def _on_torrent_remove(self, info_hash: bytes):
-		"""Drop the swarm with the torrent: disconnect every peer, then delete its entity.
+		for peer_entity in list(iterate_torrent_peers(self.env, info_hash)):
+			_mark_to_remove(peer_entity)
 
-		Runs while the torrent entity still exists (TorrentSystem removes it after this
-		event), so peer.disconnected can still be delivered with a valid torrent — the
-		deferred _process_disconnected path would arrive too late to do that.
-		"""
-		ds = self.env.data_storage
-		torrent_entity = get_torrent_entity(self.env, info_hash)
-
-		for peer_entity in list(iterate_peer_entities(self.env, info_hash)):
-			if peer_entity.has_component(PeerConnectionEC):
-				if torrent_entity is not None:
-					await self.env.event_bus.dispatch_async("peer.disconnected", torrent_entity, peer_entity)
-				peer_entity.get_component(PeerConnectionEC).disconnect()
-			ds.remove_entity(peer_entity)
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):
 		if not get_torrent_entity(self.env, info_hash):
@@ -396,6 +376,12 @@ class PeerSystem(System):
 def _mark_disconnected(peer_entity: Entity):
 	if not peer_entity.has_component(PeerDisconnectedEC):
 		peer_entity.add_component(PeerDisconnectedEC())
+
+
+def _mark_to_remove(peer_entity: Entity):
+	if peer_entity.has_component(PeerConnectionEC):
+		_mark_disconnected(peer_entity)
+	peer_entity.add_component(PeerPendingRemoveEC())
 
 
 def _disconnect_peers(peers: Iterable[Entity]):

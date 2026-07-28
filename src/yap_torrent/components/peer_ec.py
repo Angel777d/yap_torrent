@@ -26,10 +26,12 @@ class PeerEC(EntityHashComponent):
 		super().__init__()
 		self.info_hash: bytes = info_hash
 		self.peer_info: PeerInfo = peer_info
+
+		# TODO: claude review: move dynamic values to PeerStateEC
 		self.state: PeerState = state
 		self.fail_count: int = 0
 		self.last_attempt: float = 0.0
-
+		# TODO: claude review: reset remote_bitfield on new connection established
 		self.remote_bitfield: Bitfield = Bitfield()
 
 	@staticmethod
@@ -143,4 +145,7 @@ class PeerConnectingEC(EntityComponent):
 
 
 class PeerDisconnectedEC(EntityComponent):
+	pass
+
+class PeerPendingRemoveEC(EntityComponent):
 	pass

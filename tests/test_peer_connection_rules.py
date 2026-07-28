@@ -25,6 +25,7 @@ from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
 from yap_torrent.protocol.structures import Bitfield, Metainfo, PeerInfo
 from yap_torrent.systems import add_known_peer, create_torrent_entity, get_info_hash
+from yap_torrent.systems.peer_logic import QUESTIONABLE_RETRY
 from yap_torrent.systems.peer_system import (
 	PeerSystem,
 	_in_any_queue,
@@ -73,14 +74,20 @@ def _metainfo(pieces: int = 4) -> Metainfo:
 	return Metainfo(decode(encode({"info": info})))
 
 
-def _torrent_and_peer(local_pieces=(), remote_pieces=(), wanted=None, pieces=4):
+def _torrent_and_peer(local_pieces=(), remote_pieces=(), wanted=None, pieces=4, metadata=True):
 	"""Build a torrent + one known peer.
 
 	``wanted`` defaults to every piece, mirroring what FileSystem attaches in production
-	when no file has been deselected.
+	when no file has been deselected. ``metadata=False`` builds a magnet: no TorrentInfoEC,
+	so nothing can be scored on pieces.
 	"""
 	env = _env()
 	meta = _metainfo(pieces)
+	if not metadata:
+		torrent = create_torrent_entity(env, meta.make_info_hash(), Path("."), {})
+		peer = add_known_peer(env, get_info_hash(torrent), PeerInfo("127.0.0.1", 6881))
+		return env, torrent, peer
+
 	torrent = create_torrent_entity(env, meta.make_info_hash(), Path("."), {}, meta.info)
 	for index in local_pieces:
 		torrent.get_component(TorrentEC).bitfield.set_index(index)
@@ -180,6 +187,29 @@ def test_download_prospect_is_not_delayed_by_the_cooldown():
 
 	peer.get_component(PeerEC).last_attempt = now
 	assert peer in _candidates(env, torrent, now)
+
+
+def test_magnet_peers_are_dialled_without_a_piece_score():
+	# no TorrentInfoEC means no pieces to score on, and these peers are the only source of
+	# BEP-9 metadata — they must stay dialable
+	env, torrent, peer = _torrent_and_peer(metadata=False)
+	assert peer in _candidates(env, torrent, time.monotonic())
+
+
+def test_magnet_peers_still_obey_the_connect_state_machine():
+	# the metadata shortcut must not skip should_attempt: Suspicious means never dial, and a
+	# failing peer's backoff has to hold on magnets too, where DHT supplies the most junk
+	env, torrent, peer = _torrent_and_peer(metadata=False)
+	now = time.monotonic()
+	peer_ec = peer.get_component(PeerEC)
+
+	peer_ec.state = PeerState.Suspicious
+	assert peer not in _candidates(env, torrent, now)
+
+	peer_ec.state = PeerState.Questionable
+	peer_ec.last_attempt = now
+	assert peer not in _candidates(env, torrent, now)                       # inside backoff
+	assert peer in _candidates(env, torrent, now + QUESTIONABLE_RETRY + 1)  # backoff expired
 
 
 def test_a_peer_useful_to_neither_side_is_never_redialled():

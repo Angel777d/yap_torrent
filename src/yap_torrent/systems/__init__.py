@@ -70,7 +70,7 @@ def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
 			yield e
 
 
-def iterate_peer_entities(env: Env, info_hash: bytes) -> Generator[Entity]:
+def iterate_torrent_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
 	"""Iterate all known peer entities of a torrent (have PeerEC), connected or not."""
 	for e in env.data_storage.get_collection(PeerEC):
 		if e.get_component(PeerEC).info_hash == info_hash:

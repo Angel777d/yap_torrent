@@ -38,7 +38,7 @@ from yap_torrent.systems import (
 	get_torrent_entity,
 	is_torrent_complete,
 	iterate_files,
-	iterate_peer_entities,
+	iterate_torrent_peers,
 	iterate_peers,
 )
 from yap_torrent.systems.choke_system import ChokeSystem
@@ -542,11 +542,11 @@ async def scenario_torrent_remove_clears_swarm(work: Path) -> bool:
 
 	# no connections, no peer entities, and nothing redials the vanished torrent
 	cleared = (not list(iterate_peers(leecher.env, ih))
-	           and not list(iterate_peer_entities(leecher.env, ih))
+	           and not list(iterate_torrent_peers(leecher.env, ih))
 	           and len(leecher.env.data_storage.get_collection(PeerEC)) == 0)
 
 	await settle([seeder, leecher], 10, sleep=0.03)
-	stayed_clear = not list(iterate_peer_entities(leecher.env, ih))
+	stayed_clear = not list(iterate_torrent_peers(leecher.env, ih))
 
 	ok = connected and cleared and stayed_clear
 	await leecher.stop(); await seeder.stop()
