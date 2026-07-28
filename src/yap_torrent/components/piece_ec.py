@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import time
 from typing import Hashable, Optional, Set
 
@@ -10,12 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 class PieceEC(EntityHashComponent):
-	"""Base reference for a piece entity: identity (info_hash, index) + hash/size.
-
-	Carries no data — download progress and complete bytes live in separate
-	components on the same entity (Part B).
-	"""
-
 	def __init__(self, info_hash: bytes, info: PieceInfo):
 		super().__init__()
 		self.info_hash: bytes = info_hash
@@ -30,8 +24,6 @@ class PieceEC(EntityHashComponent):
 
 
 class PieceDownloadProgressEC(EntityComponent):
-	"""In-progress block accumulation for a piece being downloaded."""
-
 	def __init__(self, info: PieceInfo):
 		super().__init__()
 		self.info: PieceInfo = info
@@ -42,9 +34,8 @@ class PieceDownloadProgressEC(EntityComponent):
 		self.downloading_by: set = set()  # peer entities requesting this piece
 
 	def next_block(self) -> Optional[PieceBlockInfo]:
-		for block in self._blocks:
-			if block not in self._requested:
-				return block
+		for block in self._blocks.difference(self._requested):
+			return block
 		return None
 
 	def mark_requested(self, block: PieceBlockInfo) -> None:
@@ -74,8 +65,6 @@ class PieceDownloadProgressEC(EntityComponent):
 
 
 class CompletePieceDataEC(EntityComponent):
-	"""Full verified piece bytes — for save (download) or serving (upload)."""
-
 	def __init__(self, data: bytes):
 		super().__init__()
 		self.data: bytes = data

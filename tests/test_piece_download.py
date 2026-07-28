@@ -3,13 +3,17 @@ from pathlib import Path
 
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC, FilePriority
 from yap_torrent.components.piece_ec import PieceDownloadProgressEC
-from yap_torrent.components.torrent_ec import InProgressEC, TorrentEC
+from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentEC, TorrentInfoEC
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
-from yap_torrent.protocol.structures import PieceInfo, Metainfo
-from yap_torrent.systems import compute_wanted_bitfield, create_torrent_entity
+from yap_torrent.protocol.structures import PieceInfo, Metainfo, Bitfield
+from yap_torrent.systems import compute_wanted_bitfield, create_torrent_entity, get_info_hash
 from yap_torrent.systems.intrest_system import interested_pieces
+
+
+def _wanted(env, torrent):
+	return compute_wanted_bitfield(env, get_info_hash(torrent), torrent.get_component(TorrentInfoEC).info)
 
 
 # --- piece progress --------------------------------------------------------
@@ -76,13 +80,13 @@ def _make_torrent(env):
 def _add_file(env, info_hash, index, path, first_piece, pieces_length, wanted):
 	e = env.data_storage.create_entity()
 	e.add_component(TorrentFileEC(info_hash, index, path, first_piece, pieces_length))
-	e.add_component(TorrentFileStateEC(wanted, FilePriority.Normal))
+	e.add_component(TorrentFileStateEC(wanted))
 
 
 def test_compute_wanted_defaults_to_all_pieces_without_files():
 	env = Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", Config(path="__none__.json"))
 	torrent = _make_torrent(env)
-	wanted = compute_wanted_bitfield(env, torrent)
+	wanted = _wanted(env, torrent)
 	assert wanted.have_num == 5  # all pieces
 
 
@@ -95,7 +99,7 @@ def test_compute_wanted_excludes_unwanted_files():
 	_add_file(env, info_hash, 1, "b", 0, 2, wanted=False)
 	_add_file(env, info_hash, 2, "c", 1, 4, wanted=True)
 
-	wanted = compute_wanted_bitfield(env, torrent)
+	wanted = _wanted(env, torrent)
 	# pieces 1,2,3,4 wanted; piece 0 not
 	assert wanted.have_index(0) is False
 	assert all(wanted.have_index(i) for i in (1, 2, 3, 4))
@@ -105,13 +109,12 @@ def test_interested_pieces_respects_wanted_mask():
 	env = Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", Config(path="__none__.json"))
 	torrent = _make_torrent(env)
 	# want only pieces 1..4
-	in_progress = InProgressEC()
+	wanted = Bitfield()
 	for i in (1, 2, 3, 4):
-		in_progress.wanted.set_index(i)
-	torrent.add_component(in_progress)
+		wanted.set_index(i)
+	torrent.add_component(TorrentDownloadProgressEC(wanted))
 
 	# a remote peer that has every piece
-	from yap_torrent.protocol.structures import Bitfield
 	remote = Bitfield()
 	for i in range(5):
 		remote.set_index(i)

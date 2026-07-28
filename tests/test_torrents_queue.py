@@ -1,122 +1,127 @@
-"""Tests for the download-queue active window (Part A).
+"""Tests for the download-queue active window (Part A, event-driven).
 
-Run with:  pytest tests
-(only pytest itself needs installing; sources come from conftest.py)
+TorrentSystem attaches TorrentDownloadProgressEC + TorrentPriorityEC to every
+torrent that gains metadata and keeps the top max_active_downloads (by ascending
+priority) marked with ActiveTorrentEC, reacting to add / start / stop / complete.
+The async flow is driven with asyncio.run() inside plain sync tests.
 """
+import asyncio
 from pathlib import Path
 
 from yap_torrent.components.torrent_ec import (
 	ActiveTorrentEC,
+	TorrentDownloadProgressEC,
 	TorrentEC,
+	TorrentInfoEC,
 	TorrentPriorityEC,
 	TorrentState,
 	TorrentStatsEC,
+	ValidateTorrentEC,
 )
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
 from yap_torrent.protocol.structures import Metainfo
-from yap_torrent.systems import create_torrent_entity
-from yap_torrent.systems.torrents_system import TorrentSystem, select_active
+from yap_torrent.systems import compute_wanted_bitfield, create_torrent_entity, get_info_hash
+from yap_torrent.systems.torrents_system import TorrentSystem, iterate_torrents_to_download
 
 
-# --- pure helper -----------------------------------------------------------
-def test_select_active_picks_lowest_priority():
-	items = [(b"a", 3), (b"b", 1), (b"c", 2), (b"d", 5)]
-	assert select_active(items, 2) == {b"b", b"c"}  # priorities 1, 2
+def _env(limit: int = 2) -> Env:
+	env = Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", Config(path="__none__.json"))
+	env.config.max_active_downloads = limit
+	return env
 
 
-def test_select_active_edge_cases():
-	assert select_active([(b"a", 1)], 0) == set()
-	assert select_active([], 3) == set()
-	assert select_active([(b"a", 1), (b"b", 2)], 5) == {b"a", b"b"}  # limit > n
-
-
-def test_select_active_is_deterministic_on_ties():
-	items = [(b"z", 1), (b"a", 1), (b"m", 1)]
-	# ties break on key ascending -> a, m
-	assert select_active(items, 2) == {b"a", b"m"}
-
-
-# --- recompute integration -------------------------------------------------
-def _make_torrent(env, name: str, npieces: int = 2, complete: bool = False):
-	piece_len = 16384
-	info = {
-		"name": name.encode(),
-		"piece length": piece_len,
-		"pieces": b"\x00" * 20 * npieces,
-		"length": piece_len * npieces,
-	}
-	metainfo = Metainfo(decode(encode({"info": info})))
-	info_hash = metainfo.make_info_hash()
-	entity = create_torrent_entity(env, info_hash, Path("D:/dl"), {}, metainfo.info)
+def _make(env: Env, name: str, npieces: int = 2, complete: bool = False):
+	info = {"name": name.encode(), "piece length": 16384, "pieces": b"\x00" * 20 * npieces, "length": 16384 * npieces}
+	meta = Metainfo(decode(encode({"info": info})))
+	entity = create_torrent_entity(env, meta.make_info_hash(), Path("D:/dl"), {}, meta.info)
 	if complete:
 		bitfield = entity.get_component(TorrentEC).bitfield
 		for i in range(npieces):
 			bitfield.set_index(i)
+	# FileSystem attaches this on metadata-add; mirror it so is_torrent_complete works.
+	entity.add_component(TorrentDownloadProgressEC(compute_wanted_bitfield(env, get_info_hash(entity), meta.info)))
 	return entity
 
 
-def _active_names(entities):
-	return {
-		e.get_component(TorrentEC).info_hash: e.has_component(ActiveTorrentEC)
-		for e in entities
-	}
+def _active(*torrents):
+	return [t for t in torrents if t.has_component(ActiveTorrentEC)]
 
 
-def test_recompute_marks_top_n_and_shifts_window():
-	env = Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", Config(path="__none__.json"))
-	env.config.max_active_downloads = 2
-	system = TorrentSystem(env)
+# --- iterate_torrents_to_download (the eligibility filter) ------------------
+def test_iterate_filters_validating_inactive_complete_and_no_priority():
+	env = _env()
+	good = _make(env, "good")
+	validating = _make(env, "validating")
+	inactive = _make(env, "inactive")
+	complete = _make(env, "complete", complete=True)
+	_make(env, "no_priority")  # never gets TorrentPriorityEC -> not in the collection
 
-	t1 = _make_torrent(env, "t1")
-	t2 = _make_torrent(env, "t2")
-	t3 = _make_torrent(env, "t3")
-	t4 = _make_torrent(env, "t4")
+	for t in (good, validating, inactive, complete):
+		t.add_component(TorrentPriorityEC(0))
+	validating.add_component(ValidateTorrentEC())
+	inactive.get_component(TorrentStatsEC).state = TorrentState.Inactive
 
-	system._recompute_queue()
-
-	# exactly the first two (lowest priority = earliest eligible) are active
-	active = [t for t in (t1, t2, t3, t4) if t.has_component(ActiveTorrentEC)]
-	assert active == [t1, t2]
-	# all eligible got a priority, ascending in creation order
-	prios = [t.get_component(TorrentPriorityEC).priority for t in (t1, t2, t3, t4)]
-	assert prios == sorted(prios) and len(set(prios)) == 4
-
-	# pause t1 -> it leaves the queue, window shifts to t2, t3
-	t1.get_component(TorrentStatsEC).state = TorrentState.Inactive
-	system._recompute_queue()
-	assert not t1.has_component(ActiveTorrentEC)
-	assert not t1.has_component(TorrentPriorityEC)
-	assert [t for t in (t2, t3, t4) if t.has_component(ActiveTorrentEC)] == [t2, t3]
-
-	# complete t2 -> leaves the queue, window shifts to t3, t4
-	bf = t2.get_component(TorrentEC).bitfield
-	for i in range(2):
-		bf.set_index(i)
-	system._recompute_queue()
-	assert not t2.has_component(ActiveTorrentEC)
-	assert not t2.has_component(TorrentPriorityEC)
-	assert [t for t in (t3, t4) if t.has_component(ActiveTorrentEC)] == [t3, t4]
+	assert set(iterate_torrents_to_download(env.data_storage)) == {good}
 
 
-def test_incomplete_metadata_and_verifying_are_excluded():
-	from yap_torrent.components.torrent_ec import ValidateTorrentEC
+# --- active window via TorrentSystem (event-driven) ------------------------
+def test_active_window_marks_top_n_by_priority():
+	async def run():
+		env = _env(limit=2)
+		t1, t2, t3, t4 = (_make(env, f"t{i}") for i in range(1, 5))
+		system = TorrentSystem(env)
+		await system.start()  # processes existing torrents in creation order
+		assert _active(t1, t2, t3, t4) == [t1, t2]
+		assert [t.get_component(TorrentPriorityEC).priority for t in (t1, t2, t3, t4)] == [0, 1, 2, 3]
 
-	env = Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", Config(path="__none__.json"))
-	env.config.max_active_downloads = 5
-	system = TorrentSystem(env)
+	asyncio.run(run())
 
-	# magnet without metadata: no TorrentInfoEC
-	magnet = create_torrent_entity(env, b"\x11" * 20, Path("D:/dl"), {}, None)
-	# verifying torrent
-	verifying = _make_torrent(env, "verifying")
-	verifying.add_component(ValidateTorrentEC())
-	# normal torrent
-	normal = _make_torrent(env, "normal")
 
-	system._recompute_queue()
+def test_window_shifts_when_a_torrent_is_paused():
+	async def run():
+		env = _env(limit=2)
+		t1, t2, t3 = (_make(env, f"t{i}") for i in range(1, 4))
+		system = TorrentSystem(env)
+		await system.start()
+		assert _active(t1, t2, t3) == [t1, t2]
 
-	assert not magnet.has_component(ActiveTorrentEC)
-	assert not verifying.has_component(ActiveTorrentEC)
-	assert normal.has_component(ActiveTorrentEC)
+		await system._on_torrent_stop(get_info_hash(t1))  # pause t1 -> window shifts to t2, t3
+		assert _active(t1, t2, t3) == [t2, t3]
+
+	asyncio.run(run())
+
+
+def test_window_shifts_when_a_torrent_completes():
+	async def run():
+		env = _env(limit=2)
+		t1, t2, t3 = (_make(env, f"t{i}") for i in range(1, 4))
+		system = TorrentSystem(env)
+		await system.start()
+		assert _active(t1, t2, t3) == [t1, t2]
+
+		bitfield = t1.get_component(TorrentEC).bitfield
+		for i in range(t1.get_component(TorrentInfoEC).info.pieces_num):
+			bitfield.set_index(i)
+		await env.event_bus.dispatch_async("action.torrent.complete", t1)
+
+		assert not t1.has_component(ActiveTorrentEC)
+		assert _active(t2, t3) == [t2, t3]
+
+	asyncio.run(run())
+
+
+def test_remove_renormalizes_priorities():
+	async def run():
+		env = _env(limit=5)
+		t1, t2, t3 = (_make(env, f"t{i}") for i in range(1, 4))
+		system = TorrentSystem(env)
+		await system.start()
+		assert [t.get_component(TorrentPriorityEC).priority for t in (t1, t2, t3)] == [0, 1, 2]
+
+		await system._on_torrent_remove(get_info_hash(t1))  # must not crash + must compact
+		assert t2.get_component(TorrentPriorityEC).priority == 0
+		assert t3.get_component(TorrentPriorityEC).priority == 1
+
+	asyncio.run(run())

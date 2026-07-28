@@ -3,34 +3,30 @@ from typing import Optional, Dict, Generator
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.file_ec import TorrentFileEC
+from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState
-from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
-	ValidateTorrentEC, TorrentState, InProgressEC
+	ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.protocol.structures import Bitfield
+from yap_torrent.protocol.structures import PeerInfo
 
 
 def is_torrent_complete(torrent_entity: Entity) -> bool:
-	if not torrent_entity.has_component(TorrentInfoEC):
+	if not torrent_entity.has_component(TorrentDownloadProgressEC):
 		return False
 	bitfield = torrent_entity.get_component(TorrentEC).bitfield
-	# wanted-aware: complete once every wanted piece is present (partial selection).
-	# InProgressEC holds the wanted set and stays for the torrent's life, so this is stable.
-	if torrent_entity.has_component(InProgressEC):
-		wanted = torrent_entity.get_component(InProgressEC).wanted
-		return len(bitfield.interested_in(wanted)) == 0
-	info = torrent_entity.get_component(TorrentInfoEC).info
-	return info.is_complete(bitfield.have_num)
+	wanted = torrent_entity.get_component(TorrentDownloadProgressEC).wanted
+	return len(bitfield.interested_in(wanted)) == 0
 
 
 def is_torrent_active(torrent_entity: Entity) -> bool:
 	return (torrent_entity.is_valid()
-	        and not (torrent_entity.has_component(ValidateTorrentEC)
-	                 or torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Inactive))
+	        and torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Active
+	        and not torrent_entity.has_component(ValidateTorrentEC)
+	        )
 
 
 def calculate_downloaded(torrent_entity: Entity) -> float:
@@ -93,16 +89,9 @@ def add_known_peer(env: Env, info_hash: bytes, peer_info: PeerInfo) -> Entity:
 	return entity
 
 
-def compute_wanted_bitfield(env: Env, torrent_entity: Entity) -> Bitfield:
-	"""The set of piece indices this torrent wants, from per-file selection.
-
-	Falls back to all pieces when no file entities exist yet.
-	"""
-	from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
-
-	info = torrent_entity.get_component(TorrentInfoEC).info
+def compute_wanted_bitfield(env: Env, info_hash: InfoHash, info: TorrentInfo) -> Bitfield:
 	wanted = Bitfield()
-	files = list(iterate_files(env, get_info_hash(torrent_entity)))
+	files = list(iterate_files(env, info_hash))
 	if not files:
 		for index in range(info.pieces_num):
 			wanted.set_index(index)

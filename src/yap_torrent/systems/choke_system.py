@@ -10,11 +10,12 @@ from yap_torrent.components.peer_ec import (
 	RemoteInterestedEC,
 	RemoteUnchokedEC,
 )
+from yap_torrent.components.torrent_ec import TorrentEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.system import System
-from yap_torrent.systems import get_info_hash, get_torrent_entity, is_torrent_complete, iterate_peers
+from yap_torrent.systems import get_info_hash, is_torrent_complete, iterate_peers
 from yap_torrent.systems.peer_logic import ChokeCandidate, select_unchoked
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,6 @@ class ChokeSystem(System):
 			return
 		self._accum = 0.0
 		now = time.monotonic()
-		from yap_torrent.components.torrent_ec import TorrentEC
 		for torrent_entity in self.env.data_storage.get_collection(TorrentEC):
 			await self._recompute(torrent_entity, now)
 
@@ -80,7 +80,7 @@ class ChokeSystem(System):
 				key=id(peer_entity),
 				interested=peer_entity.has_component(RemoteInterestedEC),
 				reciprocated=stats.downloaded > 0,  # they gave us data at least once
-				rate=stats.up_rate,                  # our serving rate to them
+				rate=stats.up_rate,  # our serving rate to them
 			))
 
 		keep = select_unchoked(candidates, limit, seeding)

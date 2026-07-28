@@ -3,15 +3,11 @@ from pathlib import Path
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.file_ec import (
-	FilePriority,
-	RestoreFileSelectionEC,
-	TorrentFileEC,
-	TorrentFileStateEC,
-)
-from yap_torrent.components.torrent_ec import TorrentInfoEC
+from yap_torrent.components.file_ec import RestoreFileSelectionEC, TorrentFileEC, TorrentFileStateEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentDownloadProgressEC
+from yap_torrent.protocol import InfoHash
 from yap_torrent.system import System
-from yap_torrent.systems import get_info_hash, iterate_files
+from yap_torrent.systems import get_info_hash, iterate_files, get_torrent_entity, compute_wanted_bitfield
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +15,7 @@ logger = logging.getLogger(__name__)
 class FileSystem(System):
 	async def start(self):
 		await super().start()
+		self.add_listener("request.file.select", self._on_file_select)
 		self.add_listener("action.torrent.remove", self._on_torrent_remove)
 
 		collection = self.env.data_storage.get_collection(TorrentInfoEC)
@@ -28,8 +25,20 @@ class FileSystem(System):
 			self._create_file_entities(torrent_entity)
 
 	async def stop(self):
-		self.env.data_storage.get_collection(TorrentInfoEC).remove_all_listeners(self)
+		collection = self.env.data_storage.get_collection(TorrentInfoEC)
+		collection.remove_all_listeners(self)
 		await super().stop()
+
+	async def _on_file_select(self, info_hash: InfoHash, *args):
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		if not torrent_entity:
+			return
+
+		# TODO: implement file selection change here
+
+		# update wanted bitfield
+		torrent_entity.get_component(TorrentDownloadProgressEC).wanted = compute_wanted_bitfield(
+			self.env, info_hash, torrent_entity.get_component(TorrentInfoEC).info)
 
 	async def _on_info_added(self, torrent_entity: Entity, _component: TorrentInfoEC) -> None:
 		self._create_file_entities(torrent_entity)
@@ -39,6 +48,7 @@ class FileSystem(System):
 		info = torrent_entity.get_component(TorrentInfoEC).info
 		info_hash = get_info_hash(torrent_entity)
 
+		# TODO: claude review: do we need this?  TorrentInfoEC can be added to the entity just once
 		# idempotency guard: never materialize a torrent's files twice
 		if next(iterate_files(self.env, info_hash), None) is not None:
 			logger.warning("Torrent %s already has file entities; review lifecycle", info_hash.hex())
@@ -54,16 +64,12 @@ class FileSystem(System):
 
 		count = 0
 		for index, file in enumerate(info.files):
+			wanted, priority = selection.get(index, (True, 0))
+
 			first_piece = file.start // piece_length
 			last_piece = (file.start + max(file.length, 1) - 1) // piece_length
 			pieces_length = last_piece - first_piece + 1
 			path = info.get_file_path(Path(), file).as_posix()
-
-			wanted, priority = selection.get(index, (True, FilePriority.Normal))
-			try:
-				priority = FilePriority(priority)
-			except ValueError:
-				priority = FilePriority.Normal
 
 			file_entity = ds.create_entity()
 			file_entity.add_component(TorrentFileEC(info_hash, index, path, first_piece, pieces_length))
@@ -71,6 +77,9 @@ class FileSystem(System):
 			count += 1
 
 		logger.info("Created %s file entities for %s", count, info_hash.hex())
+
+		torrent_entity.add_component(TorrentDownloadProgressEC(
+			compute_wanted_bitfield(self.env, info_hash, info)))
 
 	async def _on_torrent_remove(self, info_hash: bytes) -> None:
 		ds = self.env.data_storage

@@ -22,11 +22,6 @@ class PeerState(IntEnum):
 
 
 class PeerEC(EntityHashComponent):
-	"""Every known peer of a torrent, stored regardless of behaviour (Part C).
-
-	Identity is (info_hash, host); carries the connection state machine data.
-	"""
-
 	def __init__(self, info_hash: bytes, peer_info: PeerInfo, state: PeerState = PeerState.Unknown) -> None:
 		super().__init__()
 		self.info_hash: bytes = info_hash
@@ -77,6 +72,7 @@ class FreePeerEC(EntityComponent):
 class PeerStatsEC(EntityComponent):
 	"""Cumulative bytes + rolling rate to/from this peer, for the choke algorithm."""
 
+	# TODO: claude review: looks we dont need this for choke algorithm. just (upload/download) rate is good enough
 	def __init__(self) -> None:
 		super().__init__()
 		self.uploaded: int = 0
@@ -107,12 +103,6 @@ class PeerStatsEC(EntityComponent):
 
 
 class PeerConnectionEC(EntityComponent):
-	"""Live connection to a peer. Present only while a socket is open.
-
-	Choke/interest state lives in marker components (LocalInterestedEC,
-	RemoteUnchokedEC, RemoteInterestedEC, LocalUnchokedEC), not here.
-	"""
-
 	def __init__(self, info_hash: bytes, peer_info: PeerInfo, connection: Connection, reserved: bytes) -> None:
 		super().__init__()
 

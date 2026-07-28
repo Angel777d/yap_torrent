@@ -46,7 +46,7 @@ class PieceSystem(TimeSystem):
 
 	async def _on_torrent_remove(self, info_hash: bytes):
 		to_remove = [
-			e for e in self.env.data_storage.get_collection(PieceEC).entities
+			e for e in self.env.data_storage.get_collection(PieceEC)
 			if e.get_component(PieceEC).info_hash == info_hash
 		]
 		for entity in to_remove:

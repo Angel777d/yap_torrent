@@ -26,12 +26,13 @@ for _p in (_ROOT / "src", _ROOT.parent / "py_core"):
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerDisconnectedEC, PeerEC, PeerState
 from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceEC
-from yap_torrent.components.torrent_ec import InProgressEC, TorrentEC, TorrentState, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentEC, TorrentState, TorrentStatsEC
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
 from yap_torrent.protocol.structures import Metainfo, PeerInfo
 from yap_torrent.systems import (
+	compute_wanted_bitfield,
 	create_torrent_entity,
 	find_peer_entity,
 	get_torrent_entity,
@@ -212,13 +213,16 @@ async def scenario_partial_selection(work: Path) -> bool:
 		seed.get_component(TorrentEC).bitfield.set_index(i)
 	leech = create_torrent_entity(leecher.env, ih, leecher.env.config.download_folder, {}, meta.info)
 
-	# let file entities materialize + initial InProgressEC form, then mark file a unwanted
+	# let file entities materialize + initial TorrentDownloadProgressEC form, then mark file a unwanted
 	await settle([seeder, leecher], 3)
 	for file_entity in iterate_files(leecher.env, ih):
 		if file_entity.get_component(TorrentFileEC).index == 0:  # file a
 			file_entity.get_component(TorrentFileStateEC).wanted = False
-	if leech.has_component(InProgressEC):
-		leech.remove_component(InProgressEC)  # force TorrentSystem to recompute wanted
+	# recompute the wanted mask from the new file selection (event-driven TorrentSystem
+	# only computes it on metadata-add, so a selection change must refresh it explicitly)
+	if leech.has_component(TorrentDownloadProgressEC):
+		leech.remove_component(TorrentDownloadProgressEC)
+	leech.add_component(TorrentDownloadProgressEC(compute_wanted_bitfield(leecher.env, ih, meta.info)))
 	await settle([leecher], 2)
 
 	leecher.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6821)])

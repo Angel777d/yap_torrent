@@ -9,20 +9,19 @@ from yap_torrent.components.peer_ec import (
 	PeerConnectionEC,
 	RemoteInterestedEC,
 )
-from yap_torrent.components.torrent_ec import InProgressEC, TorrentEC, TorrentInfoEC
-from yap_torrent.env import Env
+from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentEC, TorrentInfoEC
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.system import System
-from yap_torrent.systems import get_info_hash, is_torrent_complete, iterate_peers
+from yap_torrent.systems import get_info_hash, iterate_peers
 
 
 def interested_pieces(torrent_entity: Entity, remote_bitfield) -> Set[int]:
 	"""Pieces the remote has that we want and lack (wanted-masked)."""
 	local = torrent_entity.get_component(TorrentEC).bitfield
 	missing = local.interested_in(remote_bitfield)  # remote has, we don't
-	if torrent_entity.has_component(InProgressEC):
-		wanted = torrent_entity.get_component(InProgressEC).wanted
+	if torrent_entity.has_component(TorrentDownloadProgressEC):
+		wanted = torrent_entity.get_component(TorrentDownloadProgressEC).wanted
 		return {i for i in missing if wanted.have_index(i)}
 	return missing
 

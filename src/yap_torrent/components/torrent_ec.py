@@ -245,21 +245,20 @@ class SaveTorrentEC(EntityComponent):
 class ValidateTorrentEC(EntityComponent):
 	pass
 
+
 # Torrent, selected to download now
-class InProgressEC(EntityComponent):
-	def __init__(self) -> None:
+class TorrentDownloadProgressEC(EntityComponent):
+	def __init__(self, wanted: Bitfield) -> None:
 		super().__init__()
-		self.wanted: Bitfield = Bitfield()
+		self.wanted: Bitfield = wanted
 
 
 class TorrentPriorityEC(EntityComponent):
-	"""Download-order priority among active torrents (lower is served first, like
-	a queue position). Present only while a torrent is active and not yet
-	complete; removed on completion, so completed torrents carry no priority.
-	"""
+	"""Download-order priority (lower is served first, like	a queue position)."""
 
 	def __init__(self, priority: int = 0) -> None:
 		super().__init__()
+		# TODO: claude review: store as persistent data.
 		self.priority: int = priority
 
 

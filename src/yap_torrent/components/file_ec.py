@@ -16,12 +16,6 @@ class FilePriority(IntEnum):
 
 
 class TorrentFileEC(EntityComponent):
-	"""Runtime, metadata-derived description of a single file in a torrent.
-
-	One per file. Recreated every session from TorrentInfo and never persisted.
-	Linked to its torrent by the shared info_hash (see iterate_files).
-	"""
-
 	def __init__(self, info_hash: InfoHash, index: int, path: str, first_piece: int, pieces_length: int) -> None:
 		super().__init__()
 		self.info_hash: InfoHash = info_hash
@@ -32,12 +26,13 @@ class TorrentFileEC(EntityComponent):
 
 
 class TorrentFileStateEC(EntityComponent):
-	"""Persisted per-file user selection. The only per-file state saved to disk."""
-
-	def __init__(self, wanted: bool = True, priority: FilePriority = FilePriority.Normal) -> None:
+	def __init__(self, wanted: bool = True, priority: int = 0) -> None:
 		super().__init__()
 		self.wanted: bool = wanted
-		self.priority: FilePriority = priority
+		self.priority: FilePriority = FilePriority(priority)
+
+	def serialize(self) -> Tuple[bool, int]:
+		return self.wanted, self.priority.value
 
 
 class RestoreFileSelectionEC(EntityComponent):

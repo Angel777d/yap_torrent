@@ -216,9 +216,6 @@ class DHTSystem(System, DHTServerProtocolHandler):
 				found_peers_count += len(values)
 				self._update_peers(info_hash, set(PeerInfo.from_bytes(v) for v in values))
 
-		# announce ourselves to the closest token-holding nodes so peers can find us.
-		# announce the BitTorrent listen port (config.port) — NOT the DHT port — and do
-		# it regardless of whether we found peers (a seeder must join an empty swarm too).
 		join_nodes = sorted((node for node in all_nodes.values() if node.token),
 		                    key=lambda n: distance(info_hash, n.node_id))[:self.BUCKET_CAPACITY]
 		for node in join_nodes:
@@ -235,14 +232,6 @@ class DHTSystem(System, DHTServerProtocolHandler):
 		# keep searching if we did not find any peers yet
 		if not found_peers_count:
 			self.pending_torrents.append(info_hash)
-
-	# async def update_node_state(self, node: DHTNode):
-	# 	logger.info(f'update state of {node}')
-	# 	ping_response = await dht_connection.ping(self._my_node_id, node.host, node.port)
-	# 	if ping_response:
-	# 		node.mark_good()
-	# 	else:
-	# 		node.mark_fail()
 
 	async def _ping_new_host(self, host: str, port: int) -> None:
 		logger.debug('ping sent to %s:%s', host, port)
