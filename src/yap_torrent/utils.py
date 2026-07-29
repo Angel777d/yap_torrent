@@ -1,8 +1,9 @@
 import asyncio
 import concurrent.futures
 import hashlib
+import os
 from pathlib import Path
-from typing import Callable, TypeVar, TypeVarTuple
+from typing import Callable, Optional, TypeVar, TypeVarTuple
 
 from yap_torrent.protocol import TorrentInfo
 
@@ -31,6 +32,37 @@ def load_piece(root: Path, info: TorrentInfo, index: int) -> bytes:
 
 			data[read_from:read_from + length] = buffer
 	return bytes(data)
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+	"""Write a file so a crash mid-write cannot leave a half-written one behind.
+
+	Both stores are read back at startup and a truncated pickle raises there, so writing
+	in place trades a crash during save for a client that will not start.
+	"""
+	path.parent.mkdir(parents=True, exist_ok=True)
+	tmp = path.with_suffix(path.suffix + ".tmp")
+	with open(tmp, "wb") as f:
+		f.write(data)
+		f.flush()
+		os.fsync(f.fileno())
+	os.replace(tmp, path)
+
+
+def load_and_verify_piece(root: Path, info: TorrentInfo, index: int) -> Optional[bytes]:
+	"""Read a piece off disk and hash-check it — one pool call instead of two.
+
+	Returns None if the data is missing or no longer matches the torrent, so a peer
+	requesting a piece we cannot stand behind is answered with nothing rather than with
+	whatever happens to be on disk.
+	"""
+	try:
+		data = load_piece(root, info, index)
+	except OSError:
+		return None
+	if not check_hash(data, info.get_piece_info(index).piece_hash):
+		return None
+	return data
 
 
 def save_piece(root: Path, info: TorrentInfo, index: int, data: bytes) -> None:

@@ -15,7 +15,7 @@ from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
 from yap_torrent.systems import iterate_files
 from yap_torrent.systems import create_torrent_entity
-from yap_torrent.utils import execute_in_pool
+from yap_torrent.utils import execute_in_pool, write_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +55,27 @@ class LocalDataSystem(System):
 
 
 async def _load_local(env: Env, active_path: Path):
+	"""Restore every saved torrent, skipping the ones that cannot be read.
+
+	One unreadable file used to take the whole start with it — and every torrent after it
+	in the walk — so a single bad save meant a client that would not come up.
+	"""
 	for root, dirs, files in os.walk(active_path):
 		for file_name in files:
 			file_path = Path(root).joinpath(file_name)
-			with open(file_path, 'rb') as f:
-				logger.debug(f"Loading save from {file_path}")
-				save_data = pickle.load(f)
+			if file_path.suffix == ".tmp":
+				continue  # a save that was interrupted; the previous one is still there
+			try:
+				with open(file_path, 'rb') as f:
+					logger.debug(f"Loading save from {file_path}")
+					save_data = pickle.load(f)
+			except Exception as ex:  # noqa: BLE001
+				logger.error("Skipping unreadable torrent save %s: %s", file_path, ex)
+				continue
+			try:
 				_import_torrent_data(env, save_data)
+			except Exception as ex:  # noqa: BLE001
+				logger.error("Skipping malformed torrent save %s: %s", file_path, ex)
 
 
 def _path_from_info_hash(env, info_hash: bytes) -> Path:
@@ -76,9 +90,7 @@ def _path_from_entity(env, torrent_entity: Entity) -> Path:
 
 def _save(path: Path, save_data: dict[str, Any]):
 	logger.debug(f"Save torrent data: {path}")
-	path.parent.mkdir(parents=True, exist_ok=True)
-	with open(path, 'wb') as f:
-		pickle.dump(save_data, f, pickle.DEFAULT_PROTOCOL)
+	write_atomic(path, pickle.dumps(save_data, pickle.DEFAULT_PROTOCOL))
 
 
 def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:

@@ -2,7 +2,7 @@ import logging
 import time
 from asyncio import Task
 from enum import IntEnum
-from typing import Hashable
+from typing import Dict, Hashable, KeysView, List, Optional
 
 from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
@@ -31,6 +31,10 @@ class PeerEC(EntityHashComponent):
 		self.fail_count: int = 0
 		self.last_attempt: float = 0.0
 		self.remote_bitfield: Bitfield = Bitfield()
+		# whether this address ever accepted a connection from us. An inbound peer is
+		# recorded at the *source* port of its socket, which nobody listens on, so only a
+		# dialled address is worth redialling — or persisting.
+		self.dialable: bool = False
 
 	@staticmethod
 	def make_hash(info_hash: bytes, host: str, port: int) -> Hashable:
@@ -116,7 +120,45 @@ class PeerConnectionEC(EntityComponent):
 
 		self.reserved: bytes = reserved
 
-		self.requested: set = set()
+		# blocks in flight -> when we asked for them, so a request the peer never
+		# answers can be reclaimed instead of holding a pipeline slot forever
+		self._requested: Dict[PieceBlockInfo, float] = {}
+
+	@property
+	def requested(self) -> KeysView[PieceBlockInfo]:
+		"""The blocks currently in flight (membership, len, iteration)."""
+		return self._requested.keys()
+
+	def add_request(self, block: PieceBlockInfo) -> None:
+		self._requested[block] = time.monotonic()
+
+	def discard_request(self, block: PieceBlockInfo) -> None:
+		self._requested.pop(block, None)
+
+	def take_request(self, index: int, begin: int) -> Optional[PieceBlockInfo]:
+		"""Drop the in-flight block at (index, begin), whatever length came back.
+
+		Matching the exact PieceBlockInfo would miss a peer that answers with a length
+		we did not ask for, and that entry would then sit in the pipeline for the rest
+		of the connection.
+		"""
+		for block in self._requested:
+			if block.index == index and block.begin == begin:
+				del self._requested[block]
+				return block
+		return None
+
+	def pending_for_piece(self, index: int) -> List[PieceBlockInfo]:
+		return [block for block in self._requested if block.index == index]
+
+	def clear_requests(self) -> List[PieceBlockInfo]:
+		"""Empty the pipeline, returning what was in it."""
+		blocks = list(self._requested)
+		self._requested.clear()
+		return blocks
+
+	def expired_requests(self, timeout: float, now: float) -> List[PieceBlockInfo]:
+		return [block for block, sent_at in self._requested.items() if now - sent_at > timeout]
 
 	def disconnect(self):
 		if self.task:

@@ -8,6 +8,7 @@ from yap_torrent.env import Env
 from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
 from yap_torrent.systems import add_known_peer, get_torrent_entity
+from yap_torrent.utils import write_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,9 @@ class PeerDataSystem(System):
 		count = 0
 		for info_hash, host, port in records:
 			if get_torrent_entity(self.env, info_hash) is not None:
-				add_known_peer(self.env, info_hash, PeerInfo(host, port))
+				entity = add_known_peer(self.env, info_hash, PeerInfo(host, port))
+				# only dialable addresses were written, so a reloaded one stays dialable
+				entity.get_component(PeerEC).dialable = True
 				count += 1
 		logger.info("Loaded %s known peers", count)
 
@@ -54,10 +57,16 @@ class PeerDataSystem(System):
 		records: List[PeerRecord] = []
 		for peer_entity in self.env.data_storage.get_collection(PeerEC):
 			peer_ec = peer_entity.get_component(PeerEC)
-			if peer_ec.state == PeerState.Good:
+			# `dialable` is the point: a peer that connected to *us* is recorded at the
+			# source port of its socket, which nothing listens on. Saving those fills the
+			# store with addresses that can only ever fail, and every later session spends
+			# connect attempts working through them.
+			if peer_ec.state == PeerState.Good and peer_ec.dialable:
 				records.append((peer_ec.info_hash, peer_ec.peer_info.host, peer_ec.peer_info.port))
 
-		self.path.parent.mkdir(parents=True, exist_ok=True)
-		with open(self.path, "wb") as f:
-			pickle.dump(records, f, pickle.DEFAULT_PROTOCOL)
+		try:
+			write_atomic(self.path, pickle.dumps(records, pickle.DEFAULT_PROTOCOL))
+		except OSError as ex:
+			logger.warning("Failed to save peer store %s: %s", self.path, ex)
+			return
 		logger.info("Saved %s good peers", len(records))

@@ -10,7 +10,6 @@ from yap_torrent.components.piece_ec import (
 	CompletePieceDataEC,
 	PieceDownloadProgressEC,
 	PieceEC,
-	UploadRequestedEC,
 )
 from yap_torrent.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, TorrentEC
 from yap_torrent.env import Env
@@ -61,13 +60,14 @@ class PieceSystem(TimeSystem):
 		if total <= max_cached:
 			return
 
+		# a piece being served is touched on every request, so the idle stamp already
+		# keeps it here — there is nothing else to ask about it
 		ttl = self.env.config.piece_cache_ttl
 		evictable = sorted(
 			(
 				e for e in ds.get_collection(IdleEC)
 				if e.has_component(CompletePieceDataEC)
 				   and not e.has_component(PieceDownloadProgressEC)
-				   and not e.has_component(UploadRequestedEC)
 				   and e.get_component(IdleEC).overlives_period(ttl)
 			),
 			key=lambda e: e.get_component(IdleEC).last_update,

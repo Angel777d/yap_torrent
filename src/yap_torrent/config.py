@@ -65,6 +65,8 @@ class Config:
 		self.peer_idle_timeout: float = float(data.get("peer_idle_timeout", 30))
 		# seconds before redialling a peer that only *might* want our pieces
 		self.upload_retry_cooldown: float = float(data.get("upload_retry_cooldown", 300))
+		# seconds a requested block may stay in flight before it is reclaimed
+		self.block_request_timeout: float = float(data.get("block_request_timeout", 60))
 
 		# global known-peers store
 		self.peers_file: str = data.get("peers_file", f"{self.data_folder}/peers.dat")

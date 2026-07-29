@@ -48,6 +48,25 @@ def test_duplicate_block_is_ignored():
 	assert progress.add_block(0, b"x" * 16384) is True
 
 
+def test_block_of_the_wrong_length_is_dropped():
+	# data is written by slice, so a length we never asked for would resize the buffer
+	# and the piece could never hash again
+	info = PieceInfo(size=16384 * 2, index=0, piece_hash=b"\x00" * 20)
+	progress = PieceDownloadProgressEC(info)
+	assert progress.add_block(0, b"x" * 20000) is False
+	assert len(progress.data) == 16384 * 2
+	assert len(progress.missing_blocks()) == 2
+
+
+def test_block_at_an_unknown_offset_is_dropped():
+	# a bogus offset would count towards is_full() and complete a piece full of holes
+	info = PieceInfo(size=16384 * 2, index=0, piece_hash=b"\x00" * 20)
+	progress = PieceDownloadProgressEC(info)
+	progress.add_block(0, b"x" * 16384)
+	assert progress.add_block(999, b"y" * 16384) is False
+	assert progress.is_full() is False
+
+
 def test_missing_blocks_shrinks_as_received():
 	# 2 blocks: 16384 + 100
 	info = PieceInfo(size=16384 + 100, index=0, piece_hash=b"\x00" * 20)

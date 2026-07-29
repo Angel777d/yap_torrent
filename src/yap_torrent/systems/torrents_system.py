@@ -3,6 +3,7 @@ import logging
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.torrent_ec import (
+	SaveTorrentEC,
 	TorrentInfoEC,
 	TorrentPriorityEC,
 	TorrentState,
@@ -12,6 +13,17 @@ from yap_torrent.system import System
 from yap_torrent.systems import get_torrent_entity, get_torrent_name
 
 logger = logging.getLogger(__name__)
+
+
+def _mark_for_save(torrent_entity: Entity) -> None:
+	"""Ask LocalDataSystem to write this torrent out on its next tick.
+
+	Pausing and queue order are deliberate choices by the user, but nothing else in this
+	path touches the disk — without the marker they only reached it if the client was shut
+	down cleanly, and a crash silently undid them.
+	"""
+	if not torrent_entity.has_component(SaveTorrentEC):
+		torrent_entity.add_component(SaveTorrentEC())
 
 
 class TorrentSystem(System):
@@ -52,6 +64,7 @@ class TorrentSystem(System):
 			return
 		logger.info(f"Start torrent {get_torrent_name(torrent_entity)}")
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Active
+		_mark_for_save(torrent_entity)
 		await self.env.event_bus.dispatch_async("action.torrent.start", torrent_entity)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
@@ -61,6 +74,7 @@ class TorrentSystem(System):
 			return
 		logger.info(f"Stop torrent {get_torrent_name(torrent_entity)}")
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Inactive
+		_mark_for_save(torrent_entity)
 		await self.env.event_bus.dispatch_async("action.torrent.stop", torrent_entity)
 
 	async def _on_torrent_remove(self, info_hash: bytes, _delete_data: bool = False):
@@ -77,4 +91,6 @@ class TorrentSystem(System):
 		for index, entity in enumerate(sorted(
 				self.env.data_storage.get_collection(TorrentPriorityEC),
 				key=lambda e: e.get_component(TorrentPriorityEC).priority)):
-			entity.get_component(TorrentPriorityEC).priority = index
+			if entity.get_component(TorrentPriorityEC).priority != index:
+				entity.get_component(TorrentPriorityEC).priority = index
+				_mark_for_save(entity)

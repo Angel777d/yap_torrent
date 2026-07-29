@@ -26,7 +26,14 @@ for _p in (_ROOT / "src", _ROOT.parent / "py_core"):
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerDisconnectedEC, PeerEC, PeerState
 from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceEC
-from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentEC, TorrentState, TorrentStatsEC
+from yap_torrent.components.torrent_ec import (
+	TorrentDownloadProgressEC,
+	TorrentEC,
+	TorrentInfoEC,
+	TorrentPriorityEC,
+	TorrentState,
+	TorrentStatsEC,
+)
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
@@ -45,10 +52,14 @@ from yap_torrent.systems.choke_system import ChokeSystem
 from yap_torrent.systems.download_system import DownloadSystem
 from yap_torrent.systems.file_system import FileSystem
 from yap_torrent.systems.intrest_system import InterestedSystem
+from yap_torrent.systems.local_data_system import LocalDataSystem
+from yap_torrent.systems.metainfo_system import MetainfoSystem
+from yap_torrent.systems.peer_data_system import PeerDataSystem
 from yap_torrent.systems.peer_system import PeerSystem
 from yap_torrent.systems.piece_system import PieceSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
 from yap_torrent.systems.upload_system import UploadSystem
+from yap_torrent.systems.validation_system import ValidationSystem
 
 PIECE_LEN = 16384
 
@@ -81,7 +92,14 @@ def write_files(root: Path, info, content: bytes):
 
 # --- instance harness ------------------------------------------------------
 class Instance:
-	def __init__(self, port: int, root: Path, peer_id: bytes, dht: bool = False):
+	def __init__(self, port: int, root: Path, peer_id: bytes, dht: bool = False, persist: bool = False):
+		"""One client. `persist` adds the systems a real session has for state that outlives it.
+
+		Without it a scenario drives the engine directly (create_torrent_entity + a bitfield
+		set by hand); with it a torrent is added the way a user adds one — `request.metainfo.add`,
+		validated off disk — and is written back on stop and reloaded by the next Instance
+		pointed at the same root.
+		"""
 		root.mkdir(parents=True, exist_ok=True)
 		cfg = Config(path=str(root / "__missing__.json"))  # missing -> in-memory defaults
 		cfg.data_folder = root
@@ -97,6 +115,13 @@ class Instance:
 			FileSystem(self.env), PeerSystem(self.env), ChokeSystem(self.env), InterestedSystem(self.env),
 			DownloadSystem(self.env), UploadSystem(self.env), PieceSystem(self.env), TorrentSystem(self.env),
 		]
+		if persist:
+			# same relative order as Application: metainfo first, the two stores last, and
+			# PeerDataSystem after LocalDataSystem so torrents exist when peers load onto them
+			self.systems.insert(0, MetainfoSystem(self.env))
+			self.systems.insert(-1, ValidationSystem(self.env))
+			self.systems.append(LocalDataSystem(self.env))
+			self.systems.append(PeerDataSystem(self.env))
 		self.dht = None
 		if dht:
 			from yap_torrent.systems.dht_system import DHTSystem
@@ -567,6 +592,186 @@ async def scenario_torrent_remove_clears_swarm(work: Path) -> bool:
 	return ok
 
 
+async def scenario_add_torrent_file_and_validate(work: Path) -> bool:
+	"""The way a torrent actually gets added: a metainfo in, a bitfield built off disk.
+
+	Every other scenario shortcuts this by calling create_torrent_entity and setting the
+	bitfield by hand, so nothing covered MetainfoSystem -> ValidateTorrentEC ->
+	ValidationSystem, which is what makes an already-downloaded folder seedable.
+	"""
+	content = __import__("os").urandom(20000)  # 2 pieces
+	meta = single_file(content)
+	ih = meta.make_info_hash()
+
+	seeder = Instance(6911, work / "s12_seed", b"-PY0001-SEEDER000012", persist=True)
+	leecher = Instance(6912, work / "s12_leech", b"-PY0001-LEECHER00012", persist=True)
+	write_files(seeder.env.config.download_folder, meta.info, content)
+	await seeder.start()
+	await leecher.start()
+
+	# added exactly as a .torrent file is: the seeder's data is already on disk, so
+	# validation has to discover the full bitfield for it
+	seeder.env.event_bus.dispatch("request.metainfo.add", meta)
+	leecher.env.event_bus.dispatch("request.metainfo.add", meta)
+
+	validated = await run_until(
+		[seeder, leecher],
+		lambda: get_torrent_entity(seeder.env, ih) is not None
+		        and get_torrent_entity(seeder.env, ih).get_component(TorrentEC).bitfield.have_num == 2,
+		rounds=60, sleep=0.05)
+
+	leecher.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6911)])
+	leech = get_torrent_entity(leecher.env, ih)
+	ok = validated and await run_until([seeder, leecher], lambda: is_torrent_complete(leech))
+	ok = ok and reconstruct(leecher.env, ih, meta.info.pieces_num, len(content)) == content
+
+	await leecher.stop()
+	await seeder.stop()
+	return ok
+
+
+async def scenario_restart_restores_torrent(work: Path) -> bool:
+	"""What one session wrote, the next one has to read back and be able to seed from."""
+	content = __import__("os").urandom(20000)
+	meta = single_file(content)
+	ih = meta.make_info_hash()
+
+	seeder = Instance(6921, work / "s13_seed", b"-PY0001-SEEDER000013", persist=True)
+	leech_root = work / "s13_leech"
+	leecher = Instance(6922, leech_root, b"-PY0001-LEECHER00013", persist=True)
+	write_files(seeder.env.config.download_folder, meta.info, content)
+	await seeder.start()
+	await leecher.start()
+
+	seeder.env.event_bus.dispatch("request.metainfo.add", meta)
+	leecher.env.event_bus.dispatch("request.metainfo.add", meta)
+	await settle([seeder, leecher], 6)
+	leecher.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6921)])
+
+	leech = get_torrent_entity(leecher.env, ih)
+	done = await run_until([seeder, leecher], lambda: leech is not None and is_torrent_complete(leech))
+	downloaded = leech.get_component(TorrentStatsEC).downloaded if leech else 0
+	await leecher.stop()  # writes the save file
+
+	# second session, same folders, nothing added by hand
+	restarted = Instance(6923, leech_root, b"-PY0001-LEECHER00013", persist=True)
+	await restarted.start()
+	await settle([restarted], 3)
+
+	restored = get_torrent_entity(restarted.env, ih)
+	ok = done and restored is not None
+	ok = ok and restored.get_component(TorrentEC).bitfield.have_num == meta.info.pieces_num
+	ok = ok and restored.get_component(TorrentStatsEC).downloaded == downloaded
+	ok = ok and restored.has_component(TorrentInfoEC)
+	ok = ok and is_torrent_complete(restored)
+
+	# and it is a real seeder now: a fresh leecher can take the whole file from it
+	third = Instance(6924, work / "s13_third", b"-PY0001-LEECHER00023")
+	await third.start()
+	create_torrent_entity(third.env, ih, third.env.config.download_folder, {}, meta.info)
+	await settle([restarted, third], 3)
+	third.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6923)])
+	t3 = get_torrent_entity(third.env, ih)
+	ok = ok and await run_until([restarted, third], lambda: is_torrent_complete(t3))
+	ok = ok and reconstruct(third.env, ih, meta.info.pieces_num, len(content)) == content
+
+	await third.stop()
+	await restarted.stop()
+	await seeder.stop()
+	return ok
+
+
+async def scenario_restart_restores_queue_and_paused_state(work: Path) -> bool:
+	"""Queue positions and a paused torrent have to come back the way they were left."""
+	root = work / "s14"
+	first = Instance(6931, root, b"-PY0001-QUEUE0000014", persist=True)
+	await first.start()
+
+	metas = [single_file(__import__("os").urandom(20000), name=f"q{i}.bin") for i in range(3)]
+	for meta in metas:
+		first.env.event_bus.dispatch("request.metainfo.add", meta)
+	await settle([first], 6)
+
+	hashes = [m.make_info_hash() for m in metas]
+	# reverse the queue, and pause the middle one
+	for position, ih in enumerate(reversed(hashes)):
+		get_torrent_entity(first.env, ih).get_component(TorrentPriorityEC).priority = position
+	await asyncio.gather(*first.env.event_bus.dispatch("request.torrent.stop", hashes[1]))
+	await settle([first], 2)
+	await first.stop()
+
+	second = Instance(6932, root, b"-PY0001-QUEUE0000014", persist=True)
+	await second.start()
+	await settle([second], 3)
+
+	ok = True
+	for position, ih in enumerate(reversed(hashes)):
+		entity = get_torrent_entity(second.env, ih)
+		ok = ok and entity is not None and entity.get_component(TorrentPriorityEC).priority == position
+	states = [get_torrent_entity(second.env, ih).get_component(TorrentStatsEC).state for ih in hashes]
+	ok = ok and states == [TorrentState.Active, TorrentState.Inactive, TorrentState.Active]
+
+	await second.stop()
+	return ok
+
+
+async def scenario_good_peers_survive_a_restart(work: Path) -> bool:
+	"""A peer we dialled successfully is worth keeping; one that dialled us is not.
+
+	An inbound connection tells us the source port of the socket, not the port the peer
+	listens on, so saving it fills the store with addresses that can never be dialled.
+	"""
+	content = __import__("os").urandom(20000)
+	meta = single_file(content)
+	ih = meta.make_info_hash()
+
+	seed_root, leech_root = work / "s15_seed", work / "s15_leech"
+	seeder = Instance(6941, seed_root, b"-PY0001-SEEDER000015", persist=True)
+	leecher = Instance(6942, leech_root, b"-PY0001-LEECHER00015", persist=True)
+	write_files(seeder.env.config.download_folder, meta.info, content)
+	await seeder.start()
+	await leecher.start()
+
+	seeder.env.event_bus.dispatch("request.metainfo.add", meta)
+	leecher.env.event_bus.dispatch("request.metainfo.add", meta)
+	await settle([seeder, leecher], 6)
+	leecher.env.event_bus.dispatch("peers.update", ih, [PeerInfo("127.0.0.1", 6941)])
+
+	leech = get_torrent_entity(leecher.env, ih)
+	done = await run_until([seeder, leecher], lambda: leech is not None and is_torrent_complete(leech))
+	await leecher.stop()
+	await seeder.stop()
+
+	saved_by_leecher = _peer_records(leech_root / "peers.dat")
+	saved_by_seeder = _peer_records(seed_root / "peers.dat")
+
+	# the leecher dialled the seeder's listening port and keeps it
+	ok = done and (ih, "127.0.0.1", 6941) in saved_by_leecher
+	# the seeder only ever saw an inbound socket, whose port is nobody's listening port
+	ok = ok and not saved_by_seeder
+
+	# restarting the leecher redials it with no peers.update to help
+	seeder2 = Instance(6941, seed_root, b"-PY0001-SEEDER000015", persist=True)
+	restarted = Instance(6943, leech_root, b"-PY0001-LEECHER00015", persist=True)
+	await seeder2.start()
+	await restarted.start()
+	ok = ok and await run_until(
+		[seeder2, restarted],
+		lambda: bool(list(iterate_connected_peers(restarted.env, ih))), rounds=60, sleep=0.05)
+
+	await restarted.stop()
+	await seeder2.stop()
+	return ok
+
+
+def _peer_records(path: Path):
+	if not path.exists():
+		return []
+	import pickle
+	with open(path, "rb") as f:
+		return pickle.load(f)
+
+
 SCENARIOS = [
 	("basic transfer", scenario_basic_transfer),
 	("paused seeder uploads nothing", scenario_paused_seeder),
@@ -579,6 +784,10 @@ SCENARIOS = [
 	("peer drop mid-download recovers via another peer", scenario_peer_drop_recovery),
 	("uninteresting peer released on idle, then not redialled", scenario_uninteresting_peer_released),
 	("torrent removal disconnects and clears its peers", scenario_torrent_remove_clears_swarm),
+	("add a .torrent, validate off disk, then seed it", scenario_add_torrent_file_and_validate),
+	("a restarted session restores its torrent and seeds", scenario_restart_restores_torrent),
+	("queue order and paused state survive a restart", scenario_restart_restores_queue_and_paused_state),
+	("good peers survive a restart, inbound ports are not kept", scenario_good_peers_survive_a_restart),
 ]
 
 

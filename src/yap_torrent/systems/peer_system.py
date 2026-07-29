@@ -191,6 +191,7 @@ class PeerSystem(System):
 
 			peer_ec.state = PeerState.Good
 			peer_ec.fail_count = 0
+			peer_ec.dialable = True  # this address listens: we just reached it
 			await self._add_peer(info_hash, peer_entity, remote_peer_id, reader, writer, reserved)
 		finally:
 			peer_entity.remove_component(PeerConnectionInProgressEC)
