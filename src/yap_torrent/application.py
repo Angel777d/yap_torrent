@@ -11,6 +11,7 @@ from yap_torrent.plugins import TorrentPlugin
 from yap_torrent.system import System
 from yap_torrent.systems.announce_system import AnnounceSystem
 from yap_torrent.systems.choke_system import ChokeSystem
+from yap_torrent.systems.config_system import ConfigSystem
 from yap_torrent.systems.dht_system import DHTSystem
 from yap_torrent.systems.download_system import DownloadSystem
 from yap_torrent.systems.ext_metadata_system import ExtMetadataSystem
@@ -57,6 +58,8 @@ class Application:
 		print(
 			f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
+			# first: a setting changed mid-tick should be in force for the systems below
+			ConfigSystem(env),
 			MetainfoSystem(env),
 			FileSystem(env),
 			PeerSystem(env),
