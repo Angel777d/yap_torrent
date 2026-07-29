@@ -97,7 +97,9 @@ def test_choke_empties_the_pipeline_and_frees_the_blocks():
 
 		peer.remove_component(RemoteUnchokedEC)
 		await asyncio.gather(*env.event_bus.dispatch("peer.local.choked_changed", torrent, peer))
-		assert _pipeline(peer) == set()
+		# leaving the download queue takes the pipeline with it — a peer outside the
+		# queue cannot be holding blocks, so it does not get to carry an empty one
+		assert peer.has_component(PeerRequestsEC) is False
 
 		# and the blocks are back in the pool, not stranded on the choking peer
 		other = _peer(env, torrent, 6802)
@@ -178,6 +180,46 @@ def test_requests_in_flight_are_kept_until_they_expire():
 		in_flight = _pipeline(peer)
 
 		await _expire_requests(env)
+		assert _pipeline(peer) == in_flight
+
+	asyncio.run(run())
+
+
+def test_a_disconnect_takes_the_pipeline_with_it():
+	# the pipeline is DownloadSystem's and PeerSystem does not strip it, so a peer that
+	# drops while still in the download queue would keep an orphan one for the rest of
+	# its life as a known peer — and the next connection would find a stale component
+	async def run():
+		env = _env()
+		torrent = _torrent(env)
+		peer = _peer(env, torrent, 6801)
+
+		system = DownloadSystem(env)
+		await system.start()
+		await _request_from_peer(env, torrent, peer)
+		assert peer.has_component(PeerRequestsEC)
+
+		await asyncio.gather(*env.event_bus.dispatch("peer.disconnected", torrent, peer))
+		assert peer.has_component(PeerRequestsEC) is False
+
+	asyncio.run(run())
+
+
+def test_a_repeated_unchoke_does_not_replace_the_pipeline():
+	# a peer may send UNCHOKE again while already in the queue; the blocks already in
+	# flight must survive that
+	async def run():
+		env = _env()
+		torrent = _torrent(env)
+		peer = _peer(env, torrent, 6801)
+
+		system = DownloadSystem(env)
+		await system.start()
+		await asyncio.gather(*env.event_bus.dispatch("peer.local.choked_changed", torrent, peer))
+		in_flight = _pipeline(peer)
+		assert len(in_flight) == PIPELINE
+
+		await asyncio.gather(*env.event_bus.dispatch("peer.local.choked_changed", torrent, peer))
 		assert _pipeline(peer) == in_flight
 
 	asyncio.run(run())

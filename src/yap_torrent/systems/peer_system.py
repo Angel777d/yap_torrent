@@ -17,7 +17,6 @@ from yap_torrent.components.peer_ec import (
 	PeerDisconnectedEC,
 	PeerEC,
 	PeerRateEC,
-	PeerRequestsEC,
 	PeerState,
 	RemoteInterestedEC,
 	RemoteUnchokedEC, PeerPendingRemoveEC,
@@ -48,7 +47,7 @@ LOCAL_RESERVED = create_reserved(extensions.DHT, extensions.EXTENSION_PROTOCOL)
 MAX_METADATA_CANDIDATES_PER_TICK = 10
 
 _CONNECTION_COMPONENTS = (
-	PeerConnectionEC, PeerRateEC, PeerRequestsEC,
+	PeerConnectionEC, PeerRateEC,
 )
 
 
@@ -265,7 +264,6 @@ class PeerSystem(System):
 		# attach the live connection to the (persistent) peer entity
 		peer_entity.add_component(PeerConnectionEC(info_hash, peer_info, connection, reserved))
 		peer_entity.add_component(PeerRateEC())
-		peer_entity.add_component(PeerRequestsEC())
 		peer_entity.get_component(IdleEC).touch()
 		# what it had last time is only a guess now — it may have dropped the data, and a peer
 		# holding nothing sends no BITFIELD to correct us. Re-learn from this connection.

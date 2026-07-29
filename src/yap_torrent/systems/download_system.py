@@ -37,8 +37,8 @@ class DownloadSystem(TimeSystem):
 
 	async def start(self):
 		self.add_listener("peer.message", self.__on_message)
-		self.add_listener("peer.local.choked_changed", self._on_choked_changed)
-		self.add_listener("peer.local.interested_changed", self._on_ready)
+		self.add_listener("peer.local.choked_changed", self._on_queue_changed)
+		self.add_listener("peer.local.interested_changed", self._on_queue_changed)
 		self.add_listener("peer.disconnected", self._on_peer_disconnected)
 
 	async def _update(self, delta_time: float):
@@ -49,20 +49,21 @@ class DownloadSystem(TimeSystem):
 			return
 		await _process_piece_message(self.env, peer_entity, torrent_entity, message)
 
-	async def _on_ready(self, torrent_entity: Entity, peer_entity: Entity):
-		await _request_from_peer(self.env, torrent_entity, peer_entity)
+	async def _on_queue_changed(self, torrent_entity: Entity, peer_entity: Entity):
+		enter_queue = peer_entity.has_component(RemoteUnchokedEC) and peer_entity.has_component(LocalInterestedEC)
 
-	async def _on_choked_changed(self, torrent_entity: Entity, peer_entity: Entity):
-		if peer_entity.has_component(RemoteUnchokedEC):
+		if enter_queue:
+			# a peer re-sending UNCHOKE raises the event again while already in the queue,
+			# and add_component only warns and keeps the old one
+			if not peer_entity.has_component(PeerRequestsEC):
+				peer_entity.add_component(PeerRequestsEC())
 			await _request_from_peer(self.env, torrent_entity, peer_entity)
 			return
 
-		# CHOKE: the peer discards our pending requests on its side (BEP-3), so they will
-		# never be answered. Left in the pipeline they would keep it full for the rest of
-		# the connection — the peer would never be asked for anything again after its
-		# first choke — and their blocks would stay marked as requested for everyone else.
-		_release_peer_blocks(self.env, torrent_entity, peer_entity)
-		await _fill_peers(self.env, torrent_entity, skip=peer_entity)
+		if peer_entity.has_component(PeerRequestsEC):
+			_release_peer_blocks(self.env, torrent_entity, peer_entity)
+			await _fill_peers(self.env, torrent_entity, skip=peer_entity)
+			peer_entity.remove_component(PeerRequestsEC)
 
 	async def _on_peer_disconnected(self, torrent_entity: Entity, peer_entity: Entity):
 		"""Free the departing peer's blocks, then offer them to whoever is left.
@@ -72,6 +73,11 @@ class DownloadSystem(TimeSystem):
 		before anyone picks them up.
 		"""
 		_release_peer_blocks(self.env, torrent_entity, peer_entity)
+		# the pipeline belongs to this system, and PeerSystem does not strip it: a peer
+		# that drops while still in the download queue would otherwise keep an orphan
+		# pipeline for the rest of its life as a known peer
+		if peer_entity.has_component(PeerRequestsEC):
+			peer_entity.remove_component(PeerRequestsEC)
 		await _fill_peers(self.env, torrent_entity, skip=peer_entity)
 
 
