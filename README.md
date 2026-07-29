@@ -10,19 +10,19 @@ It's aimed to be simple, easy to use and extend.
 * Metadata extension, magnet URI support [BEP:9](https://bittorrent.org/beps/bep_0009.html)
 * Endgame algorithm
 * Rarest first algorithm
+* Choke algorithm (tit-for-tat, client-wide upload budget)
+* Download queue ordered by torrent priority
 * Plugins system
 * Headless mode
 * SimpleUI (plugin)
 * Web UI (plugin)
+* Transmission RPC server (plugin) — drive it from existing Transmission remotes
 
 ---
 
 ### Planned features:
 
 * move torrent validations to post-initialize
-* HTTP api plugin
-* Choke algorythm
 * Config editor
-* Files download order
-
-[GitHub-flavored Markdown](https://guides.github.com/features/mastering-markdown/)
+* Per-file download order and priorities
+* Bandwidth limits and transfer-rate reporting
