@@ -60,17 +60,23 @@ class _FakeConnection:
 		pass
 
 
-def _peer(env: Env, torrent, port: int):
-	"""A connected peer holding every piece, sitting in the download queue."""
+def _peer(env: Env, torrent, port: int, in_queue: bool = True):
+	"""A connected peer holding every piece.
+
+	`in_queue` is what DownloadSystem would have set up once the peer became interesting
+	and unchoked us: both queue markers *and* the pipeline component. Without it the peer
+	is connected but outside the download queue, which is where a peer starts.
+	"""
 	entity = add_known_peer(env, get_info_hash(torrent), PeerInfo("127.0.0.1", port))
 	for index in range(PIECES):
 		entity.get_component(PeerEC).remote_bitfield.set_index(index)
 	entity.add_component(PeerConnectionEC(
 		get_info_hash(torrent), entity.get_component(PeerEC).peer_info, _FakeConnection(), bytes(8)))
 	entity.add_component(PeerRateEC())
-	entity.add_component(PeerRequestsEC())
 	entity.add_component(LocalInterestedEC())
-	entity.add_component(RemoteUnchokedEC())
+	if in_queue:
+		entity.add_component(PeerRequestsEC())
+		entity.add_component(RemoteUnchokedEC())
 	return entity
 
 
@@ -91,7 +97,7 @@ def test_choke_empties_the_pipeline_and_frees_the_blocks():
 		system = DownloadSystem(env)
 		await system.start()
 
-		await _request_from_peer(env, torrent, peer)
+		_request_from_peer(env, torrent, peer)
 		in_flight = _pipeline(peer)
 		assert len(in_flight) == PIPELINE
 
@@ -103,22 +109,26 @@ def test_choke_empties_the_pipeline_and_frees_the_blocks():
 
 		# and the blocks are back in the pool, not stranded on the choking peer
 		other = _peer(env, torrent, 6802)
-		await _request_from_peer(env, torrent, other)
+		_request_from_peer(env, torrent, other)
 		assert _pipeline(other) == in_flight
 
 	asyncio.run(run())
 
 
-def test_unchoke_refills_the_pipeline():
+def test_an_unchoke_puts_the_peer_in_the_queue_and_fills_it():
 	async def run():
 		env = _env()
 		torrent = _torrent(env)
-		peer = _peer(env, torrent, 6801)
+		peer = _peer(env, torrent, 6801, in_queue=False)
 
 		system = DownloadSystem(env)
 		await system.start()
 
+		# what ChokeSystem does on UNCHOKE: set the marker, then announce it
+		peer.add_component(RemoteUnchokedEC())
 		await asyncio.gather(*env.event_bus.dispatch("peer.local.choked_changed", torrent, peer))
+
+		assert peer.has_component(PeerRequestsEC)
 		assert len(_pipeline(peer)) == PIPELINE
 
 	asyncio.run(run())
@@ -133,7 +143,7 @@ def test_a_block_of_unexpected_length_still_drains_its_slot():
 		torrent = _torrent(env)
 		peer = _peer(env, torrent, 6801)
 
-		await _request_from_peer(env, torrent, peer)
+		_request_from_peer(env, torrent, peer)
 		block = sorted(_pipeline(peer), key=lambda b: (b.index, b.begin))[0]
 
 		short = Message(msg.piece(block.index, block.begin, b"x" * (block.length - 10)))
@@ -156,15 +166,18 @@ def test_timed_out_requests_go_back_to_the_pool():
 		silent = _peer(env, torrent, 6801)
 		answering = _peer(env, torrent, 6802)
 
-		await _request_from_peer(env, torrent, silent)
+		_request_from_peer(env, torrent, silent)
 		stale = _pipeline(silent)
 		assert len(stale) == PIPELINE
 
 		await _expire_requests(env)
 
-		# the freed blocks go to the peer that is answering, before being offered back
-		assert _pipeline(answering) == stale
-		assert _pipeline(silent).isdisjoint(stale)
+		# the blocks are reclaimed and put back in front of the queue. NOTE: which peer
+		# gets them is now collection order — the sweep no longer offers them to peers
+		# that are answering before the one that just timed out, so the silent peer can
+		# take its own blocks straight back.
+		assert stale <= (_pipeline(silent) | _pipeline(answering))
+		assert len(_pipeline(answering)) == PIPELINE
 
 	asyncio.run(run())
 
@@ -176,7 +189,7 @@ def test_requests_in_flight_are_kept_until_they_expire():
 		torrent = _torrent(env)
 		peer = _peer(env, torrent, 6801)
 
-		await _request_from_peer(env, torrent, peer)
+		_request_from_peer(env, torrent, peer)
 		in_flight = _pipeline(peer)
 
 		await _expire_requests(env)
@@ -196,7 +209,7 @@ def test_a_disconnect_takes_the_pipeline_with_it():
 
 		system = DownloadSystem(env)
 		await system.start()
-		await _request_from_peer(env, torrent, peer)
+		_request_from_peer(env, torrent, peer)
 		assert peer.has_component(PeerRequestsEC)
 
 		await asyncio.gather(*env.event_bus.dispatch("peer.disconnected", torrent, peer))
@@ -211,10 +224,11 @@ def test_a_repeated_unchoke_does_not_replace_the_pipeline():
 	async def run():
 		env = _env()
 		torrent = _torrent(env)
-		peer = _peer(env, torrent, 6801)
+		peer = _peer(env, torrent, 6801, in_queue=False)
 
 		system = DownloadSystem(env)
 		await system.start()
+		peer.add_component(RemoteUnchokedEC())
 		await asyncio.gather(*env.event_bus.dispatch("peer.local.choked_changed", torrent, peer))
 		in_flight = _pipeline(peer)
 		assert len(in_flight) == PIPELINE

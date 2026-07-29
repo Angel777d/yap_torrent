@@ -1,7 +1,7 @@
 ﻿import logging
 from typing import Dict, Hashable, Optional, Set
 
-from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
+from angelovich.core.DataStorage import EntityComponent, EntityHashComponent, Entity
 
 from yap_torrent.protocol.structures import PieceBlockInfo, PieceInfo
 
@@ -31,7 +31,7 @@ class PieceDownloadProgressEC(EntityComponent):
 		self._expected: Dict[int, int] = {block.begin: block.length for block in self._blocks}
 		self._requested: Set[PieceBlockInfo] = set()
 		self._received: Set[int] = set()  # begin offsets
-		self.downloading_by: set = set()  # peer entities requesting this piece
+		self.downloading_by: set[Entity] = set()  # peer entities requesting this piece
 
 	def next_block(self) -> Optional[PieceBlockInfo]:
 		for block in self._blocks.difference(self._requested):

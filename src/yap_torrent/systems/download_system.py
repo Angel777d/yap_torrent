@@ -1,7 +1,8 @@
+import asyncio
 import logging
 import random
 import time
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, Iterable, Optional, Set
 
 from angelovich.core.DataStorage import Entity
 
@@ -52,33 +53,25 @@ class DownloadSystem(TimeSystem):
 	async def _on_queue_changed(self, torrent_entity: Entity, peer_entity: Entity):
 		enter_queue = peer_entity.has_component(RemoteUnchokedEC) and peer_entity.has_component(LocalInterestedEC)
 
-		if enter_queue:
-			# a peer re-sending UNCHOKE raises the event again while already in the queue,
-			# and add_component only warns and keeps the old one
-			if not peer_entity.has_component(PeerRequestsEC):
-				peer_entity.add_component(PeerRequestsEC())
-			await _request_from_peer(self.env, torrent_entity, peer_entity)
+		# nothing changed here. skip
+		if peer_entity.has_component(PeerRequestsEC) == enter_queue:
 			return
 
-		if peer_entity.has_component(PeerRequestsEC):
-			_release_peer_blocks(self.env, torrent_entity, peer_entity)
-			await _fill_peers(self.env, torrent_entity, skip=peer_entity)
-			peer_entity.remove_component(PeerRequestsEC)
+		if enter_queue:
+			peer_entity.add_component(PeerRequestsEC())
+			_request_from_peer(self.env, torrent_entity, peer_entity)
+		else:
+			_reset_download_queue(self.env, torrent_entity, peer_entity)
 
 	async def _on_peer_disconnected(self, torrent_entity: Entity, peer_entity: Entity):
-		"""Free the departing peer's blocks, then offer them to whoever is left.
-
-		Not a stall fix — endgame keeps an in-queue peer fed with redundant blocks either
-		way. It just stops the freed blocks waiting for those redundant requests to drain
-		before anyone picks them up.
-		"""
-		_release_peer_blocks(self.env, torrent_entity, peer_entity)
-		# the pipeline belongs to this system, and PeerSystem does not strip it: a peer
-		# that drops while still in the download queue would otherwise keep an orphan
-		# pipeline for the rest of its life as a known peer
 		if peer_entity.has_component(PeerRequestsEC):
-			peer_entity.remove_component(PeerRequestsEC)
-		await _fill_peers(self.env, torrent_entity, skip=peer_entity)
+			_reset_download_queue(self.env, torrent_entity, peer_entity)
+
+
+def _reset_download_queue(env: Env, torrent_entity: Entity, peer_entity: Entity):
+	_release_peer_blocks(env, torrent_entity, peer_entity)
+	_fill_peers(env, torrent_entity, skip=peer_entity)
+	peer_entity.remove_component(PeerRequestsEC)
 
 
 def _progress_by_index(env: Env, info_hash: bytes) -> Dict[int, Entity]:
@@ -104,8 +97,6 @@ def _release_block(env: Env, info_hash: bytes, block: PieceBlockInfo) -> None:
 
 def _release_peer_blocks(env: Env, torrent_entity: Entity, peer_entity: Entity) -> None:
 	"""Empty a peer's pipeline and return everything in it to the pool."""
-	if not peer_entity.has_component(PeerRequestsEC):
-		return
 	info_hash = get_info_hash(torrent_entity)
 	for block in peer_entity.get_component(PeerRequestsEC).clear():
 		_release_block(env, info_hash, block)
@@ -114,41 +105,29 @@ def _release_peer_blocks(env: Env, torrent_entity: Entity, peer_entity: Entity) 
 
 
 async def _expire_requests(env: Env) -> None:
-	"""Reclaim blocks a peer accepted and never answered.
-
-	Nothing else recovers them: a peer holding both queue markers is never dropped as
-	idle, so its pipeline stays full and it is never asked again, while the blocks it is
-	sitting on stay marked as requested and no one else picks them up outside endgame.
-	"""
 	timeout = env.config.block_request_timeout
 	now = time.monotonic()
 
-	starved: Dict[bytes, List[Entity]] = {}
-	for peer_entity in list(env.data_storage.get_collection(PeerRequestsEC)):
+	torrents_to_trigger: Set[Entity] = set()
+	for peer_entity in env.data_storage.get_collection(PeerRequestsEC):
 		requests = peer_entity.get_component(PeerRequestsEC)
 		expired = requests.expired(timeout, now)
 		if not expired:
 			continue
+
 		info_hash = peer_entity.get_component(PeerEC).info_hash
 		logger.debug("%s: reclaiming %d block request(s) older than %ss",
 		             peer_entity.get_component(PeerEC).peer_info, len(expired), timeout)
 		for block in expired:
 			requests.discard(block)
 			_release_block(env, info_hash, block)
-		starved.setdefault(info_hash, []).append(peer_entity)
 
-	for info_hash, peers in starved.items():
-		torrent_entity = get_torrent_entity(env, info_hash)
-		if torrent_entity is None:
-			continue
-		# offer the freed blocks to the peers that are answering before handing them
-		# back to the ones that just timed out
-		for peer_entity in list(iterate_connected_peers(env, info_hash)):
-			if peer_entity in peers:
-				continue
-			await _request_from_peer(env, torrent_entity, peer_entity)
-		for peer_entity in peers:
-			await _request_from_peer(env, torrent_entity, peer_entity)
+		torrent_entity = get_torrent_entity(env, peer_entity.get_component(PeerEC).info_hash)
+		if torrent_entity:
+			torrents_to_trigger.add(torrent_entity)
+
+	for torrent_entity in torrents_to_trigger:
+		_fill_peers(env, torrent_entity)
 
 
 def _get_or_create_piece(env: Env, torrent_entity: Entity, index: int) -> Entity:
@@ -224,12 +203,7 @@ def _next_block(env: Env, torrent_entity: Entity, peer_entity: Entity,
 	return None
 
 
-async def _request_from_peer(env: Env, torrent_entity: Entity, peer_entity: Entity) -> None:
-	if not (peer_entity.has_component(LocalInterestedEC) and peer_entity.has_component(RemoteUnchokedEC)):
-		return
-	if not peer_entity.has_component(PeerConnectionEC):
-		return
-
+def _request_from_peer(env: Env, torrent_entity: Entity, peer_entity: Entity) -> None:
 	conn = peer_entity.get_component(PeerConnectionEC)
 	requests = peer_entity.get_component(PeerRequestsEC)
 	if len(requests.blocks) >= PIPELINE:
@@ -245,22 +219,23 @@ async def _request_from_peer(env: Env, torrent_entity: Entity, peer_entity: Enti
 		if block is None:
 			break
 		requests.add(block)
-		await conn.request(block)
+		# TODO: keep task with block maybe? to discard it later (on timeout)
+		task = asyncio.create_task(conn.request(block))
 
 
-async def _fill_peers(env: Env, torrent_entity: Entity, skip: Optional[Entity] = None) -> None:
+def _fill_peers(env: Env, torrent_entity: Entity, skip: Optional[Entity] = None) -> None:
 	"""Offer work to every connected peer of a torrent (used when blocks are freed)."""
-	for peer_entity in list(iterate_connected_peers(env, get_info_hash(torrent_entity))):
+	for peer_entity in env.data_storage.get_collection(PeerRequestsEC):
 		if peer_entity is skip:
 			continue
-		await _request_from_peer(env, torrent_entity, peer_entity)
+		if torrent_entity.get_component(TorrentEC).info_hash != peer_entity.get_component(PeerEC).info_hash:
+			continue
+		_request_from_peer(env, torrent_entity, peer_entity)
 
 
-async def _cancel_on_others(peers: Iterable[Entity], skip: Entity, index: int, begin: Optional[int] = None) -> None:
+async def _cancel_on_others(peers: Iterable[Entity], index: int, begin: Optional[int] = None) -> None:
 	"""CANCEL the redundant endgame copies of a block — or of a whole piece, if no begin."""
 	for other in peers:
-		if other is skip or not other.has_component(PeerRequestsEC):
-			continue
 		other_requests = other.get_component(PeerRequestsEC)
 		other_conn = other.get_component(PeerConnectionEC)
 		for pending in other_requests.for_piece(index):
@@ -290,37 +265,33 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 	progress = piece_entity.get_component(PieceDownloadProgressEC)
 
 	# endgame: cancel this exact block on other peers redundantly requesting it
-	await _cancel_on_others(list(progress.downloading_by), peer_entity, index, begin)
+	await _cancel_on_others(progress.downloading_by.difference([peer_entity]), index, begin)
 
 	if progress.add_block(begin, block):
-		await _finish_piece(env, torrent_entity, peer_entity, piece_entity, progress, index)
+		await _finish_piece(env, torrent_entity, piece_entity, progress, index)
 
 	if is_torrent_complete(torrent_entity):
 		env.event_bus.dispatch("action.torrent.complete", torrent_entity)
 		return
 
-	await _request_from_peer(env, torrent_entity, peer_entity)
+	# finish last piece can trigger PeerRequestsEC remove
+	if peer_entity.has_component(PeerRequestsEC):
+		# request next block
+		_request_from_peer(env, torrent_entity, peer_entity)
 
 
-async def _finish_piece(env, torrent_entity, peer_entity, piece_entity, progress, index):
+async def _finish_piece(env: Env, torrent_entity: Entity, piece_entity: Entity, progress: PieceDownloadProgressEC,
+                        index: int):
 	data = bytes(progress.data)
+	piece_entity.remove_component(PieceDownloadProgressEC)
+
 	if not check_hash(data, progress.info.piece_hash):
 		logger.warning("Piece %s failed validation, re-downloading", index)
-		downloading_by = set(progress.downloading_by)
-		piece_entity.remove_component(PieceDownloadProgressEC)
 		piece_entity.add_component(PieceDownloadProgressEC(progress.info))
-		# the fresh progress has no record of what is still in flight elsewhere, so those
-		# blocks would arrive against a piece that no longer expects them
-		await _cancel_on_others(downloading_by, peer_entity, index)
 		return
 
-	downloading_by = set(progress.downloading_by)
-	piece_entity.remove_component(PieceDownloadProgressEC)
 	piece_entity.add_component(CompletePieceDataEC(data))
 	piece_entity.add_component(IdleEC())
 	torrent_entity.get_component(TorrentEC).bitfield.set_index(index)
 
 	await env.event_bus.dispatch_async("piece.complete", torrent_entity, piece_entity)
-
-	# cancel this piece on the other peers that were downloading it
-	await _cancel_on_others(downloading_by, peer_entity, index)

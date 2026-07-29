@@ -64,7 +64,7 @@ class InterestedSystem(System):
 		info_hash = get_info_hash(torrent_entity)
 		index = piece_entity.get_component(PieceEC).info.index
 
-		for peer_entity in list(iterate_connected_peers(self.env, info_hash)):
+		for peer_entity in iterate_connected_peers(self.env, info_hash):
 			await peer_entity.get_component(PeerConnectionEC).send(msg.have(index))
 			await self.__update_local_interested(torrent_entity, peer_entity)
 
