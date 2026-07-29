@@ -20,12 +20,10 @@ from yap_torrent.protocol.structures import Metainfo
 from yap_torrent.components.file_ec import FilePriority
 from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_active
 from yap_torrent.systems.stats_system import session_rates
+from .components import get_speed_settings
 from .mapping import DEFAULT_FIELDS, STALLED_AFTER_SECONDS, build_torrent
 
 logger = logging.getLogger(__name__)
-
-# our section in config.json, for the settings core has no notion of
-PLUGIN_CONFIG_KEY = "yap_torrent_transmission_rpc"
 
 _TorrentID = int | str
 _TorrentIDs = _TorrentID | list[_TorrentID] | None
@@ -85,90 +83,12 @@ class TorrentIDs:
 		self.hashes.clear()
 
 
-class SpeedSettings:
-	"""The parts of Transmission's speed model that core does not have.
-
-	Core keeps one pair of limits where **0 means no limit**. Transmission splits each
-	limit into a number and an on/off flag, and carries a second "alternative" pair
-	(turtle mode) with its own switch. Both of those are client-side ideas, so they live
-	here — including the last non-zero limit, which is what lets a client switch a limit
-	off and back on without the number it typed turning into a 0.
-
-	TODO: once core enforces speed limits, enabling turtle mode should push the alt pair
-	 into config.speed_limit_* and restore the normal pair on the way out. Nothing
-	 enforces anything yet, so swapping would change nothing but what session-get says.
-	"""
-	FIELDS = (
-		"alt_speed_down", "alt_speed_up", "alt_speed_enabled",
-		"last_speed_limit_down", "last_speed_limit_up",
-	)
-
-	def __init__(self, stored: Optional[Dict[str, Any]] = None):
-		stored = stored or {}
-		self.alt_speed_down: int = int(stored.get("alt_speed_down", 0))
-		self.alt_speed_up: int = int(stored.get("alt_speed_up", 0))
-		self.alt_speed_enabled: bool = bool(stored.get("alt_speed_enabled", False))
-		# what to restore when a limit is switched back on
-		self.last_speed_limit_down: int = int(stored.get("last_speed_limit_down", 0))
-		self.last_speed_limit_up: int = int(stored.get("last_speed_limit_up", 0))
-
-	def export(self) -> Dict[str, Any]:
-		return {name: getattr(self, name) for name in self.FIELDS}
-
-	def update(self, values: Dict[str, Any]) -> bool:
-		"""Apply the fields present in `values`; returns whether anything moved."""
-		changed = False
-		for name in self.FIELDS:
-			if name not in values:
-				continue
-			cast = type(getattr(self, name))
-			try:
-				new_value = cast(values[name])
-			except (TypeError, ValueError):
-				logger.warning("Ignoring bad value for %s: %r", name, values[name])
-				continue
-			if getattr(self, name) != new_value:
-				setattr(self, name, new_value)
-				changed = True
-		return changed
-
-	def reported_limit(self, in_force: int, attr: str) -> int:
-		"""The number a client should see in its limit box: the live one, or the last."""
-		return in_force or getattr(self, attr)
-
-	def resolve_limit(self, in_force: int, attr: str, value: Any, enabled: Any) -> Optional[int]:
-		"""Fold Transmission's (number, flag) pair into core's single "0 means off".
-
-		Returns the value core should hold, or None to leave it alone. A number sent on
-		its own does not switch a disabled limit on — that is what the flag is for — so
-		it is only remembered.
-		"""
-		if value is None and enabled is None:
-			return None
-
-		if value is not None:
-			try:
-				remembered = max(0, int(value))
-			except (TypeError, ValueError):
-				logger.warning("Ignoring bad speed limit %r", value)
-				return None
-			if remembered:
-				setattr(self, attr, remembered)
-		else:
-			remembered = self.reported_limit(in_force, attr)
-
-		turned_on = bool(enabled) if enabled is not None else bool(in_force)
-		return remembered if turned_on else 0
-
-
-
 class ServerInfo:
-	def __init__(self, session_id, start_time, speed: Optional[SpeedSettings] = None):
+	def __init__(self, session_id, start_time):
 		self.session_id: str = session_id
 		self.start_time: float = start_time
 		self.recent: TorrentIDs = TorrentIDs()
 		self.removed: TorrentIDs = TorrentIDs()
-		self.speed: SpeedSettings = speed or SpeedSettings()
 
 
 # --- protocol version ------------------------------------------------------
@@ -525,6 +445,7 @@ async def _add_magnet(env: Env, info: ServerInfo, magnet_link: str, paused):
 @method("session-get")
 async def session_get(env, info, arguments):
 	cfg = env.config
+	speed = get_speed_settings(env)
 	download_dir = Path(cfg.download_folder).as_posix()
 	session = {
 		"rpc-version": RPC_VERSION_MAX_SUPPORTED,
@@ -554,14 +475,14 @@ async def session_get(env, info, arguments):
 		# core stores one number per direction where 0 means no limit; a client wants the
 		# number and the switch separately, and expects its number to still be in the box
 		# after it switches the limit off
-		"speed-limit-down": info.speed.reported_limit(cfg.speed_limit_down, "last_speed_limit_down"),
+		"speed-limit-down": speed.reported_limit(cfg.speed_limit_down, "last_speed_limit_down"),
 		"speed-limit-down-enabled": bool(cfg.speed_limit_down),
-		"speed-limit-up": info.speed.reported_limit(cfg.speed_limit_up, "last_speed_limit_up"),
+		"speed-limit-up": speed.reported_limit(cfg.speed_limit_up, "last_speed_limit_up"),
 		"speed-limit-up-enabled": bool(cfg.speed_limit_up),
 		# turtle mode is ours, not core's
-		"alt-speed-enabled": info.speed.alt_speed_enabled,
-		"alt-speed-down": info.speed.alt_speed_down,
-		"alt-speed-up": info.speed.alt_speed_up,
+		"alt-speed-enabled": speed.alt_speed_enabled,
+		"alt-speed-down": speed.alt_speed_down,
+		"alt-speed-up": speed.alt_speed_up,
 		"seedRatioLimit": cfg.seed_ratio_limit,
 		"seedRatioLimited": cfg.seed_ratio_limited,
 		"start-added-torrents": cfg.start_added_torrents,
@@ -611,7 +532,7 @@ SESSION_SETTINGS: Dict[str, str] = {
 }
 
 
-# alt-speed is ours; it maps to SpeedSettings rather than to a core setting
+# alt-speed is ours; it maps to SpeedSettingsEC rather than to a core setting
 ALT_SPEED_SETTINGS: Dict[str, str] = {
 	"alt-speed-down": "alt_speed_down",
 	"alt-speed-up": "alt_speed_up",
@@ -634,12 +555,14 @@ async def session_set(env, info, arguments):
 	rather than rejected so a client's choice round-trips instead of reading back as
 	whatever it was before.
 	"""
-	alt = {
+	# turtle mode and the remembered numbers are live state, not stored preferences:
+	# they change the component and nothing else, and are gone with the process
+	speed = get_speed_settings(env)
+	speed.update({
 		ALT_SPEED_SETTINGS[key]: value
 		for key, value in arguments.items()
 		if key in ALT_SPEED_SETTINGS
-	}
-	ours_changed = bool(alt) and info.speed.update(alt)
+	})
 
 	values = {
 		SESSION_SETTINGS[key]: value
@@ -651,17 +574,12 @@ async def session_set(env, info, arguments):
 	for value_key, flag_key, config_key, remembered_attr in _SPEED_LIMITS:
 		if value_key not in arguments and flag_key not in arguments:
 			continue
-		before = getattr(info.speed, remembered_attr)
-		resolved = info.speed.resolve_limit(
+		resolved = speed.resolve_limit(
 			getattr(env.config, config_key), remembered_attr,
 			arguments.get(value_key), arguments.get(flag_key))
 		if resolved is not None:
 			values[config_key] = resolved
-		ours_changed = ours_changed or getattr(info.speed, remembered_attr) != before
 
-	if ours_changed:
-		# our own section of config.json, since core does not model any of this
-		env.config.set_plugin_config(PLUGIN_CONFIG_KEY, info.speed.export())
 	if values:
 		await env.event_bus.dispatch_async("request.config.set", values)
 	return "success", {}

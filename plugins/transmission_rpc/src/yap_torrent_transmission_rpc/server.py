@@ -6,7 +6,8 @@ from typing import Any, Dict, Optional, Tuple
 from aiohttp import web
 
 from yap_torrent.env import Env
-from .methods import METHODS, PLUGIN_CONFIG_KEY, UNIMPLEMENTED, ServerInfo, SpeedSettings
+from .components import PLUGIN_CONFIG_KEY, get_speed_settings
+from .methods import METHODS, UNIMPLEMENTED, ServerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,10 @@ class RpcServer:
 		self.info: ServerInfo = ServerInfo(
 			uuid.uuid4().hex + uuid.uuid4().hex[:16],  # 48-char id, like Transmission
 			time.monotonic(),
-			SpeedSettings(config),  # the speed shape core does not model is ours
 		)
+		# seed the app-wide speed singleton from config now, so its initial values come
+		# from the file rather than from whichever request happens to touch it first
+		get_speed_settings(env)
 
 		self.host = config.get("host", "0.0.0.0")
 		self.port = int(config.get("port", DEFAULT_PORT))

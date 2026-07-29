@@ -225,17 +225,6 @@ class Config:
 	def get_plugin_config(self, plugin_name: str) -> Dict[str, Any]:
 		return self._data.get(plugin_name, {})
 
-	def set_plugin_config(self, plugin_name: str, values: Dict[str, Any]) -> None:
-		"""Merge settings into a plugin's own section and persist them.
-
-		Core does not model what a plugin keeps here and does not validate it — the
-		point is that a plugin can own a setting core has no notion of (a UI theme, a
-		second set of speed limits) without that setting having to exist in SETTINGS.
-		"""
-		section = self._data.setdefault(plugin_name, {})
-		section.update(values)
-		self._save()
-
 	# -- runtime settings ---------------------------------------------------
 	@staticmethod
 	def setting(key: str) -> Optional[Setting]:

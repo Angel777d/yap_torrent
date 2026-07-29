@@ -80,10 +80,19 @@ plugin translates:
   switch the limit on again. A number sent **without** the flag does not switch a disabled
   limit on — that is what the flag is for — it is only remembered.
 - `alt-speed-down` / `alt-speed-up` / `alt-speed-enabled` (turtle mode) never reach core at
-  all; they live entirely in the `yap_torrent_transmission_rpc` section of `config.json`.
+  all.
+
+Both the turtle values and the remembered numbers live in `SpeedSettingsEC`, a **singleton
+component in the shared ECS** — one instance for the whole app, reachable with
+`get_speed_settings(env)`, so anything else that wants to know whether turtle mode is on
+reads the same object. It is **runtime state**: seeded from the
+`yap_torrent_transmission_rpc` section of `config.json` at startup and never written back,
+because turning turtle mode on is something you do now, not something the next run should
+inherit. The only speed value that outlives the process is the one core already keeps — the
+limit actually in force.
 
 Once core enforces limits, enabling turtle mode should push the alt pair into core's
-`speed_limit_*` and restore the normal pair on the way out — see the `SpeedSettings` TODO.
+`speed_limit_*` and restore the normal pair on the way out — see the `SpeedSettingsEC` TODO.
 
 Every other spec method is recognised but returns an explanatory error string (it is *not*
 treated as an unknown method). See `UNIMPLEMENTED` in `methods.py` for the list and the notes

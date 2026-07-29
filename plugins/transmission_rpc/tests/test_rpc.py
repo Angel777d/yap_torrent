@@ -23,6 +23,7 @@ from yap_torrent.systems.magnet_system import MagnetSystem
 from yap_torrent.systems.metainfo_system import MetainfoSystem
 from yap_torrent.systems.stats_system import StatsSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
+from yap_torrent_transmission_rpc.components import get_speed_settings
 from yap_torrent_transmission_rpc.server import CSRF_HEADER, RpcServer
 
 RPC_PATH = "/transmission/rpc"
@@ -509,12 +510,14 @@ async def test_alt_speed_round_trips_without_touching_core(client, server):
 	assert not hasattr(server.env.config, "alt_speed_down")
 
 
-async def test_alt_speed_is_stored_in_the_plugins_own_config_section(client, server):
+async def test_alt_speed_is_runtime_state_and_is_not_written_back(client, server):
+	# it is a live knob, not a stored preference: config.json is untouched
 	session_id = await handshake(client)
+	before = dict(server.env.config.data)
 	await rpc(client, session_id, "session-set", {"alt-speed-down": 42})
 
-	section = server.env.config.get_plugin_config("yap_torrent_transmission_rpc")
-	assert section["alt_speed_down"] == 42
+	assert get_speed_settings(server.env).alt_speed_down == 42
+	assert server.env.config.data == before
 
 
 async def test_the_normal_speed_limits_still_go_to_core(client, server):
@@ -525,7 +528,7 @@ async def test_the_normal_speed_limits_still_go_to_core(client, server):
 	})
 
 	assert server.env.config.speed_limit_down == 300
-	assert server.info.speed.alt_speed_down == 42
+	assert get_speed_settings(server.env).alt_speed_down == 42
 
 
 async def test_a_limit_of_zero_in_core_is_reported_as_switched_off(client, server):
@@ -563,3 +566,32 @@ async def test_a_number_alone_does_not_switch_a_disabled_limit_on(client, server
 	got = await rpc(client, session_id, "session-get",
 	                {"fields": ["speed-limit-down", "speed-limit-down-enabled"]})
 	assert got["arguments"] == {"speed-limit-down": 300, "speed-limit-down-enabled": False}
+
+
+async def test_the_speed_settings_are_one_component_for_the_whole_app(client, server):
+	# a singleton in the shared ECS, not per-request or per-server state: anything in the
+	# app that wants to know whether turtle mode is on reads the same component
+	from yap_torrent_transmission_rpc.components import SpeedSettingsEC
+
+	session_id = await handshake(client)
+	await rpc(client, session_id, "session-set", {"alt-speed-enabled": True})
+
+	collection = server.env.data_storage.get_collection(SpeedSettingsEC)
+	assert len(collection) == 1
+	assert get_speed_settings(server.env) is get_speed_settings(server.env)
+	assert get_speed_settings(server.env).alt_speed_enabled is True
+
+
+async def test_the_initial_values_come_from_config(client, server):
+	# runtime state, but not from nowhere: config.json seeds it at startup
+	from yap_torrent_transmission_rpc.components import PLUGIN_CONFIG_KEY, get_speed_settings as get_it
+
+	env = server.env
+	env.config.data[PLUGIN_CONFIG_KEY] = {"alt_speed_down": 77, "alt_speed_enabled": True}
+	# drop the singleton the fixture seeded so the next read rebuilds it from config
+	for entity in list(env.data_storage.get_collection(type(get_it(env)))):
+		env.data_storage.remove_entity(entity)
+
+	settings = get_it(env)
+	assert settings.alt_speed_down == 77
+	assert settings.alt_speed_enabled is True
