@@ -121,6 +121,7 @@ class PeerRequestsEC(EntityComponent):
 	def __init__(self) -> None:
 		super().__init__()
 		self._requested: Dict[PieceBlockInfo, float] = {}
+		self._send_tasks: set[Task] = set()
 
 	# NB: no __len__ or __bool__ here, and none on any other component.
 	# `Entity.get_component` tests the component for truthiness (`if not result: raise`),
@@ -132,8 +133,10 @@ class PeerRequestsEC(EntityComponent):
 		"""The blocks currently in flight (membership, len, iteration)."""
 		return self._requested.keys()
 
-	def add(self, block: PieceBlockInfo) -> None:
+	def add(self, block: PieceBlockInfo, task: Task) -> None:
 		self._requested[block] = time.monotonic()
+		self._send_tasks.add(task)
+		task.add_done_callback(self._send_tasks.discard)
 
 	def discard(self, block: PieceBlockInfo) -> None:
 		self._requested.pop(block, None)
@@ -162,6 +165,12 @@ class PeerRequestsEC(EntityComponent):
 
 	def expired(self, timeout: float, now: float) -> List[PieceBlockInfo]:
 		return [block for block, sent_at in self._requested.items() if now - sent_at > timeout]
+
+	def _reset(self):
+		for task in self._send_tasks:
+			task.cancel()
+		self._send_tasks.clear()
+		super()._reset()
 
 
 class PeerConnectionEC(EntityComponent):
