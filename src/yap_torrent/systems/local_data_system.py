@@ -8,7 +8,7 @@ from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC, RestoreFileSelectionEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, TorrentPathEC, \
-	TorrentLabelsEC, TorrentPriorityEC, TorrentStatsEC
+	TorrentLabelsEC, TorrentLimitsEC, TorrentPriorityEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol.structures import PeerInfo
@@ -111,6 +111,9 @@ def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:
 	if torrent_entity.has_component(TorrentLabelsEC):
 		result['labels'] = torrent_entity.get_component(TorrentLabelsEC).labels
 
+	if torrent_entity.has_component(TorrentLimitsEC):
+		result['limits'] = torrent_entity.get_component(TorrentLimitsEC).export()
+
 	if torrent_entity.has_component(TorrentTrackerEC):
 		result['announce_list'] = torrent_entity.get_component(TorrentTrackerEC).announce_list
 		result['tracker_data'] = torrent_entity.get_component(TorrentTrackerDataEC).export()
@@ -153,6 +156,10 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	labels = save_data.get('labels')
 	if labels:
 		torrent_entity.add_component(TorrentLabelsEC(labels))
+
+	limits = save_data.get('limits')
+	if limits:
+		torrent_entity.add_component(TorrentLimitsEC(**limits))
 
 	# peers are persisted separately by PeerDataSystem (global store)
 

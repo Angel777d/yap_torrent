@@ -6,7 +6,7 @@ restart loses something nothing else can reconstruct.
 import asyncio
 from pathlib import Path
 
-from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentLabelsEC
+from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentLabelsEC, TorrentLimitsEC
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
@@ -141,5 +141,48 @@ def test_labels_come_back_after_a_restart(tmp_path):
 		await LocalDataSystem(fresh).start()
 
 		assert _labels(get_torrent_entity(fresh, meta.make_info_hash())) == ["linux", "iso"]
+
+	asyncio.run(run())
+
+
+# --- per-torrent limits: stored, never enforced -----------------------------
+def test_limits_are_stored_and_survive_a_restart(tmp_path):
+	# nothing in the transfer path reads these; they are kept so a client's choice
+	# round-trips instead of silently reading back as zero
+	async def run():
+		env = _env(tmp_path)
+		meta = _meta()
+		torrent = _torrent(env, meta)
+		await _system(env)
+
+		await asyncio.gather(*env.event_bus.dispatch(
+			"request.torrent.set_limits", meta.make_info_hash(),
+			{"upload_limit": 50, "upload_limited": True, "seed_ratio_limit": 1.5}))
+
+		limits = torrent.get_component(TorrentLimitsEC)
+		assert (limits.upload_limit, limits.upload_limited, limits.seed_ratio_limit) == (50, True, 1.5)
+		assert torrent.has_component(SaveTorrentEC)
+
+		_save(tmp_path / "active" / meta.make_info_hash().hex(), _export_torrent_data(env, torrent))
+		fresh = _env(tmp_path)
+		await LocalDataSystem(fresh).start()
+
+		restored = get_torrent_entity(fresh, meta.make_info_hash()).get_component(TorrentLimitsEC)
+		assert (restored.upload_limit, restored.upload_limited, restored.seed_ratio_limit) == (50, True, 1.5)
+
+	asyncio.run(run())
+
+
+def test_unknown_limit_keys_are_ignored(tmp_path):
+	async def run():
+		env = _env(tmp_path)
+		meta = _meta()
+		torrent = _torrent(env, meta)
+		await _system(env)
+
+		await asyncio.gather(*env.event_bus.dispatch(
+			"request.torrent.set_limits", meta.make_info_hash(), {"not_a_limit": 1}))
+
+		assert torrent.has_component(TorrentLimitsEC) is False
 
 	asyncio.run(run())

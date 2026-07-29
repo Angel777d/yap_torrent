@@ -147,3 +147,35 @@ def test_removing_a_torrent_closes_the_gap():
 		assert _order([torrents[0], torrents[2], torrents[3]]) == [0, 1, 2]
 
 	asyncio.run(run())
+
+
+def test_a_torrent_can_be_moved_to_an_absolute_position():
+	# torrent-set sets queuePosition by number rather than by direction
+	async def run():
+		env = _env()
+		_, torrents = await _queue(env, count=5)
+		await _move(env, torrents[0], 3)
+		assert _order(torrents) == [3, 0, 1, 2, 4]
+
+	asyncio.run(run())
+
+
+def test_an_out_of_range_position_clamps_to_an_end():
+	async def run():
+		env = _env()
+		_, torrents = await _queue(env)
+		await _move(env, torrents[1], 99)
+		assert _order(torrents) == [0, 3, 1, 2]
+
+	asyncio.run(run())
+
+
+def test_a_boolean_is_not_treated_as_a_position():
+	# bool is an int subclass, so a JSON true would otherwise mean "position 1"
+	async def run():
+		env = _env()
+		_, torrents = await _queue(env)
+		await _move(env, torrents[3], True)
+		assert _order(torrents) == [0, 1, 2, 3]
+
+	asyncio.run(run())

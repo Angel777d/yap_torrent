@@ -7,6 +7,7 @@ from yap_torrent.components.torrent_ec import (
 	SaveTorrentEC,
 	TorrentInfoEC,
 	TorrentLabelsEC,
+	TorrentLimitsEC,
 	TorrentPriorityEC,
 	TorrentState,
 	TorrentStatsEC,
@@ -17,12 +18,19 @@ from yap_torrent.systems import get_torrent_entity, get_torrent_name
 logger = logging.getLogger(__name__)
 
 
-def _move_target(direction: str, index: int, count: int) -> Optional[int]:
-	"""Where a move puts a torrent, or None if the direction is not one we know.
+def _move_target(direction, index: int, count: int) -> Optional[int]:
+	"""Where a move puts a torrent, or None if it is not something we understand.
 
+	Accepts the four directions and an absolute position, because `torrent-set` sets a
+	queue position by number while the queue-move methods nudge by direction.
 	Clamped rather than wrapped: "up" at the top stays at the top, which is what every
 	client expects from a disabled-looking button.
 	"""
+	if isinstance(direction, bool):
+		return None  # bool is an int subclass; a JSON true is not position 1
+	if isinstance(direction, int):
+		return max(0, min(count - 1, direction))
+
 	targets = {"top": 0, "bottom": count - 1, "up": index - 1, "down": index + 1}
 	if direction not in targets:
 		return None
@@ -71,6 +79,7 @@ class TorrentSystem(System):
 		self.add_listener("request.torrent.remove", self._on_torrent_remove)
 		self.add_listener("request.torrent.set_labels", self._on_set_labels)
 		self.add_listener("request.torrent.queue_move", self._on_queue_move)
+		self.add_listener("request.torrent.set_limits", self._on_set_limits)
 
 		# subscribe to new torrents
 		collection = self.env.data_storage.get_collection(TorrentInfoEC)
@@ -129,8 +138,45 @@ class TorrentSystem(System):
 			return
 		_mark_for_save(torrent_entity)
 
-	async def _on_queue_move(self, info_hash: bytes, direction: str):
-		"""Move a torrent within the queue. Direction is top / up / down / bottom.
+	async def _on_set_limits(self, info_hash: bytes, values: dict):
+		"""Store per-torrent bandwidth/seeding preferences. Nothing enforces them.
+
+		TODO: wire these into the transfer path. Until then the warning below is the
+		 only thing telling an operator that a limit they set is doing nothing.
+		"""
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		if not torrent_entity or not values:
+			return
+
+		accepted = {key: value for key, value in values.items() if key in TorrentLimitsEC.FIELDS}
+		if not accepted:
+			return
+
+		if not torrent_entity.has_component(TorrentLimitsEC):
+			torrent_entity.add_component(TorrentLimitsEC())
+		limits = torrent_entity.get_component(TorrentLimitsEC)
+
+		changed = []
+		for key, value in accepted.items():
+			cast = type(getattr(limits, key))
+			try:
+				cast_value = cast(value)
+			except (TypeError, ValueError):
+				logger.warning("[TorrentSystem] bad value for limit '%s': %r", key, value)
+				continue
+			if getattr(limits, key) != cast_value:
+				setattr(limits, key, cast_value)
+				changed.append(key)
+
+		if not changed:
+			return
+		logger.warning("Stored per-torrent limits %s for %s, but NOTHING ENFORCES THEM: "
+		               "there is no bandwidth limiting or ratio-based stopping in core",
+		               ", ".join(sorted(changed)), get_torrent_name(torrent_entity))
+		_mark_for_save(torrent_entity)
+
+	async def _on_queue_move(self, info_hash: bytes, direction):
+		"""Move a torrent within the queue: top / up / down / bottom, or a position number.
 
 		The queue is a dense 0..n-1 ordering, so a move is a reinsertion followed by a
 		renumber — not an arithmetic nudge of one priority, which would collide with a

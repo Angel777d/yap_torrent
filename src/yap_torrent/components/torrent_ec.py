@@ -52,6 +52,39 @@ class TorrentLabelsEC(EntityComponent):
 		self.labels: List[str] = list(labels or [])
 
 
+class TorrentLimitsEC(EntityComponent):
+	"""Per-torrent bandwidth and seeding preferences. **Stored, never enforced.**
+
+	TODO: nothing in the transfer path reads any of this. DownloadSystem does not pace
+	 requests, UploadSystem does not pace replies, and no system stops a torrent on
+	 ratio. It is kept because a client that sets a limit and reads back zero assumes
+	 the call failed — round-tripping the choice is honest, silently dropping it is not.
+	 Enforcing it means a token bucket on the two transfer paths plus a ratio check
+	 wherever completion is noticed.
+	"""
+
+	def __init__(self, **kwargs) -> None:
+		super().__init__()
+		self.download_limit: int = int(kwargs.get("download_limit", 0))  # KB/s
+		self.download_limited: bool = bool(kwargs.get("download_limited", False))
+		self.upload_limit: int = int(kwargs.get("upload_limit", 0))  # KB/s
+		self.upload_limited: bool = bool(kwargs.get("upload_limited", False))
+		self.honors_session_limits: bool = bool(kwargs.get("honors_session_limits", True))
+		self.seed_ratio_limit: float = float(kwargs.get("seed_ratio_limit", 0.0))
+		self.seed_ratio_mode: int = int(kwargs.get("seed_ratio_mode", 0))  # 0 global, 1 single, 2 unlimited
+		self.peer_limit: int = int(kwargs.get("peer_limit", 0))
+		self.bandwidth_priority: int = int(kwargs.get("bandwidth_priority", 0))  # -1 low, 0 normal, 1 high
+
+	FIELDS = (
+		"download_limit", "download_limited", "upload_limit", "upload_limited",
+		"honors_session_limits", "seed_ratio_limit", "seed_ratio_mode", "peer_limit",
+		"bandwidth_priority",
+	)
+
+	def export(self) -> Dict[str, Any]:
+		return {name: getattr(self, name) for name in self.FIELDS}
+
+
 class TorrentRateEC(EntityComponent):
 	"""Sampled transfer rates for a torrent, in bytes/sec.
 
