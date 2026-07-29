@@ -1,7 +1,8 @@
 import logging
+import time
 from enum import IntEnum
 from pathlib import Path
-from typing import Dict, Set, Generator, Callable, Optional, Tuple
+from typing import Any, Dict, Set, Generator, Callable, Optional, Tuple
 
 from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
@@ -59,6 +60,12 @@ class TorrentState(IntEnum):
 
 
 class TorrentStatsEC(EntityComponent):
+	"""Totals and dates for a torrent. Everything here survives a restart.
+
+	The dates are **wall-clock epoch seconds**, not `time.monotonic()`: they are shown to
+	users and written to disk, and a monotonic stamp means nothing in the next process.
+	"""
+
 	def __init__(self, **kwargs) -> None:
 		super().__init__()
 
@@ -69,20 +76,36 @@ class TorrentStatsEC(EntityComponent):
 
 		self.state: TorrentState = TorrentState(kwargs.get("state", TorrentState.Active))
 
-	def export(self) -> Dict[str, int]:
+		# a save written before these existed has no added_date, so it dates from the
+		# first run that understands them rather than from the epoch
+		self.added_date: float = kwargs.get("added_date") or time.time()
+		self.started_date: float = kwargs.get("started_date", 0.0)
+		self.done_date: float = kwargs.get("done_date", 0.0)
+		self.activity_date: float = kwargs.get("activity_date", 0.0)
+
+	def export(self) -> Dict[str, Any]:
 		return {
 			"uploaded": self.uploaded,
 			"downloaded": self.downloaded,
-			"state": self.state.value
+			"state": self.state.value,
+			"added_date": self.added_date,
+			"started_date": self.started_date,
+			"done_date": self.done_date,
+			"activity_date": self.activity_date,
 		}
+
+	def touch_activity(self) -> None:
+		self.activity_date = time.time()
 
 	def update_uploaded(self, length: int) -> None:
 		self._uploaded += length
 		self._session_uploaded += length
+		self.touch_activity()
 
 	def update_downloaded(self, length: int) -> None:
 		self._downloaded += length
 		self._session_downloaded += length
+		self.touch_activity()
 
 	@property
 	def uploaded(self) -> int:

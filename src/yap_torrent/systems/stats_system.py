@@ -2,8 +2,10 @@ import logging
 import time
 from typing import Tuple
 
+from angelovich.core.DataStorage import Entity
+
 from yap_torrent.components.peer_ec import PeerEC, PeerRateEC
-from yap_torrent.components.torrent_ec import TorrentEC, TorrentRateEC
+from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentEC, TorrentRateEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.system import TimeSystem
 from yap_torrent.systems import get_torrent_entity
@@ -11,6 +13,11 @@ from yap_torrent.systems import get_torrent_entity
 logger = logging.getLogger(__name__)
 
 SAMPLE_INTERVAL = 1.0  # seconds between rate samples
+
+
+def _mark_for_save(torrent_entity: Entity) -> None:
+	if not torrent_entity.has_component(SaveTorrentEC):
+		torrent_entity.add_component(SaveTorrentEC())
 
 
 def session_rates(env: Env) -> Tuple[float, float]:
@@ -34,6 +41,23 @@ class StatsSystem(TimeSystem):
 
 	def __init__(self, env: Env):
 		super().__init__(env, SAMPLE_INTERVAL)
+
+	async def start(self):
+		self.add_listener("action.torrent.start", self._on_torrent_start)
+		self.add_listener("action.torrent.complete", self._on_torrent_complete)
+
+	async def _on_torrent_start(self, torrent_entity: Entity):
+		stats = torrent_entity.get_component(TorrentStatsEC)
+		stats.started_date = time.time()
+		_mark_for_save(torrent_entity)
+
+	async def _on_torrent_complete(self, torrent_entity: Entity):
+		stats = torrent_entity.get_component(TorrentStatsEC)
+		# the first completion is the one worth reporting; re-checking a finished torrent
+		# raises the event again and must not move the date
+		if not stats.done_date:
+			stats.done_date = time.time()
+			_mark_for_save(torrent_entity)
 
 	async def _update(self, delta_time: float):
 		now = time.monotonic()
