@@ -350,7 +350,11 @@ async def scenario_choke_over_limit(work: Path) -> bool:
 		if unchoked > limit:
 			over_limit = True
 
-	ok = max_connected >= 2 and max_unchoked >= 1 and not over_limit
+	# "it served somebody" is asserted on bytes uploaded, not on a sampled LocalUnchokedEC:
+	# a peer is only unchoked while it is actually interested, and over loopback that window
+	# closes well inside one sampling interval.
+	served = seed.get_component(TorrentStatsEC).uploaded > 0
+	ok = max_connected >= 2 and served and not over_limit
 	for inst in (l1, l2, seeder):
 		await inst.stop()
 	return ok

@@ -1,5 +1,6 @@
+import math
 from pathlib import Path
-from typing import Optional, Dict, Generator, Iterator
+from typing import Optional, Dict, Generator, Iterator, List
 
 from angelovich.core.DataStorage import Entity
 
@@ -7,7 +8,7 @@ from yap_torrent.components.common import IdleEC
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState, PeerStatsEC, PeerPendingRemoveEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
-	ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC
+	ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, TorrentPriorityEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
@@ -80,6 +81,15 @@ def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
 
 def iterate_active_torrents(env: Env) -> Generator[Entity]:
 	return (e for e in env.data_storage.get_collection(TorrentEC) if is_torrent_active(e))
+
+
+def iterate_torrents_by_priority(env: Env) -> List[Entity]:
+	def position(entity: Entity):
+		if entity.has_component(TorrentPriorityEC):
+			return entity.get_component(TorrentPriorityEC).priority
+		return math.inf
+
+	return sorted(env.data_storage.get_collection(TorrentEC), key=position)
 
 
 def find_peer_entity(env: Env, info_hash: bytes, host: str, port: int) -> Optional[Entity]:

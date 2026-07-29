@@ -232,7 +232,7 @@ class PeerSystem(System):
 		connection = net.Connection(remote_peer_id, reader, writer)
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 
-		if torrent_entity is None or torrent_entity.get_component(TorrentStatsEC).state == TorrentState.Inactive:
+		if torrent_entity is None or not is_torrent_active(torrent_entity):
 			logger.debug("%s connected to inactive/unknown torrent %s. Disconnecting",
 			             peer_entity.get_component(PeerEC).peer_info, info_hash.hex())
 			connection.close()
@@ -359,7 +359,7 @@ def calculate_candidates(env, now):
 		if not torrent_entity:
 			continue
 
-		if torrent_entity.get_component(TorrentStatsEC).state != TorrentState.Active:
+		if not is_torrent_active(torrent_entity):
 			continue
 
 		if not torrent_entity.has_component(TorrentInfoEC):
