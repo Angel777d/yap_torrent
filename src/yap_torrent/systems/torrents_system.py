@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from angelovich.core.DataStorage import Entity
 
@@ -15,6 +15,27 @@ from yap_torrent.system import System
 from yap_torrent.systems import get_torrent_entity, get_torrent_name
 
 logger = logging.getLogger(__name__)
+
+
+def _move_target(direction: str, index: int, count: int) -> Optional[int]:
+	"""Where a move puts a torrent, or None if the direction is not one we know.
+
+	Clamped rather than wrapped: "up" at the top stays at the top, which is what every
+	client expects from a disabled-looking button.
+	"""
+	targets = {"top": 0, "bottom": count - 1, "up": index - 1, "down": index + 1}
+	if direction not in targets:
+		return None
+	return max(0, min(count - 1, targets[direction]))
+
+
+def _renumber(ordered: List[Entity]) -> None:
+	"""Rewrite the queue as a dense 0..n-1, saving only what actually moved."""
+	for position, entity in enumerate(ordered):
+		priority_ec = entity.get_component(TorrentPriorityEC)
+		if priority_ec.priority != position:
+			priority_ec.priority = position
+			_mark_for_save(entity)
 
 
 def _clean_labels(labels: Iterable[str]) -> List[str]:
@@ -49,6 +70,7 @@ class TorrentSystem(System):
 		self.add_listener("request.torrent.stop", self._on_torrent_stop)
 		self.add_listener("request.torrent.remove", self._on_torrent_remove)
 		self.add_listener("request.torrent.set_labels", self._on_set_labels)
+		self.add_listener("request.torrent.queue_move", self._on_queue_move)
 
 		# subscribe to new torrents
 		collection = self.env.data_storage.get_collection(TorrentInfoEC)
@@ -107,6 +129,34 @@ class TorrentSystem(System):
 			return
 		_mark_for_save(torrent_entity)
 
+	async def _on_queue_move(self, info_hash: bytes, direction: str):
+		"""Move a torrent within the queue. Direction is top / up / down / bottom.
+
+		The queue is a dense 0..n-1 ordering, so a move is a reinsertion followed by a
+		renumber — not an arithmetic nudge of one priority, which would collide with a
+		neighbour and leave two torrents claiming the same place.
+		"""
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		if not torrent_entity or not torrent_entity.has_component(TorrentPriorityEC):
+			logger.warning(f"[TorrentSystem] _on_queue_move: torrent {info_hash.hex()} is not in the queue")
+			return
+
+		ordered = self._ordered_by_priority()
+		index = ordered.index(torrent_entity)
+		target = _move_target(direction, index, len(ordered))
+		if target is None:
+			logger.warning(f"[TorrentSystem] _on_queue_move: unknown direction '{direction}'")
+			return
+		if target == index:
+			return
+
+		ordered.insert(target, ordered.pop(index))
+		_renumber(ordered)
+
+	def _ordered_by_priority(self) -> List[Entity]:
+		return sorted(self.env.data_storage.get_collection(TorrentPriorityEC),
+		              key=lambda e: e.get_component(TorrentPriorityEC).priority)
+
 	async def _on_torrent_remove(self, info_hash: bytes, _delete_data: bool = False):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity:
@@ -117,10 +167,5 @@ class TorrentSystem(System):
 		await self.env.event_bus.dispatch_async("action.torrent.remove", info_hash)
 		self.env.data_storage.remove_entity(get_torrent_entity(self.env, info_hash))
 
-		# restore priorities after remove
-		for index, entity in enumerate(sorted(
-				self.env.data_storage.get_collection(TorrentPriorityEC),
-				key=lambda e: e.get_component(TorrentPriorityEC).priority)):
-			if entity.get_component(TorrentPriorityEC).priority != index:
-				entity.get_component(TorrentPriorityEC).priority = index
-				_mark_for_save(entity)
+		# close the gap the removed torrent left
+		_renumber(self._ordered_by_priority())
