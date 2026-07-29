@@ -47,13 +47,25 @@ clients transparently retry with it. This is handled automatically for real clie
 ## Supported methods
 
 Implemented: `torrent-add`, `torrent-remove`, `torrent-start`, `torrent-start-now`,
-`torrent-stop`, `torrent-verify`, `torrent-get`, `session-get`, `session-stats`,
-`free-space`, `port-test`.
+`torrent-stop`, `torrent-verify`, `torrent-get`, `torrent-set`, `torrent-reannounce`,
+`queue-move-top`, `queue-move-up`, `queue-move-down`, `queue-move-bottom`, `session-get`,
+`session-stats`, `free-space`, `port-test`.
+
+`torrent-set` applies the sub-arguments core can honour — `labels`, `files-wanted`,
+`files-unwanted`, `priority-high`, `priority-normal`, `priority-low` — and accepts the rest
+without acting on them, which is what Transmission clients expect from a settings block.
+Still inert: `downloadLimit` / `uploadLimit` / `honorsSessionLimits` (no bandwidth limiting
+in core), `seedRatioLimit` / `seedRatioMode` (no ratio tracking), and the tracker edits.
 
 Every other spec method is recognised but returns an explanatory error string (it is *not*
 treated as an unknown method). See `UNIMPLEMENTED` in `methods.py` for the list and the notes
 on what each one needs. `torrent-add` accepts a magnet link or `.torrent` path/URL via the
 `filename` field, or base64 `.torrent` content via `metainfo`.
+
+`torrent-get` reports live transfer rates and ETA, the added/started/done/activity dates,
+queue position, labels, exact per-file `bytesCompleted` with each file's wanted flag and
+priority, per-tracker announce state, and tracker errors via `error`/`errorString`. Still
+placeholder: the `peers` detail list, `format: "table"`, and the seed-ratio/bandwidth fields.
 
 ## Tests
 

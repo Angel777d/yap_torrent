@@ -16,7 +16,9 @@ from yap_torrent.env import Env
 from yap_torrent.protocol import decode
 from yap_torrent.protocol.magnet import MagnetInfo
 from yap_torrent.protocol.structures import Metainfo
+from yap_torrent.components.file_ec import FilePriority
 from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_active
+from yap_torrent.systems.stats_system import session_rates
 from .mapping import DEFAULT_FIELDS, build_torrent
 
 logger = logging.getLogger(__name__)
@@ -159,6 +161,88 @@ async def torrent_verify(env, info, arguments):
 		info.recent.add(torrent.index)
 		await env.event_bus.dispatch_async("request.torrent.invalidate", torrent.info_hash)
 	return "success", {}
+
+
+@method("torrent-reannounce")
+async def torrent_reannounce(env, info, arguments):
+	ids = TorrentIDs.read_ids(arguments, info.recent)
+	for entity in iterate_torrents(env, ids, info.removed):
+		torrent = entity.get_component(TorrentEC)
+		info.recent.add(torrent.index)
+		await env.event_bus.dispatch_async("request.torrent.reannounce", torrent.info_hash)
+	return "success", {}
+
+
+# ---------------------------------------------------------------------------
+# per-torrent settings (rpc-spec 3.2)
+# ---------------------------------------------------------------------------
+# Only the sub-arguments core can honour are applied; Transmission is lenient about
+# the rest, and silently accepting an argument we cannot act on is friendlier to
+# clients than failing the whole call. Still unsupported: downloadLimit /
+# uploadLimit / honorsSessionLimits (no bandwidth limiting), seedRatioLimit /
+# seedRatioMode (no ratio tracking), trackerAdd / trackerRemove / trackerReplace.
+_FILE_PRIORITIES = {
+	"priority-high": FilePriority.High,
+	"priority-normal": FilePriority.Normal,
+	"priority-low": FilePriority.Low,
+}
+
+
+@method("torrent-set")
+async def torrent_set(env, info, arguments):
+	ids = TorrentIDs.read_ids(arguments, info.recent)
+	labels = arguments.get("labels")
+	wanted = arguments.get("files-wanted")
+	unwanted = arguments.get("files-unwanted")
+
+	for entity in iterate_torrents(env, ids, info.removed):
+		torrent = entity.get_component(TorrentEC)
+		info.recent.add(torrent.index)
+
+		if labels is not None:
+			await env.event_bus.dispatch_async("request.torrent.set_labels", torrent.info_hash, labels)
+
+		# an empty list means "all files" to Transmission, which is also what
+		# request.file.select reads None as
+		if wanted is not None:
+			await env.event_bus.dispatch_async(
+				"request.file.select", torrent.info_hash, wanted or None, True, None)
+		if unwanted is not None:
+			await env.event_bus.dispatch_async(
+				"request.file.select", torrent.info_hash, unwanted or None, False, None)
+
+		for argument, priority in _FILE_PRIORITIES.items():
+			indices = arguments.get(argument)
+			if indices is None:
+				continue
+			await env.event_bus.dispatch_async(
+				"request.file.select", torrent.info_hash, indices or None, None, priority)
+
+	return "success", {}
+
+
+# ---------------------------------------------------------------------------
+# queue movement (rpc-spec 4.7)
+# ---------------------------------------------------------------------------
+def _queue_mover(direction: str) -> Handler:
+	async def handler(env, info, arguments):
+		ids = TorrentIDs.read_ids(arguments, info.recent)
+		# bottom-ward moves are applied in reverse so a multi-torrent selection keeps its
+		# relative order instead of being turned inside out
+		entities = list(iterate_torrents(env, ids, info.removed))
+		if direction in ("bottom", "down"):
+			entities.reverse()
+		for entity in entities:
+			torrent = entity.get_component(TorrentEC)
+			info.recent.add(torrent.index)
+			await env.event_bus.dispatch_async("request.torrent.queue_move", torrent.info_hash, direction)
+		return "success", {}
+
+	return handler
+
+
+for _direction in ("top", "up", "down", "bottom"):
+	METHODS[f"queue-move-{_direction}"] = _queue_mover(_direction)
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +461,7 @@ async def session_stats(env, info, _arguments):
 	uploaded = sum(e.get_component(TorrentStatsEC).uploaded for e in entities)
 	seconds_active = int(time.monotonic() - info.start_time)
 
-	# TODO: downloadSpeed / uploadSpeed are 0 because core has no rate metering.
+	download_speed, upload_speed = session_rates(env)
 	totals = {
 		"uploadedBytes": uploaded,
 		"downloadedBytes": downloaded,
@@ -389,8 +473,8 @@ async def session_stats(env, info, _arguments):
 		"activeTorrentCount": active,
 		"pausedTorrentCount": len(entities) - active,
 		"torrentCount": len(entities),
-		"downloadSpeed": 0,
-		"uploadSpeed": 0,
+		"downloadSpeed": int(download_speed),
+		"uploadSpeed": int(upload_speed),
 		"cumulative-stats": totals,
 		"current-stats": totals,
 	}
@@ -429,12 +513,6 @@ async def port_test(_env, _info, _arguments):
 # TODO: implement each of these against the yap_torrent ECS as it grows.
 # ---------------------------------------------------------------------------
 UNIMPLEMENTED: Dict[str, str] = {
-	# 3.2 - needs settable per-torrent properties (bandwidth caps, file
-	#  wanted/priority, labels, tracker edits) which the ECS does not model.
-	"torrent-set": "torrent-set is not supported: per-torrent mutable settings are not modelled yet",
-	# 3.1 - no reannounce request exists; AnnounceSystem drives announces on its
-	#  own timer. Needs a "request.torrent.reannounce" event to force one.
-	"torrent-reannounce": "torrent-reannounce is not supported yet",
 	# 3.6 - would need to move already-downloaded files and update TorrentPathEC.
 	"torrent-set-location": "torrent-set-location is not supported yet",
 	# 3.7 - no rename support in core (would rewrite TorrentInfo paths on disk).
@@ -446,11 +524,6 @@ UNIMPLEMENTED: Dict[str, str] = {
 	# 4.6 - could set env.close_event to shut the client down; intentionally not
 	#  wired to avoid remote clients killing the process by surprise.
 	"session-close": "session-close is not supported",
-	# 4.7 - yap has no download/seed queue, so queue movement is a no-op concept.
-	"queue-move-top": "queue movement is not supported: no queue subsystem",
-	"queue-move-up": "queue movement is not supported: no queue subsystem",
-	"queue-move-down": "queue movement is not supported: no queue subsystem",
-	"queue-move-bottom": "queue movement is not supported: no queue subsystem",
 	# 4.9 - no bandwidth groups.
 	"group-get": "bandwidth groups are not supported",
 	"group-set": "bandwidth groups are not supported",

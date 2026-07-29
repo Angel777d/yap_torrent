@@ -11,19 +11,33 @@ from typing import Any, Callable, Dict, List, Optional
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.peer_ec import PeerConnectionEC
+from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
+from yap_torrent.components.peer_ec import (
+	LocalUnchokedEC,
+	RemoteInterestedEC,
+	RemoteUnchokedEC,
+)
 from yap_torrent.components.torrent_ec import (
 	TorrentEC,
 	TorrentInfoEC,
+	TorrentLabelsEC,
 	TorrentPathEC,
+	TorrentPriorityEC,
+	TorrentRateEC,
 	TorrentState,
 	TorrentStatsEC,
 	ValidateTorrentEC,
 )
-from yap_torrent.components.tracker_ec import TorrentTrackerEC
+from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
-from yap_torrent.systems import get_torrent_name, is_torrent_complete, iterate_connected_peers
+from yap_torrent.systems import (
+	file_bytes_completed,
+	get_torrent_name,
+	is_torrent_complete,
+	iterate_connected_peers,
+	iterate_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +86,57 @@ def status_code(entity: Entity) -> int:
 	return TR_STATUS_DOWNLOAD
 
 
-def _files(entity: Entity, info: Optional[TorrentInfo], percent: float) -> List[Dict[str, Any]]:
+def _file_entities(entity: Entity, env: Env) -> List[Entity]:
+	"""The torrent's file entities, in file-index order."""
+	files = list(iterate_files(env, entity.get_component(TorrentEC).info_hash))
+	files.sort(key=lambda e: e.get_component(TorrentFileEC).index)
+	return files
+
+
+def _files(entity: Entity, info: Optional[TorrentInfo], env: Env) -> List[Dict[str, Any]]:
 	if not info:
 		return []
-	# TODO: per-file completion is approximated from the overall percentage.
-	#  The ECS tracks completion per piece, not per file; map piece ranges to
-	#  files for exact bytesCompleted.
-	complete = is_torrent_complete(entity)
 	result: List[Dict[str, Any]] = []
-	for file in info.files:
-		name = "/".join(part.decode("utf-8") for part in file.path)
-		done = file.length if complete else int(file.length * percent)
-		result.append({"name": name, "length": file.length, "bytesCompleted": done})
+	for file_entity in _file_entities(entity, env):
+		file_ec = file_entity.get_component(TorrentFileEC)
+		result.append({
+			"name": file_ec.path,
+			"length": file_ec.length,
+			# exact rather than scaled from the overall percentage: the first and last
+			# piece of a file are shared with its neighbours
+			"bytesCompleted": file_bytes_completed(entity, file_entity),
+		})
 	return result
 
 
-def _file_stats(entity: Entity, info: Optional[TorrentInfo], percent: float) -> List[Dict[str, Any]]:
-	return [
-		{"bytesCompleted": f["bytesCompleted"], "wanted": True, "priority": 0}
-		for f in _files(entity, info, percent)
-	]
+def _file_stats(entity: Entity, info: Optional[TorrentInfo], env: Env) -> List[Dict[str, Any]]:
+	if not info:
+		return []
+	result: List[Dict[str, Any]] = []
+	for file_entity in _file_entities(entity, env):
+		state = file_entity.get_component(TorrentFileStateEC)
+		result.append({
+			"bytesCompleted": file_bytes_completed(entity, file_entity),
+			"wanted": state.wanted,
+			"priority": int(state.priority),
+		})
+	return result
+
+
+def _rates(entity: Entity) -> tuple:
+	if entity.has_component(TorrentRateEC):
+		rate = entity.get_component(TorrentRateEC)
+		return int(rate.down_rate), int(rate.up_rate)
+	return 0, 0
+
+
+def _eta(left: int, rate_download: int, complete: bool) -> int:
+	"""Seconds to completion. Transmission's -1 means unknown, -2 means not applicable."""
+	if complete:
+		return -2
+	if rate_download <= 0:
+		return -1
+	return int(left / rate_download)
 
 
 def _trackers(entity: Entity) -> List[Dict[str, Any]]:
@@ -104,6 +149,38 @@ def _trackers(entity: Entity) -> List[Dict[str, Any]]:
 			result.append({"id": tracker_id, "announce": announce, "scrape": "", "tier": tier_index})
 			tracker_id += 1
 	return result
+
+
+def _tracker_stats(entity: Entity) -> List[Dict[str, Any]]:
+	"""Per-tracker announce state. Core keeps one announce record per torrent, not per
+	tracker, so every tracker of a torrent reports that same state."""
+	if not entity.has_component(TorrentTrackerDataEC):
+		return []
+	data = entity.get_component(TorrentTrackerDataEC)
+	stats = []
+	for tracker in _trackers(entity):
+		stats.append({
+			**tracker,
+			"host": tracker["announce"],
+			"lastAnnounceSucceeded": not data.failure_reason,
+			"lastAnnounceResult": data.failure_reason or data.warning_message or "",
+			"announceState": 1 if data.failure_reason else 0,
+			"nextAnnounceTime": int(data.last_update_time + data.interval),
+		})
+	return stats
+
+
+def _error_code(entity: Entity) -> int:
+	# 3 == TR_STAT_TRACKER_ERROR; core surfaces no local errors of its own yet
+	if entity.has_component(TorrentTrackerDataEC) and entity.get_component(TorrentTrackerDataEC).failure_reason:
+		return 3
+	return 0
+
+
+def _error_string(entity: Entity) -> str:
+	if entity.has_component(TorrentTrackerDataEC):
+		return entity.get_component(TorrentTrackerDataEC).failure_reason or ""
+	return ""
 
 
 def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
@@ -119,6 +196,9 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 	uploaded = stats.uploaded
 	peers = list(iterate_connected_peers(env, torrent_ec.info_hash))
 	path_ec = entity.get_component(TorrentPathEC)
+	rate_download, rate_upload = _rates(entity)
+	left = int(size * (1 - percent))
+	complete = bool(info and is_torrent_complete(entity))
 
 	# Every getter is lazy so we only compute what the client asked for.
 	getters: Dict[str, Callable[[], Any]] = {
@@ -132,45 +212,49 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 		"metadataPercentComplete": lambda: 1.0 if info else 0.0,
 		"totalSize": lambda: size,
 		"sizeWhenDone": lambda: size,
-		"leftUntilDone": lambda: int(size * (1 - percent)),
+		"leftUntilDone": lambda: left,
 		"haveValid": lambda: int(size * percent),
 		"haveUnchecked": lambda: 0,
-		"desiredAvailable": lambda: int(size * (1 - percent)),
+		"desiredAvailable": lambda: left,
 		"downloadedEver": lambda: downloaded,
 		"uploadedEver": lambda: uploaded,
 		"corruptEver": lambda: 0,
 		"uploadRatio": lambda: (uploaded / downloaded) if downloaded else 0.0,
-		"rateDownload": lambda: 0,  # TODO: core does not expose per-tick transfer rates.
-		"rateUpload": lambda: 0,  # TODO: core does not expose per-tick transfer rates.
-		"eta": lambda: -1,  # TODO: needs a download-rate estimate to compute.
+		"rateDownload": lambda: rate_download,
+		"rateUpload": lambda: rate_upload,
+		"eta": lambda: _eta(left, rate_download, complete),
 		"peersConnected": lambda: len(peers),
+		# the two queues: we serve a peer that is unchoked by us and interested, and we
+		# take from one that has unchoked us
 		"peersGettingFromUs": lambda: sum(
-			1 for p in peers if not p.get_component(PeerConnectionEC).remote_choked
+			1 for p in peers if p.has_component(LocalUnchokedEC) and p.has_component(RemoteInterestedEC)
 		),
-		"peersSendingToUs": lambda: sum(
-			1 for p in peers if not p.get_component(PeerConnectionEC).local_choked
-		),
+		"peersSendingToUs": lambda: sum(1 for p in peers if p.has_component(RemoteUnchokedEC)),
 		"webseedsSendingToUs": lambda: 0,
-		"error": lambda: 0,  # TODO: surface tracker/announce failures as tr_stat errors.
-		"errorString": lambda: "",
-		"isFinished": lambda: bool(info and is_torrent_complete(entity)),
+		"error": lambda: _error_code(entity),
+		"errorString": lambda: _error_string(entity),
+		"isFinished": lambda: complete,
 		"isStalled": lambda: False,
 		"isPrivate": lambda: False,
 		"downloadDir": lambda: path_ec.root_path.as_posix() if path_ec.root_path else "",
 		"pieceCount": lambda: info.pieces_num if info else 0,
 		"pieceSize": lambda: info.piece_length if info else 0,
-		"addedDate": lambda: 0,  # TODO: core does not persist an added timestamp.
-		"doneDate": lambda: 0,  # TODO
-		"startDate": lambda: 0,  # TODO
-		"activityDate": lambda: 0,  # TODO
+		"addedDate": lambda: int(stats.added_date),
+		"doneDate": lambda: int(stats.done_date),
+		"startDate": lambda: int(stats.started_date),
+		"activityDate": lambda: int(stats.activity_date),
 		"editDate": lambda: 0,
 		"dateCreated": lambda: 0,
 		"seedRatioLimit": lambda: 0.0,
 		"seedRatioMode": lambda: 0,
 		"seedIdleLimit": lambda: 0,
 		"seedIdleMode": lambda: 0,
-		"queuePosition": lambda: 0,  # TODO
-		"labels": lambda: [],
+		"queuePosition": lambda: (
+			entity.get_component(TorrentPriorityEC).priority if entity.has_component(TorrentPriorityEC) else 0
+		),
+		"labels": lambda: (
+			list(entity.get_component(TorrentLabelsEC).labels) if entity.has_component(TorrentLabelsEC) else []
+		),
 		"group": lambda: "",
 		"downloadLimit": lambda: 0,
 		"downloadLimited": lambda: False,
@@ -178,12 +262,12 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 		"uploadLimited": lambda: False,
 		"honorsSessionLimits": lambda: True,
 		"bandwidthPriority": lambda: 0,
-		"files": lambda: _files(entity, info, percent),
-		"fileStats": lambda: _file_stats(entity, info, percent),
-		"priorities": lambda: [0] * (len(tuple(info.files)) if info else 0),
-		"wanted": lambda: [1] * (len(tuple(info.files)) if info else 0),
+		"files": lambda: _files(entity, info, env),
+		"fileStats": lambda: _file_stats(entity, info, env),
+		"priorities": lambda: [f["priority"] for f in _file_stats(entity, info, env)],
+		"wanted": lambda: [int(f["wanted"]) for f in _file_stats(entity, info, env)],
 		"trackers": lambda: _trackers(entity),
-		"trackerStats": lambda: [],  # TODO: expose per-tracker announce statistics.
+		"trackerStats": lambda: _tracker_stats(entity),
 		"peers": lambda: [],  # TODO: expose the connected-peer detail list.
 		"comment": lambda: "",
 		"creator": lambda: "",
