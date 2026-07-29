@@ -17,12 +17,6 @@ PeerRecord = Tuple[bytes, str, int]
 
 
 class PeerDataSystem(System):
-	"""Global known-peers store: read on start (as Unknown), write Good on stop.
-
-	Peers are swarm-specific, so each record carries its info_hash. Runs after
-	LocalDataSystem so torrents exist when peers are loaded onto their swarms.
-	"""
-
 	def __init__(self, env: Env):
 		super().__init__(env)
 		self.path = Path(env.config.peers_file)
@@ -48,8 +42,7 @@ class PeerDataSystem(System):
 		for info_hash, host, port in records:
 			if get_torrent_entity(self.env, info_hash) is not None:
 				entity = add_known_peer(self.env, info_hash, PeerInfo(host, port))
-				# only dialable addresses were written, so a reloaded one stays dialable
-				entity.get_component(PeerEC).dialable = True
+				entity.get_component(PeerEC).can_reach = True
 				count += 1
 		logger.info("Loaded %s known peers", count)
 
@@ -57,11 +50,7 @@ class PeerDataSystem(System):
 		records: List[PeerRecord] = []
 		for peer_entity in self.env.data_storage.get_collection(PeerEC):
 			peer_ec = peer_entity.get_component(PeerEC)
-			# `dialable` is the point: a peer that connected to *us* is recorded at the
-			# source port of its socket, which nothing listens on. Saving those fills the
-			# store with addresses that can only ever fail, and every later session spends
-			# connect attempts working through them.
-			if peer_ec.state == PeerState.Good and peer_ec.dialable:
+			if peer_ec.state == PeerState.Good and peer_ec.can_reach:
 				records.append((peer_ec.info_hash, peer_ec.peer_info.host, peer_ec.peer_info.port))
 
 		try:

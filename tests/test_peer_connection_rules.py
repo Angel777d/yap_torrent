@@ -205,7 +205,7 @@ def test_download_prospect_is_not_delayed_by_the_cooldown():
 
 def test_magnet_peers_are_dialled_without_a_piece_score():
 	# no TorrentInfoEC means no pieces to score on, and these peers are the only source of
-	# BEP-9 metadata — they must stay dialable
+	# BEP-9 metadata — they must stay can_reach
 	env, torrent, peer = _torrent_and_peer(metadata=False)
 	assert peer in _candidates(env, torrent, time.monotonic())
 

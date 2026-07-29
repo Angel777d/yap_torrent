@@ -54,12 +54,6 @@ class PieceDownloadProgressEC(EntityComponent):
 		return [block for block in self._blocks if block.begin not in self._received]
 
 	def add_block(self, begin: int, data: bytes) -> bool:
-		"""Store a received block; an offset or length we never asked for is dropped.
-
-		The data is written by slice assignment, so a bogus length would *resize* the
-		buffer and the piece could never hash again, and a bogus offset would count
-		towards is_full() — completing a piece with holes in it.
-		"""
 		if self._expected.get(begin) != len(data):
 			logger.warning("piece %s: dropping block at offset %s with unexpected length %s",
 			               self.info.index, begin, len(data))

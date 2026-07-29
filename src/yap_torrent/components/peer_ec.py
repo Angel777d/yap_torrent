@@ -31,10 +31,8 @@ class PeerEC(EntityHashComponent):
 		self.fail_count: int = 0
 		self.last_attempt: float = 0.0
 		self.remote_bitfield: Bitfield = Bitfield()
-		# whether this address ever accepted a connection from us. An inbound peer is
-		# recorded at the *source* port of its socket, which nobody listens on, so only a
-		# dialled address is worth redialling — or persisting.
-		self.dialable: bool = False
+
+		self.can_reach: bool = False
 
 	@staticmethod
 	def make_hash(info_hash: bytes, host: str, port: int) -> Hashable:
@@ -107,35 +105,40 @@ class PeerRateEC(EntityComponent):
 		self._last_sample = now
 
 
-class PeerConnectionEC(EntityComponent):
-	def __init__(self, info_hash: bytes, peer_info: PeerInfo, connection: Connection, reserved: bytes) -> None:
+class PeerRequestsEC(EntityComponent):
+	"""The blocks we have asked this peer for and not yet been given — the pipeline.
+
+	Connection-scoped, like the socket it rides on: a CHOKE or a disconnect makes every
+	entry dead, so it is attached with `PeerConnectionEC` and stripped with it. It is a
+	separate component because it is *state about a transfer*, not part of a connection's
+	identity — the connection knows how to send a REQUEST, this knows which ones are
+	outstanding, and only DownloadSystem touches it.
+
+	Each block is stored with the time it was asked for, so a request a peer accepts and
+	never answers can be reclaimed instead of holding a pipeline slot for ever.
+	"""
+
+	def __init__(self) -> None:
 		super().__init__()
-
-		self.peer_info: PeerInfo = peer_info
-		self.info_hash: bytes = info_hash
-
-		self.connection: Connection = connection
-
-		self.task: Task = None
-
-		self.reserved: bytes = reserved
-
-		# blocks in flight -> when we asked for them, so a request the peer never
-		# answers can be reclaimed instead of holding a pipeline slot forever
 		self._requested: Dict[PieceBlockInfo, float] = {}
 
+	# NB: no __len__ or __bool__ here, and none on any other component.
+	# `Entity.get_component` tests the component for truthiness (`if not result: raise`),
+	# so a component that reports itself empty becomes invisible to the whole ECS — an
+	# idle pipeline would raise "component not found" while the entity plainly has it.
+
 	@property
-	def requested(self) -> KeysView[PieceBlockInfo]:
+	def blocks(self) -> KeysView[PieceBlockInfo]:
 		"""The blocks currently in flight (membership, len, iteration)."""
 		return self._requested.keys()
 
-	def add_request(self, block: PieceBlockInfo) -> None:
+	def add(self, block: PieceBlockInfo) -> None:
 		self._requested[block] = time.monotonic()
 
-	def discard_request(self, block: PieceBlockInfo) -> None:
+	def discard(self, block: PieceBlockInfo) -> None:
 		self._requested.pop(block, None)
 
-	def take_request(self, index: int, begin: int) -> Optional[PieceBlockInfo]:
+	def take(self, index: int, begin: int) -> Optional[PieceBlockInfo]:
 		"""Drop the in-flight block at (index, begin), whatever length came back.
 
 		Matching the exact PieceBlockInfo would miss a peer that answers with a length
@@ -148,17 +151,31 @@ class PeerConnectionEC(EntityComponent):
 				return block
 		return None
 
-	def pending_for_piece(self, index: int) -> List[PieceBlockInfo]:
+	def for_piece(self, index: int) -> List[PieceBlockInfo]:
 		return [block for block in self._requested if block.index == index]
 
-	def clear_requests(self) -> List[PieceBlockInfo]:
+	def clear(self) -> List[PieceBlockInfo]:
 		"""Empty the pipeline, returning what was in it."""
 		blocks = list(self._requested)
 		self._requested.clear()
 		return blocks
 
-	def expired_requests(self, timeout: float, now: float) -> List[PieceBlockInfo]:
+	def expired(self, timeout: float, now: float) -> List[PieceBlockInfo]:
 		return [block for block, sent_at in self._requested.items() if now - sent_at > timeout]
+
+
+class PeerConnectionEC(EntityComponent):
+	def __init__(self, info_hash: bytes, peer_info: PeerInfo, connection: Connection, reserved: bytes) -> None:
+		super().__init__()
+
+		self.peer_info: PeerInfo = peer_info
+		self.info_hash: bytes = info_hash
+
+		self.connection: Connection = connection
+
+		self.task: Task = None
+
+		self.reserved: bytes = reserved
 
 	def disconnect(self):
 		if self.task:

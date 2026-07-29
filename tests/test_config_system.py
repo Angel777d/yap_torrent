@@ -152,3 +152,11 @@ def test_core_has_one_pair_of_speed_limits(tmp_path):
 	assert Config.setting("alt_speed_enabled") is None
 	assert not hasattr(config, "alt_speed_down")
 
+
+def test_a_plugin_can_persist_settings_core_does_not_model(tmp_path):
+	config = _config(tmp_path)
+	config.set_plugin_config("some_plugin", {"turtle": True, "level": 3})
+	config.set_plugin_config("some_plugin", {"level": 4})  # merges, not replaces
+
+	reloaded = Config(path=str(tmp_path / "config.json"))
+	assert reloaded.get_plugin_config("some_plugin") == {"turtle": True, "level": 4}

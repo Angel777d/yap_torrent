@@ -140,7 +140,7 @@ def test_only_addresses_we_dialled_are_kept(tmp_path):
 
 	dialled = add_known_peer(env, info_hash, PeerInfo("127.0.0.1", 6881))
 	dialled.get_component(PeerEC).state = PeerState.Good
-	dialled.get_component(PeerEC).dialable = True
+	dialled.get_component(PeerEC).can_reach = True
 
 	inbound = add_known_peer(env, info_hash, PeerInfo("127.0.0.1", 57132))
 	inbound.get_component(PeerEC).state = PeerState.Good  # inbound peers are Good too
@@ -166,7 +166,7 @@ def test_reloaded_peers_stay_dialable(tmp_path):
 
 		peer = find_peer_entity(env, info_hash, "127.0.0.1", 6881)
 		assert peer is not None
-		assert peer.get_component(PeerEC).dialable is True
+		assert peer.get_component(PeerEC).can_reach is True
 		assert peer.get_component(PeerEC).state == PeerState.Unknown  # re-proved, not assumed
 
 	asyncio.run(run())

@@ -2,7 +2,7 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import Any, Dict, Set, Tuple
+from typing import Any, Dict, Tuple
 
 from angelovich.core.DataStorage import Entity
 
@@ -11,7 +11,6 @@ from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorr
 	TorrentLabelsEC, TorrentLimitsEC, TorrentQueuePositionEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
-from yap_torrent.protocol.structures import PeerInfo
 from yap_torrent.system import System
 from yap_torrent.systems import iterate_files
 from yap_torrent.systems import create_torrent_entity
@@ -55,15 +54,11 @@ class LocalDataSystem(System):
 
 
 async def _load_local(env: Env, active_path: Path):
-	"""Restore every saved torrent, skipping the ones that cannot be read.
-
-	One unreadable file used to take the whole start with it — and every torrent after it
-	in the walk — so a single bad save meant a client that would not come up.
-	"""
 	for root, dirs, files in os.walk(active_path):
 		for file_name in files:
 			file_path = Path(root).joinpath(file_name)
 			if file_path.suffix == ".tmp":
+				os.remove(file_path)
 				continue  # a save that was interrupted; the previous one is still there
 			try:
 				with open(file_path, 'rb') as f:

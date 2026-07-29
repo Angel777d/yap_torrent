@@ -1,6 +1,6 @@
 """Tests for the request pipeline: what puts blocks in flight, and what gets them back.
 
-A block sitting in `PeerConnectionEC.requested` is charged against that peer's PIPELINE
+A block sitting in `PeerRequestsEC` is charged against that peer's PIPELINE
 slots *and* marked as requested on the piece, so nobody else asks for it. Every way a
 request can die without an answer therefore has to release both, or the peer stops being
 asked for anything and the block stops being offered to anyone.
@@ -14,6 +14,7 @@ from yap_torrent.components.peer_ec import (
 	PeerConnectionEC,
 	PeerEC,
 	PeerRateEC,
+	PeerRequestsEC,
 	RemoteUnchokedEC,
 )
 from yap_torrent.config import Config
@@ -67,13 +68,14 @@ def _peer(env: Env, torrent, port: int):
 	entity.add_component(PeerConnectionEC(
 		get_info_hash(torrent), entity.get_component(PeerEC).peer_info, _FakeConnection(), bytes(8)))
 	entity.add_component(PeerRateEC())
+	entity.add_component(PeerRequestsEC())
 	entity.add_component(LocalInterestedEC())
 	entity.add_component(RemoteUnchokedEC())
 	return entity
 
 
 def _pipeline(peer):
-	return set(peer.get_component(PeerConnectionEC).requested)
+	return set(peer.get_component(PeerRequestsEC).blocks)
 
 
 # --- a CHOKE kills every request we had in flight ---------------------------

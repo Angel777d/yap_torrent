@@ -60,8 +60,6 @@ class PieceSystem(TimeSystem):
 		if total <= max_cached:
 			return
 
-		# a piece being served is touched on every request, so the idle stamp already
-		# keeps it here — there is nothing else to ask about it
 		ttl = self.env.config.piece_cache_ttl
 		evictable = sorted(
 			(

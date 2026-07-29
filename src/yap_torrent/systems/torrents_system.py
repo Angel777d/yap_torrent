@@ -57,12 +57,6 @@ def _clean_labels(labels: Iterable[str]) -> List[str]:
 
 
 def _mark_for_save(torrent_entity: Entity) -> None:
-	"""Ask LocalDataSystem to write this torrent out on its next tick.
-
-	Pausing and queue order are deliberate choices by the user, but nothing else in this
-	path touches the disk — without the marker they only reached it if the client was shut
-	down cleanly, and a crash silently undid them.
-	"""
 	if not torrent_entity.has_component(SaveTorrentEC):
 		torrent_entity.add_component(SaveTorrentEC())
 

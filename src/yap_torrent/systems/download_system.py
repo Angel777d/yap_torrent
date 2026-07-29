@@ -6,8 +6,8 @@ from typing import Dict, Iterable, List, Optional, Set
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.common import IdleEC
-from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerRateEC, PeerStatsEC, \
-	RemoteUnchokedEC
+from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerRateEC, PeerRequestsEC, \
+	PeerStatsEC, RemoteUnchokedEC
 from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceDownloadProgressEC, PieceEC
 from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentStatsEC
 from yap_torrent.env import Env
@@ -98,11 +98,10 @@ def _release_block(env: Env, info_hash: bytes, block: PieceBlockInfo) -> None:
 
 def _release_peer_blocks(env: Env, torrent_entity: Entity, peer_entity: Entity) -> None:
 	"""Empty a peer's pipeline and return everything in it to the pool."""
-	if not peer_entity.has_component(PeerConnectionEC):
+	if not peer_entity.has_component(PeerRequestsEC):
 		return
 	info_hash = get_info_hash(torrent_entity)
-	conn = peer_entity.get_component(PeerConnectionEC)
-	for block in conn.clear_requests():
+	for block in peer_entity.get_component(PeerRequestsEC).clear():
 		_release_block(env, info_hash, block)
 	for piece_entity in _progress_by_index(env, info_hash).values():
 		piece_entity.get_component(PieceDownloadProgressEC).downloading_by.discard(peer_entity)
@@ -119,16 +118,18 @@ async def _expire_requests(env: Env) -> None:
 	now = time.monotonic()
 
 	starved: Dict[bytes, List[Entity]] = {}
-	for peer_entity in list(env.data_storage.get_collection(PeerConnectionEC)):
-		conn = peer_entity.get_component(PeerConnectionEC)
-		expired = conn.expired_requests(timeout, now)
+	for peer_entity in list(env.data_storage.get_collection(PeerRequestsEC)):
+		requests = peer_entity.get_component(PeerRequestsEC)
+		expired = requests.expired(timeout, now)
 		if not expired:
 			continue
-		logger.debug("%s: reclaiming %d block request(s) older than %ss", conn, len(expired), timeout)
+		info_hash = peer_entity.get_component(PeerEC).info_hash
+		logger.debug("%s: reclaiming %d block request(s) older than %ss",
+		             peer_entity.get_component(PeerEC).peer_info, len(expired), timeout)
 		for block in expired:
-			conn.discard_request(block)
-			_release_block(env, conn.info_hash, block)
-		starved.setdefault(conn.info_hash, []).append(peer_entity)
+			requests.discard(block)
+			_release_block(env, info_hash, block)
+		starved.setdefault(info_hash, []).append(peer_entity)
 
 	for info_hash, peers in starved.items():
 		torrent_entity = get_torrent_entity(env, info_hash)
@@ -204,13 +205,13 @@ def _next_block(env: Env, torrent_entity: Entity, peer_entity: Entity,
 
 	# 3) endgame: every wanted piece is already in progress and fully requested —
 	#    re-request a not-yet-received block from this peer too (redundancy)
-	conn = peer_entity.get_component(PeerConnectionEC)
+	in_flight = peer_entity.get_component(PeerRequestsEC).blocks
 	for index, piece_entity in in_progress.items():
 		if index not in interested:
 			continue
 		progress = piece_entity.get_component(PieceDownloadProgressEC)
 		for block in progress.missing_blocks():
-			if block in conn.requested:
+			if block in in_flight:
 				continue  # this peer is already fetching that block
 			progress.downloading_by.add(peer_entity)
 			return block
@@ -224,7 +225,8 @@ async def _request_from_peer(env: Env, torrent_entity: Entity, peer_entity: Enti
 		return
 
 	conn = peer_entity.get_component(PeerConnectionEC)
-	if len(conn.requested) >= PIPELINE:
+	requests = peer_entity.get_component(PeerRequestsEC)
+	if len(requests.blocks) >= PIPELINE:
 		return
 
 	interested = interested_pieces(torrent_entity, peer_entity.get_component(PeerEC).remote_bitfield)
@@ -232,11 +234,11 @@ async def _request_from_peer(env: Env, torrent_entity: Entity, peer_entity: Enti
 		return
 
 	in_progress = _progress_by_index(env, get_info_hash(torrent_entity))
-	while len(conn.requested) < PIPELINE:
+	while len(requests.blocks) < PIPELINE:
 		block = _next_block(env, torrent_entity, peer_entity, interested, in_progress)
 		if block is None:
 			break
-		conn.add_request(block)
+		requests.add(block)
 		await conn.request(block)
 
 
@@ -251,13 +253,14 @@ async def _fill_peers(env: Env, torrent_entity: Entity, skip: Optional[Entity] =
 async def _cancel_on_others(peers: Iterable[Entity], skip: Entity, index: int, begin: Optional[int] = None) -> None:
 	"""CANCEL the redundant endgame copies of a block — or of a whole piece, if no begin."""
 	for other in peers:
-		if other is skip or not other.has_component(PeerConnectionEC):
+		if other is skip or not other.has_component(PeerRequestsEC):
 			continue
+		other_requests = other.get_component(PeerRequestsEC)
 		other_conn = other.get_component(PeerConnectionEC)
-		for pending in other_conn.pending_for_piece(index):
+		for pending in other_requests.for_piece(index):
 			if begin is not None and pending.begin != begin:
 				continue
-			other_conn.discard_request(pending)
+			other_requests.discard(pending)
 			await other_conn.send(msg.cancel(pending.index, pending.begin, pending.length))
 
 
@@ -271,8 +274,7 @@ async def _process_piece_message(env: Env, peer_entity: Entity, torrent_entity: 
 	peer_entity.get_component(PeerRateEC).add_downloaded(len(block))
 	torrent_entity.get_component(TorrentStatsEC).update_downloaded(len(block))
 
-	conn = peer_entity.get_component(PeerConnectionEC)
-	conn.take_request(index, begin)
+	peer_entity.get_component(PeerRequestsEC).take(index, begin)
 
 	info_hash = get_info_hash(torrent_entity)
 	piece_entity = env.data_storage.get_collection(PieceEC).find(PieceEC.make_hash(info_hash, index))

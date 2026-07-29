@@ -46,7 +46,6 @@ def payload_request(message: Message) -> tuple[int, int, int]:
 
 
 def payload_cancel(message: Message) -> tuple[int, int, int]:
-	"""CANCEL carries the same <index><begin><length> as REQUEST, under its own id."""
 	if message.message_id == MessageId.CANCEL.value:
 		return struct.unpack(f"!III", message.payload)
 	raise RuntimeError("wrong message type for cancel property")

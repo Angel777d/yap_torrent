@@ -225,6 +225,21 @@ class Config:
 	def get_plugin_config(self, plugin_name: str) -> Dict[str, Any]:
 		return self._data.get(plugin_name, {})
 
+	def set_plugin_config(self, plugin_name: str, values: Dict[str, Any]) -> None:
+		"""Merge settings into a plugin's own section and persist them.
+
+		Core neither models nor validates what a plugin keeps here — the point is that a
+		plugin can own a setting core has no notion of without that setting having to
+		exist in SETTINGS.
+
+		Nothing calls this yet: the Transmission plugin's speed settings, which prompted
+		it, turned out to be runtime state that should not be written back at all. It is
+		kept for the plugin setting that genuinely is a preference.
+		"""
+		section = self._data.setdefault(plugin_name, {})
+		section.update(values)
+		self._save()
+
 	# -- runtime settings ---------------------------------------------------
 	@staticmethod
 	def setting(key: str) -> Optional[Setting]:
