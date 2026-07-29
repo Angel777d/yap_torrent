@@ -8,7 +8,7 @@ from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC, RestoreFileSelectionEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, TorrentPathEC, \
-	TorrentLabelsEC, TorrentLimitsEC, TorrentPriorityEC, TorrentStatsEC
+	TorrentLabelsEC, TorrentLimitsEC, TorrentQueuePositionEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol.structures import PeerInfo
@@ -105,8 +105,8 @@ def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:
 		result['torrent_info'] = torrent_info
 		result['bitfield'] = torrent_entity.get_component(TorrentEC).bitfield.dump(torrent_info.pieces_num)
 
-	if torrent_entity.has_component(TorrentPriorityEC):
-		result['priority'] = torrent_entity.get_component(TorrentPriorityEC).priority
+	if torrent_entity.has_component(TorrentQueuePositionEC):
+		result['queue_position'] = torrent_entity.get_component(TorrentQueuePositionEC).position
 
 	if torrent_entity.has_component(TorrentLabelsEC):
 		result['labels'] = torrent_entity.get_component(TorrentLabelsEC).labels
@@ -149,9 +149,11 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	bitfield = save_data.get('bitfield', bytes())
 	torrent_entity.get_component(TorrentEC).bitfield.update(bitfield)
 
-	priority = save_data.get('priority')
-	if priority is not None:
-		torrent_entity.add_component(TorrentPriorityEC(int(priority)))
+	# 'priority' is what this key was called before the component was renamed to what it
+	# actually is; saves written by an older build still use it
+	position = save_data.get('queue_position', save_data.get('priority'))
+	if position is not None:
+		torrent_entity.add_component(TorrentQueuePositionEC(int(position)))
 
 	labels = save_data.get('labels')
 	if labels:

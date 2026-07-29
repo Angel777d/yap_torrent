@@ -16,7 +16,7 @@ from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.protocol.structures import Bitfield
 from yap_torrent.system import System
-from yap_torrent.systems import get_info_hash, iterate_connected_peers, iterate_torrents_by_priority
+from yap_torrent.systems import get_info_hash, iterate_connected_peers, iterate_torrents_in_queue_order
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class InterestedSystem(System):
 		if self._interested_count() >= limit:
 			return
 
-		for torrent_entity in iterate_torrents_by_priority(self.env):
+		for torrent_entity in iterate_torrents_in_queue_order(self.env):
 			if not torrent_entity.has_component(TorrentInfoEC):
 				continue
 			for peer_entity in list(iterate_connected_peers(self.env, get_info_hash(torrent_entity))):

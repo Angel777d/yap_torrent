@@ -335,10 +335,21 @@ class TorrentDownloadProgressEC(EntityComponent):
 		self.wanted: Bitfield = wanted
 
 
-class TorrentPriorityEC(EntityComponent):
-	"""Download-order priority (lower is served first, like	a queue position)."""
+class TorrentQueuePositionEC(EntityComponent):
+	"""Where a torrent sits in the queue: a dense 0..n-1 ordinal, lowest served first.
 
-	def __init__(self, priority: int = 0) -> None:
+	Not a priority *level*, despite what this used to be called. Three different things
+	in this codebase answer to "priority" and only this one affects download order:
+
+	- this, the queue position — which torrent wins a contested peer slot;
+	- `TorrentFileStateEC.priority` (`FilePriority`), per file — stored, and read only
+	  for its wanted flag; the value does not steer piece selection;
+	- `TorrentLimitsEC.bandwidth_priority`, per torrent — stored, never read.
+
+	`TorrentSystem` keeps the values dense and unique; nothing else should write them.
+	"""
+
+	def __init__(self, position: int = 0) -> None:
 		super().__init__()
-		self.priority: int = priority
+		self.position: int = position
 

@@ -8,7 +8,7 @@ from yap_torrent.components.torrent_ec import (
 	TorrentInfoEC,
 	TorrentLabelsEC,
 	TorrentLimitsEC,
-	TorrentPriorityEC,
+	TorrentQueuePositionEC,
 	TorrentState,
 	TorrentStatsEC,
 )
@@ -40,9 +40,9 @@ def _move_target(direction, index: int, count: int) -> Optional[int]:
 def _renumber(ordered: List[Entity]) -> None:
 	"""Rewrite the queue as a dense 0..n-1, saving only what actually moved."""
 	for position, entity in enumerate(ordered):
-		priority_ec = entity.get_component(TorrentPriorityEC)
-		if priority_ec.priority != position:
-			priority_ec.priority = position
+		position_ec = entity.get_component(TorrentQueuePositionEC)
+		if position_ec.position != position:
+			position_ec.position = position
 			_mark_for_save(entity)
 
 
@@ -97,9 +97,9 @@ class TorrentSystem(System):
 
 	async def __on_torrent_added(self, entity: Entity, _component: TorrentInfoEC):
 		# a restored torrent already carries its saved queue position; a new one goes last
-		if not entity.has_component(TorrentPriorityEC):
-			initial_priority = len(self.env.data_storage.get_collection(TorrentPriorityEC))
-			entity.add_component(TorrentPriorityEC(initial_priority))
+		if not entity.has_component(TorrentQueuePositionEC):
+			last = len(self.env.data_storage.get_collection(TorrentQueuePositionEC))
+			entity.add_component(TorrentQueuePositionEC(last))
 
 	async def _on_torrent_start(self, info_hash: bytes):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
@@ -183,7 +183,7 @@ class TorrentSystem(System):
 		neighbour and leave two torrents claiming the same place.
 		"""
 		torrent_entity = get_torrent_entity(self.env, info_hash)
-		if not torrent_entity or not torrent_entity.has_component(TorrentPriorityEC):
+		if not torrent_entity or not torrent_entity.has_component(TorrentQueuePositionEC):
 			logger.warning(f"[TorrentSystem] _on_queue_move: torrent {info_hash.hex()} is not in the queue")
 			return
 
@@ -200,8 +200,8 @@ class TorrentSystem(System):
 		_renumber(ordered)
 
 	def _ordered_by_priority(self) -> List[Entity]:
-		return sorted(self.env.data_storage.get_collection(TorrentPriorityEC),
-		              key=lambda e: e.get_component(TorrentPriorityEC).priority)
+		return sorted(self.env.data_storage.get_collection(TorrentQueuePositionEC),
+		              key=lambda e: e.get_component(TorrentQueuePositionEC).position)
 
 	async def _on_torrent_remove(self, info_hash: bytes, _delete_data: bool = False):
 		torrent_entity = get_torrent_entity(self.env, info_hash)

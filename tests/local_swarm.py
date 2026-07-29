@@ -30,7 +30,7 @@ from yap_torrent.components.torrent_ec import (
 	TorrentDownloadProgressEC,
 	TorrentEC,
 	TorrentInfoEC,
-	TorrentPriorityEC,
+	TorrentQueuePositionEC,
 	TorrentState,
 	TorrentStatsEC,
 )
@@ -695,7 +695,7 @@ async def scenario_restart_restores_queue_and_paused_state(work: Path) -> bool:
 	hashes = [m.make_info_hash() for m in metas]
 	# reverse the queue, and pause the middle one
 	for position, ih in enumerate(reversed(hashes)):
-		get_torrent_entity(first.env, ih).get_component(TorrentPriorityEC).priority = position
+		get_torrent_entity(first.env, ih).get_component(TorrentQueuePositionEC).position = position
 	await asyncio.gather(*first.env.event_bus.dispatch("request.torrent.stop", hashes[1]))
 	await settle([first], 2)
 	await first.stop()
@@ -707,7 +707,7 @@ async def scenario_restart_restores_queue_and_paused_state(work: Path) -> bool:
 	ok = True
 	for position, ih in enumerate(reversed(hashes)):
 		entity = get_torrent_entity(second.env, ih)
-		ok = ok and entity is not None and entity.get_component(TorrentPriorityEC).priority == position
+		ok = ok and entity is not None and entity.get_component(TorrentQueuePositionEC).position == position
 	states = [get_torrent_entity(second.env, ih).get_component(TorrentStatsEC).state for ih in hashes]
 	ok = ok and states == [TorrentState.Active, TorrentState.Inactive, TorrentState.Active]
 

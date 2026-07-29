@@ -8,7 +8,7 @@ from yap_torrent.components.common import IdleEC
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState, PeerStatsEC, PeerPendingRemoveEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
-	ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, TorrentPriorityEC
+	ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, TorrentQueuePositionEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
@@ -83,10 +83,10 @@ def iterate_active_torrents(env: Env) -> Generator[Entity]:
 	return (e for e in env.data_storage.get_collection(TorrentEC) if is_torrent_active(e))
 
 
-def iterate_torrents_by_priority(env: Env) -> List[Entity]:
+def iterate_torrents_in_queue_order(env: Env) -> List[Entity]:
 	def position(entity: Entity):
-		if entity.has_component(TorrentPriorityEC):
-			return entity.get_component(TorrentPriorityEC).priority
+		if entity.has_component(TorrentQueuePositionEC):
+			return entity.get_component(TorrentQueuePositionEC).position
 		return math.inf
 
 	return sorted(env.data_storage.get_collection(TorrentEC), key=position)

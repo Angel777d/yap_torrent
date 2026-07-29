@@ -22,7 +22,7 @@ from yap_torrent.components.peer_ec import (
 	RemoteUnchokedEC, PeerPendingRemoveEC,
 )
 from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentInfoEC, TorrentEC, TorrentStatsEC, \
-	TorrentState, TorrentPriorityEC
+	TorrentState, TorrentQueuePositionEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield
@@ -380,8 +380,8 @@ def calculate_candidates(env, now):
 	# torrent hash to priority map. Keyed off the priority collection, not TorrentInfoEC:
 	# TorrentSystem assigns the priority from an event-bus task, so a torrent can carry
 	# metadata for a tick or two before it has a queue position. math.inf sorts those last.
-	priorities = {e.get_component(TorrentEC).info_hash: e.get_component(TorrentPriorityEC).priority
-	              for e in ds.get_collection(TorrentPriorityEC)}
+	priorities = {e.get_component(TorrentEC).info_hash: e.get_component(TorrentQueuePositionEC).position
+	              for e in ds.get_collection(TorrentQueuePositionEC)}
 
 	def download_sort(item: Tuple[int, Entity]):
 		value, e = item

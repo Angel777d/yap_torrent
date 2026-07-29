@@ -13,7 +13,7 @@ from yap_torrent.components.torrent_ec import (
 	SaveTorrentEC,
 	TorrentEC,
 	TorrentInfoEC,
-	TorrentPriorityEC,
+	TorrentQueuePositionEC,
 	TorrentState,
 	TorrentStatsEC,
 )
@@ -61,7 +61,7 @@ def test_a_torrent_round_trips_through_the_save_file(tmp_path):
 		torrent.get_component(TorrentEC).bitfield.set_index(2)
 		torrent.get_component(TorrentStatsEC).update_downloaded(1234)
 		torrent.get_component(TorrentStatsEC).state = TorrentState.Inactive
-		torrent.add_component(TorrentPriorityEC(3))
+		torrent.add_component(TorrentQueuePositionEC(3))
 		_save(tmp_path / "active" / meta.make_info_hash().hex(), _export_torrent_data(env, torrent))
 
 		fresh = _env(tmp_path)
@@ -74,7 +74,7 @@ def test_a_torrent_round_trips_through_the_save_file(tmp_path):
 		assert restored.get_component(TorrentEC).bitfield.have == {0, 2}
 		assert restored.get_component(TorrentStatsEC).downloaded == 1234
 		assert restored.get_component(TorrentStatsEC).state == TorrentState.Inactive
-		assert restored.get_component(TorrentPriorityEC).priority == 3
+		assert restored.get_component(TorrentQueuePositionEC).position == 3
 
 	asyncio.run(run())
 
@@ -168,5 +168,43 @@ def test_reloaded_peers_stay_dialable(tmp_path):
 		assert peer is not None
 		assert peer.get_component(PeerEC).dialable is True
 		assert peer.get_component(PeerEC).state == PeerState.Unknown  # re-proved, not assumed
+
+	asyncio.run(run())
+
+
+def test_a_save_written_before_the_rename_still_loads(tmp_path):
+	# the queue position used to be called 'priority' in both the component and the save
+	# file; a save from an older build must not lose its place in the queue
+	async def run():
+		env = _env(tmp_path)
+		meta = _meta()
+		save = _export_torrent_data(env, _torrent(env, meta))
+		save.pop("queue_position", None)
+		save["priority"] = 5  # the old key
+		_save(tmp_path / "active" / meta.make_info_hash().hex(), save)
+
+		fresh = _env(tmp_path)
+		await LocalDataSystem(fresh).start()
+
+		restored = get_torrent_entity(fresh, meta.make_info_hash())
+		assert restored.get_component(TorrentQueuePositionEC).position == 5
+
+	asyncio.run(run())
+
+
+def test_the_new_key_wins_when_both_are_present(tmp_path):
+	async def run():
+		env = _env(tmp_path)
+		meta = _meta()
+		save = _export_torrent_data(env, _torrent(env, meta))
+		save["queue_position"] = 2
+		save["priority"] = 9
+		_save(tmp_path / "active" / meta.make_info_hash().hex(), save)
+
+		fresh = _env(tmp_path)
+		await LocalDataSystem(fresh).start()
+
+		restored = get_torrent_entity(fresh, meta.make_info_hash())
+		assert restored.get_component(TorrentQueuePositionEC).position == 2
 
 	asyncio.run(run())

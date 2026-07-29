@@ -1,13 +1,13 @@
 """Tests for moving a torrent within the download queue.
 
-The queue is a dense 0..n-1 ordering that `iterate_torrents_by_priority` and every
+The queue is a dense 0..n-1 ordering that `iterate_torrents_in_queue_order` and every
 contested peer slot read, so a move has to leave it dense — nudging one number would
 collide with a neighbour and leave two torrents claiming the same place.
 """
 import asyncio
 from pathlib import Path
 
-from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentPriorityEC
+from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentQueuePositionEC
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
@@ -22,14 +22,14 @@ def _env() -> Env:
 	return Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", Config(path="__none__.json"))
 
 
-def _torrent(env: Env, name: str, priority: int):
+def _torrent(env: Env, name: str, position: int):
 	info = {
 		"name": name.encode(), "piece length": 16384,
 		"pieces": b"\x00" * 20 * PIECES, "length": 16384 * PIECES,
 	}
 	meta = Metainfo(decode(encode({"info": info})))
 	entity = create_torrent_entity(env, meta.make_info_hash(), Path("D:/dl"), {}, meta.info)
-	entity.add_component(TorrentPriorityEC(priority))
+	entity.add_component(TorrentQueuePositionEC(position))
 	return entity
 
 
@@ -41,7 +41,7 @@ async def _queue(env: Env, count: int = 4):
 
 
 def _order(torrents):
-	return [t.get_component(TorrentPriorityEC).priority for t in torrents]
+	return [t.get_component(TorrentQueuePositionEC).position for t in torrents]
 
 
 async def _move(env, torrent, direction):

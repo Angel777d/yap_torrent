@@ -25,7 +25,7 @@ from yap_torrent.components.torrent_ec import (
 	TorrentDownloadProgressEC,
 	TorrentEC,
 	TorrentInfoEC,
-	TorrentPriorityEC,
+	TorrentQueuePositionEC,
 )
 from yap_torrent.config import Config
 from yap_torrent.env import Env
@@ -100,7 +100,7 @@ def _torrent_and_peer(local_pieces=(), remote_pieces=(), wanted=None, pieces=4, 
 	torrent = create_torrent_entity(env, meta.make_info_hash(), Path("."), {}, meta.info)
 	# TorrentSystem attaches this to every torrent that gains metadata; candidate selection
 	# reads it to order the queue, so mirror it here
-	torrent.add_component(TorrentPriorityEC(0))
+	torrent.add_component(TorrentQueuePositionEC(0))
 	for index in local_pieces:
 		torrent.get_component(TorrentEC).bitfield.set_index(index)
 

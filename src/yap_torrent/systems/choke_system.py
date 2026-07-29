@@ -20,7 +20,7 @@ from yap_torrent.systems import (
 	get_info_hash,
 	is_torrent_complete,
 	iterate_connected_peers,
-	iterate_torrents_by_priority,
+	iterate_torrents_in_queue_order,
 )
 from yap_torrent.systems.peer_logic import ChokeCandidate, select_unchoked
 
@@ -79,7 +79,7 @@ class ChokeSystem(TimeSystem):
 	async def _recompute(self, *args, **kwargs):
 		remaining = self.env.config.upload_peers_limit
 
-		for torrent_entity in iterate_torrents_by_priority(self.env):
+		for torrent_entity in iterate_torrents_in_queue_order(self.env):
 			peers = [e for e in iterate_connected_peers(self.env, get_info_hash(torrent_entity))
 			         if not e.has_component(PeerDisconnectedEC)]
 			if not peers:

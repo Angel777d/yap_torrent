@@ -27,7 +27,7 @@ from yap_torrent.components.torrent_ec import (
 	TorrentLabelsEC,
 	TorrentLimitsEC,
 	TorrentPathEC,
-	TorrentPriorityEC,
+	TorrentQueuePositionEC,
 	TorrentRateEC,
 	TorrentState,
 	TorrentStatsEC,
@@ -368,7 +368,7 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 		"seedIdleLimit": lambda: 0,
 		"seedIdleMode": lambda: 0,
 		"queuePosition": lambda: (
-			entity.get_component(TorrentPriorityEC).priority if entity.has_component(TorrentPriorityEC) else 0
+			entity.get_component(TorrentQueuePositionEC).position if entity.has_component(TorrentQueuePositionEC) else 0
 		),
 		"labels": lambda: (
 			list(entity.get_component(TorrentLabelsEC).labels) if entity.has_component(TorrentLabelsEC) else []
