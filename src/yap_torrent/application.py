@@ -23,6 +23,7 @@ from yap_torrent.systems.metainfo_system import MetainfoSystem
 from yap_torrent.systems.peer_data_system import PeerDataSystem
 from yap_torrent.systems.peer_system import PeerSystem
 from yap_torrent.systems.piece_system import PieceSystem
+from yap_torrent.systems.stats_system import StatsSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
 from yap_torrent.systems.upload_system import UploadSystem
 from yap_torrent.systems.validation_system import ValidationSystem
@@ -64,6 +65,8 @@ class Application:
 			DownloadSystem(env),
 			UploadSystem(env),
 			PieceSystem(env),
+			# after the transfer systems, so a sample reads the bytes this tick moved
+			StatsSystem(env),
 			ValidationSystem(env),
 			ExtensionSystem(env),
 			ExtMetadataSystem(env),

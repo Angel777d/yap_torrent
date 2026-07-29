@@ -39,6 +39,20 @@ class TorrentPathEC(EntityComponent):
 		self.root_path: Path = path
 
 
+class TorrentRateEC(EntityComponent):
+	"""Sampled transfer rates for a torrent, in bytes/sec.
+
+	Derived state, rebuilt from the peers on every sample — never accumulated here, and
+	never persisted: a rate describes a moment, and a stale one read back from disk would
+	claim a transfer that is not happening.
+	"""
+
+	def __init__(self) -> None:
+		super().__init__()
+		self.down_rate: float = 0.0
+		self.up_rate: float = 0.0
+
+
 class TorrentState(IntEnum):
 	Active = 1
 	Inactive = 2
