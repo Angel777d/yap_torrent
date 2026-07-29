@@ -2,7 +2,7 @@ import logging
 import time
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, Set, Generator, Callable, Optional, Tuple
+from typing import Any, Dict, List, Set, Generator, Callable, Optional, Tuple
 
 from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
@@ -38,6 +38,18 @@ class TorrentPathEC(EntityComponent):
 	def __init__(self, path: Path) -> None:
 		super().__init__()
 		self.root_path: Path = path
+
+
+class TorrentLabelsEC(EntityComponent):
+	"""User-assigned labels for a torrent. Free-form strings, order preserved.
+
+	Only attached to torrents that actually have labels, so the absence of the component
+	is the empty case rather than a component holding an empty list.
+	"""
+
+	def __init__(self, labels: Optional[List[str]] = None) -> None:
+		super().__init__()
+		self.labels: List[str] = list(labels or [])
 
 
 class TorrentRateEC(EntityComponent):

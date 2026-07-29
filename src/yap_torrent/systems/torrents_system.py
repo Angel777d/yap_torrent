@@ -1,10 +1,12 @@
 import logging
+from typing import Iterable, List
 
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.torrent_ec import (
 	SaveTorrentEC,
 	TorrentInfoEC,
+	TorrentLabelsEC,
 	TorrentPriorityEC,
 	TorrentState,
 	TorrentStatsEC,
@@ -13,6 +15,16 @@ from yap_torrent.system import System
 from yap_torrent.systems import get_torrent_entity, get_torrent_name
 
 logger = logging.getLogger(__name__)
+
+
+def _clean_labels(labels: Iterable[str]) -> List[str]:
+	"""Strip, drop blanks, and de-duplicate while keeping the order given."""
+	seen: List[str] = []
+	for label in labels or ():
+		text = str(label).strip()
+		if text and text not in seen:
+			seen.append(text)
+	return seen
 
 
 def _mark_for_save(torrent_entity: Entity) -> None:
@@ -36,6 +48,7 @@ class TorrentSystem(System):
 		self.add_listener("request.torrent.start", self._on_torrent_start)
 		self.add_listener("request.torrent.stop", self._on_torrent_stop)
 		self.add_listener("request.torrent.remove", self._on_torrent_remove)
+		self.add_listener("request.torrent.set_labels", self._on_set_labels)
 
 		# subscribe to new torrents
 		collection = self.env.data_storage.get_collection(TorrentInfoEC)
@@ -76,6 +89,23 @@ class TorrentSystem(System):
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Inactive
 		_mark_for_save(torrent_entity)
 		await self.env.event_bus.dispatch_async("action.torrent.stop", torrent_entity)
+
+	async def _on_set_labels(self, info_hash: bytes, labels: Iterable[str]):
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		if not torrent_entity:
+			logger.warning(f"[TorrentSystem] _on_set_labels: torrent {info_hash.hex()} not found")
+			return
+
+		cleaned = _clean_labels(labels)
+		if torrent_entity.has_component(TorrentLabelsEC):
+			if cleaned == torrent_entity.get_component(TorrentLabelsEC).labels:
+				return
+			torrent_entity.get_component(TorrentLabelsEC).labels = cleaned
+		elif cleaned:
+			torrent_entity.add_component(TorrentLabelsEC(cleaned))
+		else:
+			return
+		_mark_for_save(torrent_entity)
 
 	async def _on_torrent_remove(self, info_hash: bytes, _delete_data: bool = False):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
