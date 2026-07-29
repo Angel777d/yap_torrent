@@ -520,7 +520,46 @@ async def test_alt_speed_is_stored_in_the_plugins_own_config_section(client, ser
 async def test_the_normal_speed_limits_still_go_to_core(client, server):
 	# one session-set carrying both: the normal pair is core's, the alt pair is ours
 	session_id = await handshake(client)
-	await rpc(client, session_id, "session-set", {"speed-limit-down": 300, "alt-speed-down": 42})
+	await rpc(client, session_id, "session-set", {
+		"speed-limit-down": 300, "speed-limit-down-enabled": True, "alt-speed-down": 42,
+	})
 
 	assert server.env.config.speed_limit_down == 300
-	assert server.info.alt_speed.alt_speed_down == 42
+	assert server.info.speed.alt_speed_down == 42
+
+
+async def test_a_limit_of_zero_in_core_is_reported_as_switched_off(client, server):
+	# core keeps one number per direction where 0 means no limit; Transmission wants a
+	# number and a flag, and expects its number to still be in the box once it is off
+	session_id = await handshake(client)
+
+	await rpc(client, session_id, "session-set", {"speed-limit-up": 250, "speed-limit-up-enabled": True})
+	assert server.env.config.speed_limit_up == 250
+
+	await rpc(client, session_id, "session-set", {"speed-limit-up-enabled": False})
+	assert server.env.config.speed_limit_up == 0  # off is 0, not a flag
+
+	got = await rpc(client, session_id, "session-get",
+	                {"fields": ["speed-limit-up", "speed-limit-up-enabled"]})
+	assert got["arguments"] == {"speed-limit-up": 250, "speed-limit-up-enabled": False}
+
+
+async def test_switching_a_limit_back_on_restores_the_number(client, server):
+	session_id = await handshake(client)
+	await rpc(client, session_id, "session-set", {"speed-limit-up": 250, "speed-limit-up-enabled": True})
+	await rpc(client, session_id, "session-set", {"speed-limit-up-enabled": False})
+
+	# the flag alone, with no number: the remembered one comes back
+	await rpc(client, session_id, "session-set", {"speed-limit-up-enabled": True})
+	assert server.env.config.speed_limit_up == 250
+
+
+async def test_a_number_alone_does_not_switch_a_disabled_limit_on(client, server):
+	# that is what the flag is for; the number is remembered for when it is switched on
+	session_id = await handshake(client)
+	await rpc(client, session_id, "session-set", {"speed-limit-down": 300})
+
+	assert server.env.config.speed_limit_down == 0
+	got = await rpc(client, session_id, "session-get",
+	                {"fields": ["speed-limit-down", "speed-limit-down-enabled"]})
+	assert got["arguments"] == {"speed-limit-down": 300, "speed-limit-down-enabled": False}

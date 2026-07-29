@@ -70,12 +70,20 @@ naming each one. `location` and the deprecated tracker edits are ignored.
 limits, queue sizes and the blocklist keys are stored but not enforced, and core warns on
 each change.
 
-**Alt speed (turtle mode) is the plugin's own.** Core holds exactly one pair of speed
-limits — the ones in force — so a spare pair and a switch between them live here, in the
-`yap_torrent_transmission_rpc` section of `config.json`. `alt-speed-down`, `alt-speed-up`
-and `alt-speed-enabled` never reach core. Once core enforces limits, enabling turtle mode
-should push the alt pair into core's `speed_limit_*` and restore the normal pair on the way
-out; until then the values are stored and reported only (see the `AltSpeed` TODO).
+**The speed model is mostly the plugin's.** Core holds one number per direction where
+**0 means no limit** — no separate on/off flag, and no second "alternative" pair. The
+plugin translates:
+
+- `speed-limit-down` / `speed-limit-down-enabled` (and the `-up` pair) fold into core's
+  single number. Switching a limit off writes 0; the number you typed is remembered in the
+  plugin's config section, so it is still in the box afterwards and comes back when you
+  switch the limit on again. A number sent **without** the flag does not switch a disabled
+  limit on — that is what the flag is for — it is only remembered.
+- `alt-speed-down` / `alt-speed-up` / `alt-speed-enabled` (turtle mode) never reach core at
+  all; they live entirely in the `yap_torrent_transmission_rpc` section of `config.json`.
+
+Once core enforces limits, enabling turtle mode should push the alt pair into core's
+`speed_limit_*` and restore the normal pair on the way out — see the `SpeedSettings` TODO.
 
 Every other spec method is recognised but returns an explanatory error string (it is *not*
 treated as an unknown method). See `UNIMPLEMENTED` in `methods.py` for the list and the notes

@@ -85,25 +85,32 @@ class TorrentIDs:
 		self.hashes.clear()
 
 
-class AltSpeed:
-	"""Transmission's "turtle mode": a second set of speed limits and a switch.
+class SpeedSettings:
+	"""The parts of Transmission's speed model that core does not have.
 
-	Kept here rather than in core, which has exactly one pair of speed limits — the ones
-	in force. Holding a spare pair and choosing between them is a client-side idea, and
-	core has no notion of it.
+	Core keeps one pair of limits where **0 means no limit**. Transmission splits each
+	limit into a number and an on/off flag, and carries a second "alternative" pair
+	(turtle mode) with its own switch. Both of those are client-side ideas, so they live
+	here — including the last non-zero limit, which is what lets a client switch a limit
+	off and back on without the number it typed turning into a 0.
 
-	TODO: once core enforces speed limits, enabling this should push the alt pair into
-	 config.speed_limit_* and restore the normal pair on the way out. Nothing enforces
-	 anything yet, so for now the values are stored and reported only — swapping them
-	 would change nothing except what session-get says.
+	TODO: once core enforces speed limits, enabling turtle mode should push the alt pair
+	 into config.speed_limit_* and restore the normal pair on the way out. Nothing
+	 enforces anything yet, so swapping would change nothing but what session-get says.
 	"""
-	FIELDS = ("alt_speed_down", "alt_speed_up", "alt_speed_enabled")
+	FIELDS = (
+		"alt_speed_down", "alt_speed_up", "alt_speed_enabled",
+		"last_speed_limit_down", "last_speed_limit_up",
+	)
 
 	def __init__(self, stored: Optional[Dict[str, Any]] = None):
 		stored = stored or {}
 		self.alt_speed_down: int = int(stored.get("alt_speed_down", 0))
 		self.alt_speed_up: int = int(stored.get("alt_speed_up", 0))
 		self.alt_speed_enabled: bool = bool(stored.get("alt_speed_enabled", False))
+		# what to restore when a limit is switched back on
+		self.last_speed_limit_down: int = int(stored.get("last_speed_limit_down", 0))
+		self.last_speed_limit_up: int = int(stored.get("last_speed_limit_up", 0))
 
 	def export(self) -> Dict[str, Any]:
 		return {name: getattr(self, name) for name in self.FIELDS}
@@ -125,14 +132,43 @@ class AltSpeed:
 				changed = True
 		return changed
 
+	def reported_limit(self, in_force: int, attr: str) -> int:
+		"""The number a client should see in its limit box: the live one, or the last."""
+		return in_force or getattr(self, attr)
+
+	def resolve_limit(self, in_force: int, attr: str, value: Any, enabled: Any) -> Optional[int]:
+		"""Fold Transmission's (number, flag) pair into core's single "0 means off".
+
+		Returns the value core should hold, or None to leave it alone. A number sent on
+		its own does not switch a disabled limit on — that is what the flag is for — so
+		it is only remembered.
+		"""
+		if value is None and enabled is None:
+			return None
+
+		if value is not None:
+			try:
+				remembered = max(0, int(value))
+			except (TypeError, ValueError):
+				logger.warning("Ignoring bad speed limit %r", value)
+				return None
+			if remembered:
+				setattr(self, attr, remembered)
+		else:
+			remembered = self.reported_limit(in_force, attr)
+
+		turned_on = bool(enabled) if enabled is not None else bool(in_force)
+		return remembered if turned_on else 0
+
+
 
 class ServerInfo:
-	def __init__(self, session_id, start_time, alt_speed: Optional[AltSpeed] = None):
+	def __init__(self, session_id, start_time, speed: Optional[SpeedSettings] = None):
 		self.session_id: str = session_id
 		self.start_time: float = start_time
 		self.recent: TorrentIDs = TorrentIDs()
 		self.removed: TorrentIDs = TorrentIDs()
-		self.alt_speed: AltSpeed = alt_speed or AltSpeed()
+		self.speed: SpeedSettings = speed or SpeedSettings()
 
 
 # --- protocol version ------------------------------------------------------
@@ -515,14 +551,17 @@ async def session_get(env, info, arguments):
 		"seed-queue-size": cfg.seed_queue_size,
 		"queue-stalled-enabled": False,
 		"queue-stalled-minutes": STALLED_AFTER_SECONDS // 60,
-		"speed-limit-down": cfg.speed_limit_down,
-		"speed-limit-down-enabled": cfg.speed_limit_down_enabled,
-		"speed-limit-up": cfg.speed_limit_up,
-		"speed-limit-up-enabled": cfg.speed_limit_up_enabled,
+		# core stores one number per direction where 0 means no limit; a client wants the
+		# number and the switch separately, and expects its number to still be in the box
+		# after it switches the limit off
+		"speed-limit-down": info.speed.reported_limit(cfg.speed_limit_down, "last_speed_limit_down"),
+		"speed-limit-down-enabled": bool(cfg.speed_limit_down),
+		"speed-limit-up": info.speed.reported_limit(cfg.speed_limit_up, "last_speed_limit_up"),
+		"speed-limit-up-enabled": bool(cfg.speed_limit_up),
 		# turtle mode is ours, not core's
-		"alt-speed-enabled": info.alt_speed.alt_speed_enabled,
-		"alt-speed-down": info.alt_speed.alt_speed_down,
-		"alt-speed-up": info.alt_speed.alt_speed_up,
+		"alt-speed-enabled": info.speed.alt_speed_enabled,
+		"alt-speed-down": info.speed.alt_speed_down,
+		"alt-speed-up": info.speed.alt_speed_up,
 		"seedRatioLimit": cfg.seed_ratio_limit,
 		"seedRatioLimited": cfg.seed_ratio_limited,
 		"start-added-torrents": cfg.start_added_torrents,
@@ -556,10 +595,6 @@ SESSION_SETTINGS: Dict[str, str] = {
 	"download-dir": "download_folder",
 	"incomplete-dir": "incomplete_folder",
 	"incomplete-dir-enabled": "incomplete_folder_enabled",
-	"speed-limit-down": "speed_limit_down",
-	"speed-limit-down-enabled": "speed_limit_down_enabled",
-	"speed-limit-up": "speed_limit_up",
-	"speed-limit-up-enabled": "speed_limit_up_enabled",
 	"seedRatioLimit": "seed_ratio_limit",
 	"seedRatioLimited": "seed_ratio_limited",
 	"download-queue-enabled": "download_queue_enabled",
@@ -576,12 +611,18 @@ SESSION_SETTINGS: Dict[str, str] = {
 }
 
 
-# alt-speed is ours; it maps to AltSpeed rather than to a core setting
+# alt-speed is ours; it maps to SpeedSettings rather than to a core setting
 ALT_SPEED_SETTINGS: Dict[str, str] = {
 	"alt-speed-down": "alt_speed_down",
 	"alt-speed-up": "alt_speed_up",
 	"alt-speed-enabled": "alt_speed_enabled",
 }
+
+# the (number, flag) pairs that fold into core's single "0 means no limit"
+_SPEED_LIMITS = (
+	("speed-limit-down", "speed-limit-down-enabled", "speed_limit_down", "last_speed_limit_down"),
+	("speed-limit-up", "speed-limit-up-enabled", "speed_limit_up", "last_speed_limit_up"),
+)
 
 
 @method("session-set")
@@ -598,15 +639,29 @@ async def session_set(env, info, arguments):
 		for key, value in arguments.items()
 		if key in ALT_SPEED_SETTINGS
 	}
-	if alt and info.alt_speed.update(alt):
-		# our own section of config.json, since core does not model turtle mode
-		env.config.set_plugin_config(PLUGIN_CONFIG_KEY, info.alt_speed.export())
+	ours_changed = bool(alt) and info.speed.update(alt)
 
 	values = {
 		SESSION_SETTINGS[key]: value
 		for key, value in arguments.items()
 		if key in SESSION_SETTINGS
 	}
+
+	# each limit arrives as a number plus a flag; core holds one number where 0 is off
+	for value_key, flag_key, config_key, remembered_attr in _SPEED_LIMITS:
+		if value_key not in arguments and flag_key not in arguments:
+			continue
+		before = getattr(info.speed, remembered_attr)
+		resolved = info.speed.resolve_limit(
+			getattr(env.config, config_key), remembered_attr,
+			arguments.get(value_key), arguments.get(flag_key))
+		if resolved is not None:
+			values[config_key] = resolved
+		ours_changed = ours_changed or getattr(info.speed, remembered_attr) != before
+
+	if ours_changed:
+		# our own section of config.json, since core does not model any of this
+		env.config.set_plugin_config(PLUGIN_CONFIG_KEY, info.speed.export())
 	if values:
 		await env.event_bus.dispatch_async("request.config.set", values)
 	return "success", {}

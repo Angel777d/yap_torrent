@@ -74,10 +74,22 @@ def test_a_change_survives_a_restart(tmp_path):
 
 def test_booleans_accept_what_a_json_client_sends(tmp_path):
 	config = _config(tmp_path)
-	config.set("speed_limit_up_enabled", True)
-	assert config.speed_limit_up_enabled is True
-	config.set("speed_limit_up_enabled", "false")
-	assert config.speed_limit_up_enabled is False
+	config.set("blocklist_enabled", True)
+	assert config.blocklist_enabled is True
+	config.set("blocklist_enabled", "false")
+	assert config.blocklist_enabled is False
+
+
+def test_a_speed_limit_of_zero_is_how_a_limit_is_turned_off(tmp_path):
+	# no separate enabled flag: a limit that is set but switched off is the same thing
+	# as no limit, and two fields that can disagree are two fields to keep in sync
+	config = _config(tmp_path, speed_limit_down=500)
+	assert config.speed_limit_down == 500
+	assert Config.setting("speed_limit_down_enabled") is None
+	assert not hasattr(config, "speed_limit_down_enabled")
+
+	config.set("speed_limit_down", 0)
+	assert config.speed_limit_down == 0
 
 
 # --- the event surface ------------------------------------------------------

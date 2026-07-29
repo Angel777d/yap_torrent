@@ -79,11 +79,7 @@ SETTINGS: Tuple[Setting, ...] = (
 	# TODO: enforce these. Storing them keeps session-set/torrent-set honest for clients,
 	#  but nothing in the transfer path reads them yet — see BandwidthLimits in the docs.
 	Setting("speed_limit_down", "speed_limit_down", int, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("speed_limit_down_enabled", "speed_limit_down_enabled", _as_bool, enforced=False,
-	        note=_NOT_ENFORCED_BANDWIDTH),
 	Setting("speed_limit_up", "speed_limit_up", int, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("speed_limit_up_enabled", "speed_limit_up_enabled", _as_bool, enforced=False,
-	        note=_NOT_ENFORCED_BANDWIDTH),
 
 	# TODO: no ratio tracking or auto-stop exists; stored so a client's choice survives.
 	Setting("seed_ratio_limit", "seed_ratio_limit", float, enforced=False,
@@ -184,13 +180,14 @@ class Config:
 		self.incomplete_folder: Path = Path(data.get("incomplete_folder", f"{self.data_folder}/incomplete"))
 		self.incomplete_folder_enabled: bool = _as_bool(data.get("incomplete_folder_enabled", False))
 
-		# the speed limits currently in force. There is one pair, deliberately: a second
-		# "alternative" pair and a switch between them is a client-side idea (Transmission
-		# calls it turtle mode), and it belongs to whichever plugin offers it.
+		# The speed limits currently in force, in KB/s. **0 means no limit** — there is no
+		# separate on/off flag, because a limit that is set but switched off is the same
+		# thing as no limit, and two fields that can disagree are two fields to keep in
+		# sync. There is also only one pair: a second "alternative" pair and a switch
+		# between them (Transmission's turtle mode) is a client-side idea, and belongs to
+		# whichever plugin offers it.
 		self.speed_limit_down: int = int(data.get("speed_limit_down", 0))
-		self.speed_limit_down_enabled: bool = _as_bool(data.get("speed_limit_down_enabled", False))
 		self.speed_limit_up: int = int(data.get("speed_limit_up", 0))
-		self.speed_limit_up_enabled: bool = _as_bool(data.get("speed_limit_up_enabled", False))
 
 		self.seed_ratio_limit: float = float(data.get("seed_ratio_limit", 2.0))
 		self.seed_ratio_limited: bool = _as_bool(data.get("seed_ratio_limited", False))
