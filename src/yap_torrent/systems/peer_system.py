@@ -69,11 +69,7 @@ def download_value(torrent_entity: Entity, peer_entity: Entity) -> int:
 
 
 def upload_value(torrent_entity: Entity, peer_entity: Entity) -> int:
-	"""How many pieces of our wanted set this peer lacks.
-
-	Wanted rather than held: two fresh leechers hold nothing, so a have-based score is 0
-	both ways and neither would ever dial the other.
-	"""
+	"""How many pieces of our wanted set this peer lacks (wanted, not held)."""
 	if torrent_entity.has_component(TorrentDownloadProgressEC):
 		local = torrent_entity.get_component(TorrentDownloadProgressEC).wanted
 	else:
@@ -132,8 +128,7 @@ class PeerSystem(System):
 		ds = self.env.data_storage
 		for peer_entity in ds.get_collection(PeerDisconnectedEC).entities:
 			if peer_entity.has_component(PeerConnectionEC):
-				# let owners (e.g. DownloadSystem) release the peer's in-flight work
-				# BEFORE its connection components are torn down
+				# let owners release the peer's work before its connection is torn down
 				info_hash = peer_entity.get_component(PeerConnectionEC).info_hash
 				torrent_entity = get_torrent_entity(self.env, info_hash)
 				if torrent_entity:
@@ -239,8 +234,7 @@ class PeerSystem(System):
 			connection.close()
 			return
 
-		# add_component is a no-op when the type is already present, so a second connection
-		# would be silently dropped on the floor with its socket still open
+		# add_component is a no-op on a duplicate type, so guard the second connection
 		if not peer_entity.is_valid() or peer_entity.has_component(PeerConnectionEC):
 			logger.debug("Peer %s is already connected. Dropping the duplicate",
 			             peer_entity.get_component(PeerEC).peer_info if peer_entity.is_valid() else "?")
@@ -265,8 +259,7 @@ class PeerSystem(System):
 		peer_entity.add_component(PeerConnectionEC(info_hash, peer_info, connection, reserved))
 		peer_entity.add_component(PeerRateEC())
 		peer_entity.get_component(IdleEC).touch()
-		# what it had last time is only a guess now — it may have dropped the data, and a peer
-		# holding nothing sends no BITFIELD to correct us. Re-learn from this connection.
+		# re-learn the bitfield from this connection; the stored one is only a guess now
 		peer_ec.remote_bitfield.reset(set())
 
 		await asyncio.gather(*self.env.event_bus.dispatch("peer.connected", torrent_entity, peer_entity))
@@ -377,9 +370,7 @@ def calculate_candidates(env, now):
 			if uv > 0 and now - peer_entity.get_component(PeerEC).last_attempt >= cooldown:
 				upload_candidates.append((uv, peer_entity))
 
-	# torrent hash to priority map. Keyed off the priority collection, not TorrentInfoEC:
-	# TorrentSystem assigns the priority from an event-bus task, so a torrent can carry
-	# metadata for a tick or two before it has a queue position. math.inf sorts those last.
+	# info_hash -> queue position; a torrent without one yet sorts last (math.inf)
 	priorities = {e.get_component(TorrentEC).info_hash: e.get_component(TorrentQueuePositionEC).position
 	              for e in ds.get_collection(TorrentQueuePositionEC)}
 

@@ -31,13 +31,7 @@ def session_rates(env: Env) -> Tuple[float, float]:
 
 
 class StatsSystem(TimeSystem):
-	"""Turns the byte counters the transfer path fills into sampled rates.
-
-	`PeerRateEC` accumulates a window on every block, but nothing sampled it, so no rate
-	ever reached a UI or the RPC. Sampling lives in exactly one place on purpose:
-	`sample_rate()` resets the window it reads, so a second caller elsewhere would silently
-	halve everyone's numbers.
-	"""
+	"""Samples PeerRateEC into TorrentRateEC. The only caller of sample_rate()."""
 
 	def __init__(self, env: Env):
 		super().__init__(env, SAMPLE_INTERVAL)
@@ -53,8 +47,7 @@ class StatsSystem(TimeSystem):
 
 	async def _on_torrent_complete(self, torrent_entity: Entity):
 		stats = torrent_entity.get_component(TorrentStatsEC)
-		# the first completion is the one worth reporting; re-checking a finished torrent
-		# raises the event again and must not move the date
+		# only the first completion sets the date (re-checks raise the event again)
 		if not stats.done_date:
 			stats.done_date = time.time()
 			_mark_for_save(torrent_entity)
@@ -63,8 +56,7 @@ class StatsSystem(TimeSystem):
 		now = time.monotonic()
 		ds = self.env.data_storage
 
-		# zero first: a torrent whose peers have all gone keeps whatever it last read
-		# otherwise, and reports a transfer that stopped
+		# zero first, so a torrent whose peers have gone reads 0 rather than its last value
 		for torrent_entity in ds.get_collection(TorrentEC):
 			if not torrent_entity.has_component(TorrentRateEC):
 				torrent_entity.add_component(TorrentRateEC())

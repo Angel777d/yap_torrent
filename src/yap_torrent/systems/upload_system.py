@@ -25,12 +25,7 @@ MAX_PENDING_REQUESTS = 100  # per peer — beyond this its REQUESTs are dropped 
 
 
 def _is_sane_request(info: TorrentInfo, index: int, begin: int, length: int) -> bool:
-	"""Whether a REQUEST addresses real bytes of this torrent.
-
-	Nothing about the wire format stops a peer asking for piece 2**32 or a 4GB block; the
-	slice that answers it would just clamp, and we would then bill the peer — and the
-	torrent's upload total — for bytes we never sent.
-	"""
+	"""Whether a REQUEST addresses real bytes of this torrent."""
 	if not 0 <= index < info.pieces_num:
 		return False
 	if not 0 < length <= MAX_BLOCK_SIZE:
@@ -39,20 +34,13 @@ def _is_sane_request(info: TorrentInfo, index: int, begin: int, length: int) -> 
 
 
 class UploadSystem(System):
-	"""Answers REQUEST. A reply is served as it arrives, so there is no upload queue.
-
-	Nothing is tracked per piece: the data is copied out before the send, and a piece
-	being served is touched on every request, so `IdleEC` already keeps it cached.
-	CANCEL is therefore ignored — by the time one arrives its block has been sent, and
-	there is no queue to take it out of.
-	"""
+	"""Answers REQUEST. A reply is served as it arrives; no upload queue, CANCEL ignored."""
 
 	def __init__(self, env: Env):
 		super().__init__(env)
 		# disk reads in flight, so peers asking for the same uncached piece share one read
 		self._loads: Dict[Tuple[bytes, int], asyncio.Task] = {}
-		# unserved REQUESTs per peer, so no single peer can queue unbounded work on us
-		self._pending: Counter = Counter()
+		self._pending: Counter = Counter()  # unserved REQUESTs per peer
 
 	async def start(self):
 		self.add_listener("peer.message", self.__on_message)
@@ -63,8 +51,6 @@ class UploadSystem(System):
 			await self._on_request(torrent_entity, peer_entity, message)
 
 	async def _on_peer_disconnected(self, _torrent_entity: Entity, peer_entity: Entity):
-		# a departing peer's unserved requests would otherwise keep counting against its
-		# own limit if it ever reconnects
 		self._pending.pop(peer_entity.get_component(PeerEC).key(), None)
 
 	async def _on_request(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
@@ -98,13 +84,10 @@ class UploadSystem(System):
 			logger.warning("Peer requested piece %s, which we cannot serve", index)
 			return
 
-		# reading the piece may have taken a while — the peer can have gone or been choked,
-		# and the torrent stopped or removed, since the request arrived
+		# re-check after the (possibly slow) read: peer/torrent may be gone or choked
 		if not self._may_serve(torrent_entity, peer_entity):
 			return
 
-		# read the block out before the send: it is the whole reason nothing has to be
-		# held against the piece entity while the write drains
 		piece_entity.get_component(IdleEC).touch()
 		data = piece_entity.get_component(CompletePieceDataEC).get_block(begin, length)
 		await peer_entity.get_component(PeerConnectionEC).send(msg.piece(index, begin, data))
@@ -148,11 +131,7 @@ class UploadSystem(System):
 		        .add_component(IdleEC()))
 
 	async def _load(self, info_hash: bytes, info: TorrentInfo, index: int) -> Optional[bytes]:
-		"""Read a piece off disk in the process pool, once per piece however many peers ask.
-
-		Reading and hashing inline stalled every system in the client — the tick loop
-		included — for as long as a multi-megabyte piece takes to read and SHA1.
-		"""
+		"""Read a piece off disk in the process pool, once per piece however many peers ask."""
 		key = (info_hash, index)
 		task = self._loads.get(key)
 		if task is None:

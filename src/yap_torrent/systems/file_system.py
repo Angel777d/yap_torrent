@@ -37,13 +37,7 @@ class FileSystem(System):
 
 	async def _on_file_select(self, info_hash: InfoHash, indices: Optional[Iterable[int]] = None,
 	                          wanted: Optional[bool] = None, priority: Optional[int] = None):
-		"""Change what a torrent downloads. `indices` of None means every file.
-
-		The wanted mask is what the whole download path reads, so it is recomputed here
-		rather than at the call site — and the change is announced, because a peer only
-		becomes interesting (or stops being) the moment the mask moves, and nothing else
-		would look again until its next message.
-		"""
+		"""Change what a torrent downloads. `indices` of None means every file."""
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity or not torrent_entity.has_component(TorrentInfoEC):
 			return

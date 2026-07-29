@@ -41,27 +41,13 @@ class TorrentPathEC(EntityComponent):
 
 
 class TorrentLabelsEC(EntityComponent):
-	"""User-assigned labels for a torrent. Free-form strings, order preserved.
-
-	Only attached to torrents that actually have labels, so the absence of the component
-	is the empty case rather than a component holding an empty list.
-	"""
-
 	def __init__(self, labels: Optional[List[str]] = None) -> None:
 		super().__init__()
 		self.labels: List[str] = list(labels or [])
 
 
 class TorrentLimitsEC(EntityComponent):
-	"""Per-torrent bandwidth and seeding preferences. **Stored, never enforced.**
-
-	TODO: nothing in the transfer path reads any of this. DownloadSystem does not pace
-	 requests, UploadSystem does not pace replies, and no system stops a torrent on
-	 ratio. It is kept because a client that sets a limit and reads back zero assumes
-	 the call failed — round-tripping the choice is honest, silently dropping it is not.
-	 Enforcing it means a token bucket on the two transfer paths plus a ratio check
-	 wherever completion is noticed.
-	"""
+	"""Per-torrent bandwidth and seeding preferences. Stored, never enforced."""
 
 	def __init__(self, **kwargs) -> None:
 		super().__init__()
@@ -86,12 +72,7 @@ class TorrentLimitsEC(EntityComponent):
 
 
 class TorrentRateEC(EntityComponent):
-	"""Sampled transfer rates for a torrent, in bytes/sec.
-
-	Derived state, rebuilt from the peers on every sample — never accumulated here, and
-	never persisted: a rate describes a moment, and a stale one read back from disk would
-	claim a transfer that is not happening.
-	"""
+	"""Sampled transfer rates in bytes/sec. Derived, never persisted."""
 
 	def __init__(self) -> None:
 		super().__init__()
@@ -105,11 +86,7 @@ class TorrentState(IntEnum):
 
 
 class TorrentStatsEC(EntityComponent):
-	"""Totals and dates for a torrent. Everything here survives a restart.
-
-	The dates are **wall-clock epoch seconds**, not `time.monotonic()`: they are shown to
-	users and written to disk, and a monotonic stamp means nothing in the next process.
-	"""
+	"""Totals and dates for a torrent. Dates are wall-clock epoch seconds."""
 
 	def __init__(self, **kwargs) -> None:
 		super().__init__()
@@ -121,8 +98,6 @@ class TorrentStatsEC(EntityComponent):
 
 		self.state: TorrentState = TorrentState(kwargs.get("state", TorrentState.Active))
 
-		# a save written before these existed has no added_date, so it dates from the
-		# first run that understands them rather than from the epoch
 		self.added_date: float = kwargs.get("added_date") or time.time()
 		self.started_date: float = kwargs.get("started_date", 0.0)
 		self.done_date: float = kwargs.get("done_date", 0.0)
@@ -336,18 +311,7 @@ class TorrentDownloadProgressEC(EntityComponent):
 
 
 class TorrentQueuePositionEC(EntityComponent):
-	"""Where a torrent sits in the queue: a dense 0..n-1 ordinal, lowest served first.
-
-	Not a priority *level*, despite what this used to be called. Three different things
-	in this codebase answer to "priority" and only this one affects download order:
-
-	- this, the queue position — which torrent wins a contested peer slot;
-	- `TorrentFileStateEC.priority` (`FilePriority`), per file — stored, and read only
-	  for its wanted flag; the value does not steer piece selection;
-	- `TorrentLimitsEC.bandwidth_priority`, per torrent — stored, never read.
-
-	`TorrentSystem` keeps the values dense and unique; nothing else should write them.
-	"""
+	"""Queue position: a dense 0..n-1 ordinal, lowest served first. TorrentSystem owns it."""
 
 	def __init__(self, position: int = 0) -> None:
 		super().__init__()

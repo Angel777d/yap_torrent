@@ -106,27 +106,17 @@ class PeerRateEC(EntityComponent):
 
 
 class PeerRequestsEC(EntityComponent):
-	"""The blocks we have asked this peer for and not yet been given — the pipeline.
+	"""The pipeline: blocks asked of this peer, each with the time it was requested.
 
-	Connection-scoped, like the socket it rides on: a CHOKE or a disconnect makes every
-	entry dead, so it is attached with `PeerConnectionEC` and stripped with it. It is a
-	separate component because it is *state about a transfer*, not part of a connection's
-	identity — the connection knows how to send a REQUEST, this knows which ones are
-	outstanding, and only DownloadSystem touches it.
-
-	Each block is stored with the time it was asked for, so a request a peer accepts and
-	never answers can be reclaimed instead of holding a pipeline slot for ever.
+	Scoped to the download queue — DownloadSystem attaches it on queue entry and removes
+	it on exit or disconnect. No __len__/__bool__: get_component raises on a falsy
+	component, so an empty pipeline would look missing.
 	"""
 
 	def __init__(self) -> None:
 		super().__init__()
 		self._requested: Dict[PieceBlockInfo, float] = {}
 		self._send_tasks: set[Task] = set()
-
-	# NB: no __len__ or __bool__ here, and none on any other component.
-	# `Entity.get_component` tests the component for truthiness (`if not result: raise`),
-	# so a component that reports itself empty becomes invisible to the whole ECS — an
-	# idle pipeline would raise "component not found" while the entity plainly has it.
 
 	@property
 	def blocks(self) -> KeysView[PieceBlockInfo]:
@@ -142,12 +132,7 @@ class PeerRequestsEC(EntityComponent):
 		self._requested.pop(block, None)
 
 	def take(self, index: int, begin: int) -> Optional[PieceBlockInfo]:
-		"""Drop the in-flight block at (index, begin), whatever length came back.
-
-		Matching the exact PieceBlockInfo would miss a peer that answers with a length
-		we did not ask for, and that entry would then sit in the pipeline for the rest
-		of the connection.
-		"""
+		"""Drop the in-flight block at (index, begin), whatever length came back."""
 		for block in self._requested:
 			if block.index == index and block.begin == begin:
 				del self._requested[block]

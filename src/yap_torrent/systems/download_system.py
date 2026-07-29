@@ -27,11 +27,7 @@ EXPIRE_TICK = 10  # seconds between sweeps for requests a peer never answered
 
 
 class DownloadSystem(TimeSystem):
-	"""Requests blocks and assembles pieces.
-
-	Requesting is driven entirely by events — the tick is *only* the reclaim sweep for
-	requests that were accepted and never answered, which no event can tell us about.
-	"""
+	"""Requests blocks and assembles pieces. The tick only reclaims dead requests."""
 
 	def __init__(self, env: Env):
 		super().__init__(env, EXPIRE_TICK)
@@ -75,11 +71,7 @@ def _reset_download_queue(env: Env, torrent_entity: Entity, peer_entity: Entity)
 
 
 def _progress_by_index(env: Env, info_hash: bytes) -> Dict[int, Entity]:
-	"""The torrent's in-progress pieces, keyed by index.
-
-	Built once per pipeline fill: the underlying collection spans every torrent, and
-	walking it per block made requesting cost O(pipeline x pieces in flight).
-	"""
+	"""The torrent's in-progress pieces, keyed by index. Built once per pipeline fill."""
 	result: Dict[int, Entity] = {}
 	for entity in env.data_storage.get_collection(PieceDownloadProgressEC):
 		piece_ec = entity.get_component(PieceEC)
@@ -158,11 +150,7 @@ def _find_rarest(env: Env, torrent_entity: Entity, pieces: Set[int]) -> int:
 
 def _next_block(env: Env, torrent_entity: Entity, peer_entity: Entity,
                 interested: Set[int], in_progress: Dict[int, Entity]) -> Optional[PieceBlockInfo]:
-	"""Pick the next block to ask this peer for, or None if it has nothing to offer.
-
-	`interested` and `in_progress` are the caller's, and `in_progress` is updated in
-	place when a new piece is started — both are stable for the length of one fill.
-	"""
+	"""Pick the next block to ask this peer for, or None if it has nothing to offer."""
 
 	# 1) continue an already in-progress piece this peer can serve
 	for index, piece_entity in in_progress.items():
@@ -188,8 +176,7 @@ def _next_block(env: Env, torrent_entity: Entity, peer_entity: Entity,
 			progress.downloading_by.add(peer_entity)
 			return block
 
-	# 3) endgame: every wanted piece is already in progress and fully requested —
-	#    re-request a not-yet-received block from this peer too (redundancy)
+	# 3) endgame: re-request a not-yet-received block redundantly
 	in_flight = peer_entity.get_component(PeerRequestsEC).blocks
 	for index, piece_entity in in_progress.items():
 		if index not in interested:
@@ -218,9 +205,8 @@ def _request_from_peer(env: Env, torrent_entity: Entity, peer_entity: Entity) ->
 		block = _next_block(env, torrent_entity, peer_entity, interested, in_progress)
 		if block is None:
 			break
-		requests.add(block)
-		# TODO: keep task with block maybe? to discard it later (on timeout)
-		task = asyncio.create_task(conn.request(block))
+
+		requests.add(block, asyncio.create_task(conn.request(block)))
 
 
 def _fill_peers(env: Env, torrent_entity: Entity, skip: Optional[Entity] = None) -> None:

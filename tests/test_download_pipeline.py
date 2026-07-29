@@ -237,3 +237,21 @@ def test_a_repeated_unchoke_does_not_replace_the_pipeline():
 		assert _pipeline(peer) == in_flight
 
 	asyncio.run(run())
+
+
+def test_the_requests_actually_reach_the_connection():
+	# _request_from_peer fires each send as a task rather than awaiting it; the task must
+	# keep a strong reference or asyncio can GC it before it runs and drop the REQUEST
+	async def run():
+		env = _env()
+		torrent = _torrent(env)
+		peer = _peer(env, torrent, 6801)
+
+		_request_from_peer(env, torrent, peer)
+		await asyncio.sleep(0)  # let the fired send tasks run
+
+		sent = peer.get_component(PeerConnectionEC).connection.sent
+		assert len(sent) == PIPELINE
+		assert all(m[0] == msg.MessageId.REQUEST.value for m in sent)
+
+	asyncio.run(run())

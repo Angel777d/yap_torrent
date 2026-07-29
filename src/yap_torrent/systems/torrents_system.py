@@ -19,13 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 def _move_target(direction, index: int, count: int) -> Optional[int]:
-	"""Where a move puts a torrent, or None if it is not something we understand.
-
-	Accepts the four directions and an absolute position, because `torrent-set` sets a
-	queue position by number while the queue-move methods nudge by direction.
-	Clamped rather than wrapped: "up" at the top stays at the top, which is what every
-	client expects from a disabled-looking button.
-	"""
+	"""Where a move puts a torrent (one of top/up/down/bottom or an absolute position)."""
+	# TODO: claude review: this checks is for input, means transmission plugin
 	if isinstance(direction, bool):
 		return None  # bool is an int subclass; a JSON true is not position 1
 	if isinstance(direction, int):
@@ -115,6 +110,8 @@ class TorrentSystem(System):
 		_mark_for_save(torrent_entity)
 		await self.env.event_bus.dispatch_async("action.torrent.stop", torrent_entity)
 
+	# TODO: claude review: keep logic here clean, just set full new lest. All other logic move to plugin
+	# TODO: claude review: make a solution to keep plugin data in plugin only. like plugin persistance storage
 	async def _on_set_labels(self, info_hash: bytes, labels: Iterable[str]):
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity:
@@ -133,11 +130,7 @@ class TorrentSystem(System):
 		_mark_for_save(torrent_entity)
 
 	async def _on_set_limits(self, info_hash: bytes, values: dict):
-		"""Store per-torrent bandwidth/seeding preferences. Nothing enforces them.
-
-		TODO: wire these into the transfer path. Until then the warning below is the
-		 only thing telling an operator that a limit they set is doing nothing.
-		"""
+		"""Store per-torrent bandwidth/seeding preferences. TODO: nothing enforces them."""
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity or not values:
 			return
@@ -170,12 +163,7 @@ class TorrentSystem(System):
 		_mark_for_save(torrent_entity)
 
 	async def _on_queue_move(self, info_hash: bytes, direction):
-		"""Move a torrent within the queue: top / up / down / bottom, or a position number.
-
-		The queue is a dense 0..n-1 ordering, so a move is a reinsertion followed by a
-		renumber — not an arithmetic nudge of one priority, which would collide with a
-		neighbour and leave two torrents claiming the same place.
-		"""
+		"""Move a torrent in the queue: top/up/down/bottom or a position. Reinsert + renumber."""
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity or not torrent_entity.has_component(TorrentQueuePositionEC):
 			logger.warning(f"[TorrentSystem] _on_queue_move: torrent {info_hash.hex()} is not in the queue")

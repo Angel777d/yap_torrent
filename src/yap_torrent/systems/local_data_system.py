@@ -144,8 +144,7 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	bitfield = save_data.get('bitfield', bytes())
 	torrent_entity.get_component(TorrentEC).bitfield.update(bitfield)
 
-	# 'priority' is what this key was called before the component was renamed to what it
-	# actually is; saves written by an older build still use it
+	# 'priority' is the pre-rename key; older saves still use it
 	position = save_data.get('queue_position', save_data.get('priority'))
 	if position is not None:
 		torrent_entity.add_component(TorrentQueuePositionEC(int(position)))

@@ -124,14 +124,9 @@ def compute_wanted_bitfield(env: Env, info_hash: InfoHash, info: TorrentInfo) ->
 			wanted.set_index(index)
 	return wanted
 
-
+# TODO: claude review: move to transmission plugin
 def file_bytes_completed(torrent_entity: Entity, file_entity: Entity) -> int:
-	"""How many bytes of one file we actually hold.
-
-	Counting whole pieces over the file's piece range overshoots: the first and last
-	piece of a file are usually shared with its neighbours, so only the part of each
-	completed piece that falls inside the file counts.
-	"""
+	"""How many bytes of one file we hold (counting only the in-file part of each piece)."""
 	info = torrent_entity.get_component(TorrentInfoEC).info
 	bitfield = torrent_entity.get_component(TorrentEC).bitfield
 	file_ec = file_entity.get_component(TorrentFileEC)

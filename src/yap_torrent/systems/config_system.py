@@ -9,14 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConfigSystem(System):
-	"""Runtime settings: the one way anything changes `Config` after start.
-
-	Settings were load-only, so a UI or a remote client had no way to change anything
-	without editing config.json and restarting. Changes are written straight back to the
-	file (`Config.set` persists), and `action.config.changed` carries only the keys that
-	actually took effect — a listener re-reading on a no-op would be doing work for a
-	value that did not move.
-	"""
+	"""request.config.set -> Config.set (persists), announcing only keys that changed."""
 
 	async def start(self):
 		self.add_listener("request.config.set", self._on_set)
