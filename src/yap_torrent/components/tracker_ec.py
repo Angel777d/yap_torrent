@@ -32,6 +32,18 @@ class TorrentTrackerDataEC(EntityComponent):
 
 		self._failed_attempts: int = 0
 
+	def reset_failures(self):
+		"""Forget the failure history so the next announce is attempted immediately.
+
+		`failure_reason` is otherwise permanent for the session — AnnounceSystem skips a
+		torrent that has one — so a torrent whose tracker had a bad spell stays silent
+		with no way back. Asking for a reannounce is exactly that way back.
+		"""
+		self._failed_attempts = 0
+		self.failure_reason = ""
+		self.warning_message = ""
+		self.last_update_time = 0
+
 	def fail_announce(self):
 		self.last_update_time = time.monotonic()
 		self.min_interval = self.interval = 60 * 5  # retry in 5 min
