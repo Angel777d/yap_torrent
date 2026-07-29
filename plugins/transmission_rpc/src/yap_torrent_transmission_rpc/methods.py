@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import logging
 import shutil
@@ -19,7 +20,7 @@ from yap_torrent.protocol.structures import Metainfo
 from yap_torrent.components.file_ec import FilePriority
 from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_active
 from yap_torrent.systems.stats_system import session_rates
-from .mapping import DEFAULT_FIELDS, build_torrent
+from .mapping import DEFAULT_FIELDS, STALLED_AFTER_SECONDS, build_torrent
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,19 @@ class ServerInfo:
 		self.recent: TorrentIDs = TorrentIDs()
 		self.removed: TorrentIDs = TorrentIDs()
 
+
+# --- protocol version ------------------------------------------------------
+# The legacy (kebab-case `method`/`arguments`/`tag`) protocol, which is what every
+# existing remote and the transmission-rpc Python client still speak. Transmission 4.1
+# deprecates it in favour of JSON-RPC 2.0 with snake_case names (rpc_version 19); that is
+# a separate surface, not a newer version of this one.
+#
+# MAX is the newest legacy rpc-version whose method set we implement, MIN the oldest a
+# client may assume. The semver MUST match MAX in the spec's version table — 17 is 5.3.0
+# — because clients gate features on the semver rather than the integer.
+RPC_VERSION_MIN_SUPPORTED = 14
+RPC_VERSION_MAX_SUPPORTED = 17
+RPC_VERSION_SEMVER = "5.3.0"
 
 Handler = Callable[[Env, ServerInfo, Dict[str, Any]], Awaitable[Tuple[str, Dict[str, Any]]]]
 
@@ -176,48 +190,68 @@ async def torrent_reannounce(env, info, arguments):
 # ---------------------------------------------------------------------------
 # per-torrent settings (rpc-spec 3.2)
 # ---------------------------------------------------------------------------
-# Only the sub-arguments core can honour are applied; Transmission is lenient about
-# the rest, and silently accepting an argument we cannot act on is friendlier to
-# clients than failing the whole call. Still unsupported: downloadLimit /
-# uploadLimit / honorsSessionLimits (no bandwidth limiting), seedRatioLimit /
-# seedRatioMode (no ratio tracking), trackerAdd / trackerRemove / trackerReplace.
+# Transmission is lenient about arguments it cannot act on, and failing the whole call
+# over one unsupported key would break clients that always send a full settings block.
+# Still inert: "location" (no move-on-disk in core) and the deprecated trackerAdd /
+# trackerRemove / trackerReplace. The bandwidth and ratio keys below ARE accepted and
+# stored, but nothing enforces them — see TorrentLimitsEC.
 _FILE_PRIORITIES = {
 	"priority-high": FilePriority.High,
 	"priority-normal": FilePriority.Normal,
 	"priority-low": FilePriority.Low,
 }
 
+# torrent-set argument -> TorrentLimitsEC field
+_LIMIT_ARGUMENTS = {
+	"downloadLimit": "download_limit",
+	"downloadLimited": "download_limited",
+	"uploadLimit": "upload_limit",
+	"uploadLimited": "upload_limited",
+	"honorsSessionLimits": "honors_session_limits",
+	"seedRatioLimit": "seed_ratio_limit",
+	"seedRatioMode": "seed_ratio_mode",
+	"peer-limit": "peer_limit",
+	"bandwidthPriority": "bandwidth_priority",
+}
+
+
+async def _apply_torrent_settings(env, info_hash: bytes, arguments: Dict[str, Any]):
+	"""Apply every torrent-set-shaped argument. Shared with torrent-add."""
+	labels = arguments.get("labels")
+	if labels is not None:
+		await env.event_bus.dispatch_async("request.torrent.set_labels", info_hash, labels)
+
+	# an empty list means "all files" to Transmission, which is also what
+	# request.file.select reads None as
+	wanted = arguments.get("files-wanted")
+	if wanted is not None:
+		await env.event_bus.dispatch_async("request.file.select", info_hash, wanted or None, True, None)
+	unwanted = arguments.get("files-unwanted")
+	if unwanted is not None:
+		await env.event_bus.dispatch_async("request.file.select", info_hash, unwanted or None, False, None)
+
+	for argument, priority in _FILE_PRIORITIES.items():
+		indices = arguments.get(argument)
+		if indices is not None:
+			await env.event_bus.dispatch_async(
+				"request.file.select", info_hash, indices or None, None, priority)
+
+	limits = {field: arguments[key] for key, field in _LIMIT_ARGUMENTS.items() if key in arguments}
+	if limits:
+		await env.event_bus.dispatch_async("request.torrent.set_limits", info_hash, limits)
+
+	position = arguments.get("queuePosition")
+	if position is not None:
+		await env.event_bus.dispatch_async("request.torrent.queue_move", info_hash, position)
+
 
 @method("torrent-set")
 async def torrent_set(env, info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
-	labels = arguments.get("labels")
-	wanted = arguments.get("files-wanted")
-	unwanted = arguments.get("files-unwanted")
-
 	for entity in iterate_torrents(env, ids, info.removed):
 		torrent = entity.get_component(TorrentEC)
 		info.recent.add(torrent.index)
-
-		if labels is not None:
-			await env.event_bus.dispatch_async("request.torrent.set_labels", torrent.info_hash, labels)
-
-		# an empty list means "all files" to Transmission, which is also what
-		# request.file.select reads None as
-		if wanted is not None:
-			await env.event_bus.dispatch_async(
-				"request.file.select", torrent.info_hash, wanted or None, True, None)
-		if unwanted is not None:
-			await env.event_bus.dispatch_async(
-				"request.file.select", torrent.info_hash, unwanted or None, False, None)
-
-		for argument, priority in _FILE_PRIORITIES.items():
-			indices = arguments.get(argument)
-			if indices is None:
-				continue
-			await env.event_bus.dispatch_async(
-				"request.file.select", torrent.info_hash, indices or None, None, priority)
-
+		await _apply_torrent_settings(env, torrent.info_hash, arguments)
 	return "success", {}
 
 
@@ -268,12 +302,20 @@ async def torrent_remove(env: Env, info: ServerInfo, arguments):
 @method("torrent-get")
 async def torrent_get(env, info, arguments):
 	fields = arguments.get("fields") or list(DEFAULT_FIELDS)
-	# TODO: the "table" format is not supported; results are always objects.
+	table = arguments.get("format") == "table"
 
 	ids = TorrentIDs.read_ids(arguments, info.recent)
-	result: Dict[str, Any] = {
-		"torrents": [build_torrent(e, fields, env) for e in iterate_torrents(env, ids, info.removed)]
-	}
+	torrents = [build_torrent(e, fields, env) for e in iterate_torrents(env, ids, info.removed)]
+
+	if table:
+		# "an array of arrays. The first row holds the keys and each remaining row holds
+		# a torrent's values for those keys" — so every row must line up with row 0, and
+		# a field the torrent lacks becomes a null rather than a shorter row
+		rows: list = [list(fields)]
+		rows.extend([torrent.get(field) for field in fields] for torrent in torrents)
+		result: Dict[str, Any] = {"torrents": rows}
+	else:
+		result = {"torrents": torrents}
 
 	if TorrentIDs.is_recent(arguments.get("ids")):
 		result["removed"] = info.removed.ids
@@ -303,7 +345,7 @@ async def torrent_add(env, info, arguments):
 			data = base64.b64decode(metainfo)
 		except (ValueError, TypeError) as ex:
 			return f"invalid metainfo: {ex}", {}
-		return await _add_metainfo(env, info, data, download_dir, paused)
+		return await _add_metainfo(env, info, data, download_dir, paused, arguments)
 
 	if filename:
 		if filename.startswith("magnet:"):
@@ -312,14 +354,14 @@ async def torrent_add(env, info, arguments):
 			data = await fetch_url(filename)
 			if data is None:
 				return "download of torrent file failed", {}
-			return await _add_metainfo(env, info, data, download_dir, paused)
+			return await _add_metainfo(env, info, data, download_dir, paused, arguments)
 		# Otherwise treat it as a local .torrent file path.
 		try:
 			with open(filename, "rb") as handle:
 				data = handle.read()
 		except OSError as ex:
 			return f"unable to read torrent file: {ex}", {}
-		return await _add_metainfo(env, info, data, download_dir, paused)
+		return await _add_metainfo(env, info, data, download_dir, paused, arguments)
 
 	return 'either "filename" or "metainfo" must be included', {}
 
@@ -332,7 +374,8 @@ def _added_stub(entity: Entity) -> Dict[str, Any]:
 	}
 
 
-async def _add_metainfo(env: Env, info: ServerInfo, data: bytes, download_dir: Optional[Path], paused: bool):
+async def _add_metainfo(env: Env, info: ServerInfo, data: bytes, download_dir: Optional[Path], paused: bool,
+                        arguments: Dict[str, Any]):
 	try:
 		file_info = Metainfo(decode(data))
 		info_hash = file_info.make_info_hash()
@@ -351,6 +394,12 @@ async def _add_metainfo(env: Env, info: ServerInfo, data: bytes, download_dir: O
 
 	if paused:
 		await env.event_bus.dispatch_async("request.torrent.stop", info_hash)
+
+	# torrent-add takes the same labels / files-wanted / priority-* / limit arguments as
+	# torrent-set. The file entities are built by a collection listener dispatched as a
+	# task, so yield once first or a file selection would land before there are files.
+	await asyncio.sleep(0)
+	await _apply_torrent_settings(env, info_hash, arguments)
 
 	info.recent.add(torrent_entity.get_component(TorrentEC).index)
 
@@ -397,43 +446,44 @@ async def session_get(env, info, arguments):
 	cfg = env.config
 	download_dir = Path(cfg.download_folder).as_posix()
 	session = {
-		"rpc-version": 17,
-		"rpc-version-minimum": 14,
-		"rpc-version-semver": "5.4.0",
+		"rpc-version": RPC_VERSION_MAX_SUPPORTED,
+		"rpc-version-minimum": RPC_VERSION_MIN_SUPPORTED,
+		"rpc-version-semver": RPC_VERSION_SEMVER,
 		"version": "yap_torrent (transmission-rpc compatible)",
 		"download-dir": download_dir,
 		"download-dir-free-space": _free_space(cfg.download_folder),
-		"incomplete-dir": download_dir,
-		"incomplete-dir-enabled": False,
+		"incomplete-dir": Path(cfg.incomplete_folder).as_posix(),
+		"incomplete-dir-enabled": cfg.incomplete_folder_enabled,
 		"peer-port": cfg.port,
 		"peer-port-random-on-start": False,
 		"port-forwarding-enabled": True,
-		"dht-enabled": True,
+		"dht-enabled": cfg.dht_enabled,
 		"pex-enabled": True,
 		"lpd-enabled": False,
 		"utp-enabled": False,
 		"encryption": "preferred",
 		"peer-limit-global": cfg.max_connections,
-		"peer-limit-per-torrent": cfg.max_connections,
-		"download-queue-enabled": False,
-		"download-queue-size": 0,
-		"seed-queue-enabled": False,
-		"seed-queue-size": 0,
+		"peer-limit-per-torrent": cfg.peer_limit_per_torrent,
+		"download-queue-enabled": cfg.download_queue_enabled,
+		"download-queue-size": cfg.download_queue_size,
+		"seed-queue-enabled": cfg.seed_queue_enabled,
+		"seed-queue-size": cfg.seed_queue_size,
 		"queue-stalled-enabled": False,
-		"queue-stalled-minutes": 30,
-		"speed-limit-down": 0,
-		"speed-limit-down-enabled": False,
-		"speed-limit-up": 0,
-		"speed-limit-up-enabled": False,
-		"alt-speed-enabled": False,
-		"alt-speed-down": 0,
-		"alt-speed-up": 0,
-		"seedRatioLimit": 0.0,
-		"seedRatioLimited": False,
-		"start-added-torrents": True,
+		"queue-stalled-minutes": STALLED_AFTER_SECONDS // 60,
+		"speed-limit-down": cfg.speed_limit_down,
+		"speed-limit-down-enabled": cfg.speed_limit_down_enabled,
+		"speed-limit-up": cfg.speed_limit_up,
+		"speed-limit-up-enabled": cfg.speed_limit_up_enabled,
+		"alt-speed-enabled": cfg.alt_speed_enabled,
+		"alt-speed-down": cfg.alt_speed_down,
+		"alt-speed-up": cfg.alt_speed_up,
+		"seedRatioLimit": cfg.seed_ratio_limit,
+		"seedRatioLimited": cfg.seed_ratio_limited,
+		"start-added-torrents": cfg.start_added_torrents,
 		"rename-partial-files": False,
 		"trash-original-torrent-files": False,
-		"blocklist-enabled": False,
+		"blocklist-enabled": cfg.blocklist_enabled,
+		"blocklist-url": cfg.blocklist_url,
 		"blocklist-size": 0,
 		"config-dir": Path(cfg.data_folder).as_posix(),
 		"session-id": info.session_id,
@@ -451,6 +501,56 @@ async def session_get(env, info, arguments):
 	if fields:
 		return "success", {key: session[key] for key in fields.intersection(session.keys())}
 	return "success", session
+
+
+# Transmission session key -> core config key. Anything absent here is either
+# restart-only, plugin-owned, or something core has no notion of; session-set ignores
+# those rather than failing the call, which is what Transmission does with unknown args.
+SESSION_SETTINGS: Dict[str, str] = {
+	"download-dir": "download_folder",
+	"incomplete-dir": "incomplete_folder",
+	"incomplete-dir-enabled": "incomplete_folder_enabled",
+	"speed-limit-down": "speed_limit_down",
+	"speed-limit-down-enabled": "speed_limit_down_enabled",
+	"speed-limit-up": "speed_limit_up",
+	"speed-limit-up-enabled": "speed_limit_up_enabled",
+	"alt-speed-down": "alt_speed_down",
+	"alt-speed-up": "alt_speed_up",
+	"alt-speed-enabled": "alt_speed_enabled",
+	"seedRatioLimit": "seed_ratio_limit",
+	"seedRatioLimited": "seed_ratio_limited",
+	"download-queue-enabled": "download_queue_enabled",
+	"download-queue-size": "download_queue_size",
+	"seed-queue-enabled": "seed_queue_enabled",
+	"seed-queue-size": "seed_queue_size",
+	"peer-limit-global": "max_connections",
+	"peer-limit-per-torrent": "peer_limit_per_torrent",
+	"blocklist-enabled": "blocklist_enabled",
+	"blocklist-url": "blocklist_url",
+	"start-added-torrents": "start_added_torrents",
+	"dht-enabled": "dht_enabled",
+	"peer-port": "port",
+}
+
+
+@method("session-set")
+async def session_set(env, _info, arguments):
+	"""Change session settings (rpc-spec 4.1).
+
+	Core stores several of these without acting on them (speed limits, queues,
+	blocklist) — Config.set logs a warning naming each one. They are still applied
+	rather than rejected so a client's choice round-trips instead of reading back as
+	whatever it was before.
+	"""
+	values = {
+		SESSION_SETTINGS[key]: value
+		for key, value in arguments.items()
+		if key in SESSION_SETTINGS
+	}
+	if not values:
+		return "success", {}
+	await env.event_bus.dispatch_async("request.config.set", values)
+	return "success", {}
 
 
 @method("session-stats")
@@ -517,8 +617,6 @@ UNIMPLEMENTED: Dict[str, str] = {
 	"torrent-set-location": "torrent-set-location is not supported yet",
 	# 3.7 - no rename support in core (would rewrite TorrentInfo paths on disk).
 	"torrent-rename-path": "torrent-rename-path is not supported yet",
-	# 4.1 - session is configured via config.json; runtime mutation is not wired.
-	"session-set": "session-set is not supported: settings come from config.json",
 	# 4.4 - no blocklist subsystem exists.
 	"blocklist-update": "blocklist-update is not supported: no blocklist subsystem",
 	# 4.6 - could set env.close_event to shut the client down; intentionally not

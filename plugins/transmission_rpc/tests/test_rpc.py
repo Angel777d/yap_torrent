@@ -17,6 +17,7 @@ import pytest
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import encode
+from yap_torrent.systems.config_system import ConfigSystem
 from yap_torrent.systems.file_system import FileSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
 from yap_torrent.systems.metainfo_system import MetainfoSystem
@@ -53,7 +54,8 @@ async def server():
 	# so the systems that answer those events have to be live. AnnounceSystem is left out
 	# deliberately — it would announce to the metainfo's tracker URL over the network.
 	systems = [
-		MetainfoSystem(env), MagnetSystem(env), FileSystem(env), TorrentSystem(env), StatsSystem(env),
+		ConfigSystem(env), MetainfoSystem(env), MagnetSystem(env), FileSystem(env), TorrentSystem(env),
+		StatsSystem(env),
 	]
 	for system in systems:
 		await system.start()
@@ -200,11 +202,11 @@ async def test_unknown_method(client):
 
 async def test_unimplemented_method_is_recognised(client):
 	session_id = await handshake(client)
-	data = await rpc(client, session_id, "session-set", {})
+	data = await rpc(client, session_id, "torrent-rename-path", {})
 	# Not "success", but also not the unknown-method error.
 	assert data["result"] != "success"
 	assert "not recognized" not in data["result"]
-	assert "session-set" in data["result"]
+	assert "torrent-rename-path" in data["result"]
 
 
 async def test_free_space(client):
@@ -331,3 +333,160 @@ async def test_session_stats_reports_speeds(client):
 	assert data["arguments"]["downloadSpeed"] == 0
 	assert data["arguments"]["uploadSpeed"] == 0
 	assert data["arguments"]["torrentCount"] == 1
+
+
+# ---------------------------------------------------------------------------
+# spec conformance findings
+# ---------------------------------------------------------------------------
+async def test_wanted_relative_progress_reaches_one_hundred_percent(client, server):
+	# percentDone is of the files the user *wants*; percentComplete is of the whole
+	# torrent. Reporting the total for both leaves a torrent with a deselected file
+	# stuck below 100% for ever while it reports itself as finished.
+	from yap_torrent.components.torrent_ec import TorrentEC
+	from yap_torrent.systems import get_torrent_entity
+
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_multifile_metainfo())
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "files-unwanted": [2]})
+	await asyncio.sleep(0.01)
+
+	# hold the two wanted files' pieces, not the third file's
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+	for index in (0, 1):
+		entity.get_component(TorrentEC).bitfield.set_index(index)
+
+	data = await rpc(client, session_id, "torrent-get", {
+		"ids": [info_hash],
+		"fields": ["percentDone", "percentComplete", "sizeWhenDone", "totalSize",
+		           "leftUntilDone", "isFinished"],
+	})
+	torrent = data["arguments"]["torrents"][0]
+
+	assert torrent["percentDone"] == 1.0  # everything wanted is here
+	assert torrent["percentComplete"] < 1.0  # but a third of the torrent is not
+	assert torrent["sizeWhenDone"] < torrent["totalSize"]
+	assert torrent["leftUntilDone"] == 0
+	assert torrent["isFinished"] is True
+
+
+async def test_tracker_failure_is_reported_as_a_tracker_error(client, server):
+	# tr_stat_errtype: TR_STAT_TRACKER_ERROR is 2; 3 is TR_STAT_LOCAL_ERROR
+	from yap_torrent.components.tracker_ec import TorrentTrackerDataEC
+	from yap_torrent.systems import get_torrent_entity
+
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+	for _ in range(5):
+		entity.get_component(TorrentTrackerDataEC).fail_announce()
+
+	data = await rpc(client, session_id, "torrent-get",
+	                 {"ids": [info_hash], "fields": ["error", "errorString"]})
+	torrent = data["arguments"]["torrents"][0]
+	assert torrent["error"] == 2
+	assert torrent["errorString"]
+
+
+async def test_torrent_get_table_format(client):
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	data = await rpc(client, session_id, "torrent-get",
+	                 {"fields": ["id", "hashString", "name"], "format": "table"})
+	rows = data["arguments"]["torrents"]
+
+	assert rows[0] == ["id", "hashString", "name"]
+	assert len(rows) == 2
+	assert rows[1][1] == info_hash
+	assert len(rows[1]) == len(rows[0])  # every row lines up with the header
+
+
+async def test_every_requested_field_comes_back(client):
+	# transmission-rpc reads fields as self.fields[name] and raises KeyError on an
+	# absent one, so omitting a field a client asked for breaks it
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	fields = [
+		"etaIdle", "file-count", "maxConnectedPeers", "manualAnnounceTime", "peer-limit",
+		"pieces", "primary-mime-type", "secondsDownloading", "secondsSeeding",
+		"sequentialDownload", "torrentFile", "trackerList", "webseeds", "availability",
+	]
+	data = await rpc(client, session_id, "torrent-get", {"ids": [info_hash], "fields": fields})
+	torrent = data["arguments"]["torrents"][0]
+
+	assert sorted(torrent) == sorted(fields)
+
+
+async def test_upload_ratio_uses_the_not_applicable_value(client):
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	# nothing up, nothing down -> TR_RATIO_NA
+	assert await get_field(client, session_id, info_hash, "uploadRatio") == -1
+
+
+async def test_rpc_version_and_semver_agree(client):
+	# the spec's version table maps rpc-version 17 to semver 5.3.0; clients gate
+	# features on the semver
+	session_id = await handshake(client)
+	data = await rpc(client, session_id, "session-get")
+	arguments = data["arguments"]
+	assert arguments["rpc-version"] == 17
+	assert arguments["rpc-version-semver"] == "5.3.0"
+	assert arguments["rpc-version-minimum"] <= arguments["rpc-version"]
+
+
+# ---------------------------------------------------------------------------
+# session-set (rpc-spec 4.1)
+# ---------------------------------------------------------------------------
+async def test_session_set_changes_a_setting_and_session_get_reads_it_back(client, server):
+	session_id = await handshake(client)
+
+	data = await rpc(client, session_id, "session-set", {"speed-limit-up": 250, "speed-limit-up-enabled": True})
+	assert data["result"] == "success"
+
+	got = await rpc(client, session_id, "session-get", {"fields": ["speed-limit-up", "speed-limit-up-enabled"]})
+	assert got["arguments"] == {"speed-limit-up": 250, "speed-limit-up-enabled": True}
+	assert server.env.config.speed_limit_up == 250
+
+
+async def test_session_set_ignores_keys_core_has_no_notion_of(client):
+	session_id = await handshake(client)
+	data = await rpc(client, session_id, "session-set", {"utp-enabled": True, "no-such-key": 1})
+	assert data["result"] == "success"
+
+
+# ---------------------------------------------------------------------------
+# torrent-add applies the settings arguments it is given
+# ---------------------------------------------------------------------------
+async def test_torrent_add_applies_labels_and_file_selection(client):
+	session_id = await handshake(client)
+	added = await rpc(client, session_id, "torrent-add", {
+		"metainfo": base64.b64encode(make_multifile_metainfo()).decode(),
+		"labels": ["fresh"],
+		"files-unwanted": [1],
+	})
+	await asyncio.sleep(0.01)
+	info_hash = added["arguments"]["torrent-added"]["hashString"]
+
+	assert await get_field(client, session_id, info_hash, "labels") == ["fresh"]
+	assert await get_field(client, session_id, info_hash, "wanted") == [1, 0, 1]
+
+
+async def test_torrent_set_stores_limits_and_queue_position(client):
+	session_id = await handshake(client)
+	first = await add_torrent(client, session_id, make_metainfo(b"one.txt"))
+	second = await add_torrent(client, session_id, make_metainfo(b"two.txt"))
+
+	await rpc(client, session_id, "torrent-set", {
+		"ids": [first], "uploadLimit": 40, "uploadLimited": True, "queuePosition": 1,
+	})
+	await asyncio.sleep(0.01)
+
+	assert await get_field(client, session_id, first, "uploadLimit") == 40
+	assert await get_field(client, session_id, first, "uploadLimited") is True
+	assert await get_field(client, session_id, first, "queuePosition") == 1
+	assert await get_field(client, session_id, second, "queuePosition") == 0

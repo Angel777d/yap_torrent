@@ -213,6 +213,11 @@ class Config:
 		self._data = data
 
 	def _save(self):
+		# only ever rewrite a config file that already exists — a missing path means
+		# defaults (and, in tests, a path that must not be created)
+		if not Path(self._path).exists():
+			logger.debug("No config file at %s; keeping the change in memory only", self._path)
+			return
 		try:
 			with open(self._path, "w") as f:
 				json.dump(self._data, f, indent=2)

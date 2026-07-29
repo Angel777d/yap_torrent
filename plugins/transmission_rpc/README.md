@@ -46,26 +46,44 @@ clients transparently retry with it. This is handled automatically for real clie
 
 ## Supported methods
 
+This targets the **legacy** Transmission RPC protocol — `method`/`arguments`/`tag` with
+kebab-case names — which is what existing remotes and the `transmission-rpc` Python client
+speak. Transmission 4.1 deprecates it in favour of JSON-RPC 2.0 with snake_case names
+(`rpc_version` 19); that is a separate surface, not a newer version of this one. The
+supported range is declared by `RPC_VERSION_MIN_SUPPORTED` / `RPC_VERSION_MAX_SUPPORTED`
+in `methods.py` (14–17, semver 5.3.0 — the semver must track the max per the spec's
+version table, because clients gate features on it).
+
 Implemented: `torrent-add`, `torrent-remove`, `torrent-start`, `torrent-start-now`,
 `torrent-stop`, `torrent-verify`, `torrent-get`, `torrent-set`, `torrent-reannounce`,
 `queue-move-top`, `queue-move-up`, `queue-move-down`, `queue-move-bottom`, `session-get`,
-`session-stats`, `free-space`, `port-test`.
+`session-set`, `session-stats`, `free-space`, `port-test`.
 
-`torrent-set` applies the sub-arguments core can honour — `labels`, `files-wanted`,
-`files-unwanted`, `priority-high`, `priority-normal`, `priority-low` — and accepts the rest
-without acting on them, which is what Transmission clients expect from a settings block.
-Still inert: `downloadLimit` / `uploadLimit` / `honorsSessionLimits` (no bandwidth limiting
-in core), `seedRatioLimit` / `seedRatioMode` (no ratio tracking), and the tracker edits.
+`torrent-set` — and `torrent-add`, which takes the same arguments — applies `labels`,
+`files-wanted`, `files-unwanted`, `priority-high|normal|low` and `queuePosition`, and
+**stores** `downloadLimit`, `uploadLimit`, `honorsSessionLimits`, `seedRatioLimit`,
+`seedRatioMode`, `peer-limit` and `bandwidthPriority` without enforcing them: core has no
+bandwidth limiting or ratio tracking, so the values round-trip and core logs a warning
+naming each one. `location` and the deprecated tracker edits are ignored.
+
+`session-set` writes through to core's config (which persists to `config.json`). Speed
+limits, queue sizes and the blocklist keys are stored but not enforced, and core warns on
+each change.
 
 Every other spec method is recognised but returns an explanatory error string (it is *not*
 treated as an unknown method). See `UNIMPLEMENTED` in `methods.py` for the list and the notes
 on what each one needs. `torrent-add` accepts a magnet link or `.torrent` path/URL via the
 `filename` field, or base64 `.torrent` content via `metainfo`.
 
-`torrent-get` reports live transfer rates and ETA, the added/started/done/activity dates,
-queue position, labels, exact per-file `bytesCompleted` with each file's wanted flag and
-priority, per-tracker announce state, and tracker errors via `error`/`errorString`. Still
-placeholder: the `peers` detail list, `format: "table"`, and the seed-ratio/bandwidth fields.
+`torrent-get` supports both `format: "objects"` and `format: "table"`, and reports live
+transfer rates and ETA, the added/started/done/activity dates, queue position, labels,
+exact per-file `bytesCompleted` with each file's wanted flag and priority, per-tracker
+announce state, and tracker errors via `error`/`errorString`. `percentDone`,
+`sizeWhenDone` and `leftUntilDone` are relative to the files the user **wants**, per
+`tr_stat`; `percentComplete` is of the whole torrent. Every documented field is answered —
+absent keys are not safe, since `transmission-rpc` reads them as `self.fields[name]` and
+raises `KeyError`. Still placeholder: the `peers` detail list, `availability`,
+`secondsDownloading` / `secondsSeeding`, and the seed-idle fields.
 
 ## Tests
 
