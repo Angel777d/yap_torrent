@@ -128,3 +128,23 @@ def test_nothing_is_announced_when_nothing_changed(tmp_path):
 		assert announced == []
 
 	asyncio.run(run())
+
+
+# --- what core does and does not model --------------------------------------
+def test_core_has_one_pair_of_speed_limits(tmp_path):
+	# a second "alternative" pair and a switch between them (turtle mode) is a
+	# client-side idea; core holds only the limits in force
+	config = _config(tmp_path)
+	assert Config.setting("speed_limit_down") is not None
+	assert Config.setting("alt_speed_down") is None
+	assert Config.setting("alt_speed_enabled") is None
+	assert not hasattr(config, "alt_speed_down")
+
+
+def test_a_plugin_can_persist_settings_core_does_not_model(tmp_path):
+	config = _config(tmp_path)
+	config.set_plugin_config("some_plugin", {"turtle": True, "level": 3})
+	config.set_plugin_config("some_plugin", {"level": 4})  # merges, not replaces
+
+	reloaded = Config(path=str(tmp_path / "config.json"))
+	assert reloaded.get_plugin_config("some_plugin") == {"turtle": True, "level": 4}

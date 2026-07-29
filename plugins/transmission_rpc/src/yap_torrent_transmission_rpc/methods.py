@@ -24,6 +24,9 @@ from .mapping import DEFAULT_FIELDS, STALLED_AFTER_SECONDS, build_torrent
 
 logger = logging.getLogger(__name__)
 
+# our section in config.json, for the settings core has no notion of
+PLUGIN_CONFIG_KEY = "yap_torrent_transmission_rpc"
+
 _TorrentID = int | str
 _TorrentIDs = _TorrentID | list[_TorrentID] | None
 
@@ -82,12 +85,54 @@ class TorrentIDs:
 		self.hashes.clear()
 
 
+class AltSpeed:
+	"""Transmission's "turtle mode": a second set of speed limits and a switch.
+
+	Kept here rather than in core, which has exactly one pair of speed limits — the ones
+	in force. Holding a spare pair and choosing between them is a client-side idea, and
+	core has no notion of it.
+
+	TODO: once core enforces speed limits, enabling this should push the alt pair into
+	 config.speed_limit_* and restore the normal pair on the way out. Nothing enforces
+	 anything yet, so for now the values are stored and reported only — swapping them
+	 would change nothing except what session-get says.
+	"""
+	FIELDS = ("alt_speed_down", "alt_speed_up", "alt_speed_enabled")
+
+	def __init__(self, stored: Optional[Dict[str, Any]] = None):
+		stored = stored or {}
+		self.alt_speed_down: int = int(stored.get("alt_speed_down", 0))
+		self.alt_speed_up: int = int(stored.get("alt_speed_up", 0))
+		self.alt_speed_enabled: bool = bool(stored.get("alt_speed_enabled", False))
+
+	def export(self) -> Dict[str, Any]:
+		return {name: getattr(self, name) for name in self.FIELDS}
+
+	def update(self, values: Dict[str, Any]) -> bool:
+		"""Apply the fields present in `values`; returns whether anything moved."""
+		changed = False
+		for name in self.FIELDS:
+			if name not in values:
+				continue
+			cast = type(getattr(self, name))
+			try:
+				new_value = cast(values[name])
+			except (TypeError, ValueError):
+				logger.warning("Ignoring bad value for %s: %r", name, values[name])
+				continue
+			if getattr(self, name) != new_value:
+				setattr(self, name, new_value)
+				changed = True
+		return changed
+
+
 class ServerInfo:
-	def __init__(self, session_id, start_time):
+	def __init__(self, session_id, start_time, alt_speed: Optional[AltSpeed] = None):
 		self.session_id: str = session_id
 		self.start_time: float = start_time
 		self.recent: TorrentIDs = TorrentIDs()
 		self.removed: TorrentIDs = TorrentIDs()
+		self.alt_speed: AltSpeed = alt_speed or AltSpeed()
 
 
 # --- protocol version ------------------------------------------------------
@@ -474,9 +519,10 @@ async def session_get(env, info, arguments):
 		"speed-limit-down-enabled": cfg.speed_limit_down_enabled,
 		"speed-limit-up": cfg.speed_limit_up,
 		"speed-limit-up-enabled": cfg.speed_limit_up_enabled,
-		"alt-speed-enabled": cfg.alt_speed_enabled,
-		"alt-speed-down": cfg.alt_speed_down,
-		"alt-speed-up": cfg.alt_speed_up,
+		# turtle mode is ours, not core's
+		"alt-speed-enabled": info.alt_speed.alt_speed_enabled,
+		"alt-speed-down": info.alt_speed.alt_speed_down,
+		"alt-speed-up": info.alt_speed.alt_speed_up,
 		"seedRatioLimit": cfg.seed_ratio_limit,
 		"seedRatioLimited": cfg.seed_ratio_limited,
 		"start-added-torrents": cfg.start_added_torrents,
@@ -514,9 +560,6 @@ SESSION_SETTINGS: Dict[str, str] = {
 	"speed-limit-down-enabled": "speed_limit_down_enabled",
 	"speed-limit-up": "speed_limit_up",
 	"speed-limit-up-enabled": "speed_limit_up_enabled",
-	"alt-speed-down": "alt_speed_down",
-	"alt-speed-up": "alt_speed_up",
-	"alt-speed-enabled": "alt_speed_enabled",
 	"seedRatioLimit": "seed_ratio_limit",
 	"seedRatioLimited": "seed_ratio_limited",
 	"download-queue-enabled": "download_queue_enabled",
@@ -533,8 +576,16 @@ SESSION_SETTINGS: Dict[str, str] = {
 }
 
 
+# alt-speed is ours; it maps to AltSpeed rather than to a core setting
+ALT_SPEED_SETTINGS: Dict[str, str] = {
+	"alt-speed-down": "alt_speed_down",
+	"alt-speed-up": "alt_speed_up",
+	"alt-speed-enabled": "alt_speed_enabled",
+}
+
+
 @method("session-set")
-async def session_set(env, _info, arguments):
+async def session_set(env, info, arguments):
 	"""Change session settings (rpc-spec 4.1).
 
 	Core stores several of these without acting on them (speed limits, queues,
@@ -542,14 +593,22 @@ async def session_set(env, _info, arguments):
 	rather than rejected so a client's choice round-trips instead of reading back as
 	whatever it was before.
 	"""
+	alt = {
+		ALT_SPEED_SETTINGS[key]: value
+		for key, value in arguments.items()
+		if key in ALT_SPEED_SETTINGS
+	}
+	if alt and info.alt_speed.update(alt):
+		# our own section of config.json, since core does not model turtle mode
+		env.config.set_plugin_config(PLUGIN_CONFIG_KEY, info.alt_speed.export())
+
 	values = {
 		SESSION_SETTINGS[key]: value
 		for key, value in arguments.items()
 		if key in SESSION_SETTINGS
 	}
-	if not values:
-		return "success", {}
-	await env.event_bus.dispatch_async("request.config.set", values)
+	if values:
+		await env.event_bus.dispatch_async("request.config.set", values)
 	return "success", {}
 
 

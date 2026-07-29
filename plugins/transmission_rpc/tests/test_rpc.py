@@ -490,3 +490,37 @@ async def test_torrent_set_stores_limits_and_queue_position(client):
 	assert await get_field(client, session_id, first, "uploadLimited") is True
 	assert await get_field(client, session_id, first, "queuePosition") == 1
 	assert await get_field(client, session_id, second, "queuePosition") == 0
+
+
+# ---------------------------------------------------------------------------
+# alt speed (turtle mode) is the plugin's, not core's
+# ---------------------------------------------------------------------------
+async def test_alt_speed_round_trips_without_touching_core(client, server):
+	session_id = await handshake(client)
+
+	await rpc(client, session_id, "session-set",
+	          {"alt-speed-down": 100, "alt-speed-up": 50, "alt-speed-enabled": True})
+
+	got = await rpc(client, session_id, "session-get",
+	                {"fields": ["alt-speed-down", "alt-speed-up", "alt-speed-enabled"]})
+	assert got["arguments"] == {"alt-speed-down": 100, "alt-speed-up": 50, "alt-speed-enabled": True}
+
+	# core keeps one pair of speed limits and knows nothing about a second one
+	assert not hasattr(server.env.config, "alt_speed_down")
+
+
+async def test_alt_speed_is_stored_in_the_plugins_own_config_section(client, server):
+	session_id = await handshake(client)
+	await rpc(client, session_id, "session-set", {"alt-speed-down": 42})
+
+	section = server.env.config.get_plugin_config("yap_torrent_transmission_rpc")
+	assert section["alt_speed_down"] == 42
+
+
+async def test_the_normal_speed_limits_still_go_to_core(client, server):
+	# one session-set carrying both: the normal pair is core's, the alt pair is ours
+	session_id = await handshake(client)
+	await rpc(client, session_id, "session-set", {"speed-limit-down": 300, "alt-speed-down": 42})
+
+	assert server.env.config.speed_limit_down == 300
+	assert server.info.alt_speed.alt_speed_down == 42

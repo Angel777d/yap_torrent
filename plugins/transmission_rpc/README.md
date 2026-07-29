@@ -70,6 +70,13 @@ naming each one. `location` and the deprecated tracker edits are ignored.
 limits, queue sizes and the blocklist keys are stored but not enforced, and core warns on
 each change.
 
+**Alt speed (turtle mode) is the plugin's own.** Core holds exactly one pair of speed
+limits — the ones in force — so a spare pair and a switch between them live here, in the
+`yap_torrent_transmission_rpc` section of `config.json`. `alt-speed-down`, `alt-speed-up`
+and `alt-speed-enabled` never reach core. Once core enforces limits, enabling turtle mode
+should push the alt pair into core's `speed_limit_*` and restore the normal pair on the way
+out; until then the values are stored and reported only (see the `AltSpeed` TODO).
+
 Every other spec method is recognised but returns an explanatory error string (it is *not*
 treated as an unknown method). See `UNIMPLEMENTED` in `methods.py` for the list and the notes
 on what each one needs. `torrent-add` accepts a magnet link or `.torrent` path/URL via the

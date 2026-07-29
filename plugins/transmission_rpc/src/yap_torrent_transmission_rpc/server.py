@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 from aiohttp import web
 
 from yap_torrent.env import Env
-from .methods import METHODS, UNIMPLEMENTED, ServerInfo
+from .methods import METHODS, PLUGIN_CONFIG_KEY, UNIMPLEMENTED, AltSpeed, ServerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +19,14 @@ class RpcServer:
 	def __init__(self, env: Env):
 		self.env = env
 
+		config = env.config.get_plugin_config(PLUGIN_CONFIG_KEY)
+
 		self.info: ServerInfo = ServerInfo(
 			uuid.uuid4().hex + uuid.uuid4().hex[:16],  # 48-char id, like Transmission
-			time.monotonic()
+			time.monotonic(),
+			AltSpeed(config),  # turtle mode lives in our own config section
 		)
 
-		config = env.config.get_plugin_config("yap_torrent_transmission_rpc")
 		self.host = config.get("host", "0.0.0.0")
 		self.port = int(config.get("port", DEFAULT_PORT))
 		self.path = config.get("path", DEFAULT_PATH)

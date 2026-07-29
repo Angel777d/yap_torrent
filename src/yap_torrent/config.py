@@ -84,9 +84,6 @@ SETTINGS: Tuple[Setting, ...] = (
 	Setting("speed_limit_up", "speed_limit_up", int, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
 	Setting("speed_limit_up_enabled", "speed_limit_up_enabled", _as_bool, enforced=False,
 	        note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("alt_speed_down", "alt_speed_down", int, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("alt_speed_up", "alt_speed_up", int, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("alt_speed_enabled", "alt_speed_enabled", _as_bool, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
 
 	# TODO: no ratio tracking or auto-stop exists; stored so a client's choice survives.
 	Setting("seed_ratio_limit", "seed_ratio_limit", float, enforced=False,
@@ -187,13 +184,13 @@ class Config:
 		self.incomplete_folder: Path = Path(data.get("incomplete_folder", f"{self.data_folder}/incomplete"))
 		self.incomplete_folder_enabled: bool = _as_bool(data.get("incomplete_folder_enabled", False))
 
+		# the speed limits currently in force. There is one pair, deliberately: a second
+		# "alternative" pair and a switch between them is a client-side idea (Transmission
+		# calls it turtle mode), and it belongs to whichever plugin offers it.
 		self.speed_limit_down: int = int(data.get("speed_limit_down", 0))
 		self.speed_limit_down_enabled: bool = _as_bool(data.get("speed_limit_down_enabled", False))
 		self.speed_limit_up: int = int(data.get("speed_limit_up", 0))
 		self.speed_limit_up_enabled: bool = _as_bool(data.get("speed_limit_up_enabled", False))
-		self.alt_speed_down: int = int(data.get("alt_speed_down", 0))
-		self.alt_speed_up: int = int(data.get("alt_speed_up", 0))
-		self.alt_speed_enabled: bool = _as_bool(data.get("alt_speed_enabled", False))
 
 		self.seed_ratio_limit: float = float(data.get("seed_ratio_limit", 2.0))
 		self.seed_ratio_limited: bool = _as_bool(data.get("seed_ratio_limited", False))
@@ -230,6 +227,17 @@ class Config:
 
 	def get_plugin_config(self, plugin_name: str) -> Dict[str, Any]:
 		return self._data.get(plugin_name, {})
+
+	def set_plugin_config(self, plugin_name: str, values: Dict[str, Any]) -> None:
+		"""Merge settings into a plugin's own section and persist them.
+
+		Core does not model what a plugin keeps here and does not validate it — the
+		point is that a plugin can own a setting core has no notion of (a UI theme, a
+		second set of speed limits) without that setting having to exist in SETTINGS.
+		"""
+		section = self._data.setdefault(plugin_name, {})
+		section.update(values)
+		self._save()
 
 	# -- runtime settings ---------------------------------------------------
 	@staticmethod
