@@ -125,6 +125,31 @@ def compute_wanted_bitfield(env: Env, info_hash: InfoHash, info: TorrentInfo) ->
 	return wanted
 
 
+def file_bytes_completed(torrent_entity: Entity, file_entity: Entity) -> int:
+	"""How many bytes of one file we actually hold.
+
+	Counting whole pieces over the file's piece range overshoots: the first and last
+	piece of a file are usually shared with its neighbours, so only the part of each
+	completed piece that falls inside the file counts.
+	"""
+	info = torrent_entity.get_component(TorrentInfoEC).info
+	bitfield = torrent_entity.get_component(TorrentEC).bitfield
+	file_ec = file_entity.get_component(TorrentFileEC)
+
+	piece_length = info.piece_length
+	file_start = file_ec.start
+	file_end = file_start + file_ec.length
+
+	total = 0
+	for index in range(file_ec.first_piece, file_ec.first_piece + file_ec.pieces_length):
+		if not bitfield.have_index(index):
+			continue
+		piece_start = index * piece_length
+		piece_end = piece_start + info.calculate_piece_size(index)
+		total += max(0, min(file_end, piece_end) - max(file_start, piece_start))
+	return total
+
+
 def iterate_files(env: Env, info_hash: bytes) -> Generator[Entity]:
 	for e in env.data_storage.get_collection(TorrentFileEC):
 		if e.get_component(TorrentFileEC).info_hash == info_hash:

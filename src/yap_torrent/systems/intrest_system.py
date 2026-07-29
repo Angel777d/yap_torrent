@@ -37,6 +37,18 @@ class InterestedSystem(System):
 		self.add_listener("piece.complete", self.__on_piece_complete)
 		self.add_listener("peer.connected", self.__on_peer_connected)
 		self.add_listener("peer.disconnected", self.__on_peer_disconnected)
+		self.add_listener("action.torrent.files_changed", self.__on_files_changed)
+
+	async def __on_files_changed(self, torrent_entity: Entity):
+		"""The wanted mask moved, so who is worth talking to moved with it.
+
+		Interest is only re-derived when a peer says something; without this a file
+		deselected mid-download keeps its peers in the download queue until their next
+		message, and a file selected on an idle torrent is not picked up at all.
+		"""
+		for peer_entity in list(iterate_connected_peers(self.env, get_info_hash(torrent_entity))):
+			await self.__update_local_interested(torrent_entity, peer_entity)
+		await self.__refill_download_slots()
 
 	async def __on_peer_connected(self, torrent_entity: Entity, peer_entity: Entity):
 		await self.__update_local_interested(torrent_entity, peer_entity)

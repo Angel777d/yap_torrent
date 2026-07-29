@@ -1,10 +1,16 @@
 import logging
 from pathlib import Path
+from typing import Iterable, Optional
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.file_ec import RestoreFileSelectionEC, TorrentFileEC, TorrentFileStateEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentDownloadProgressEC
+from yap_torrent.components.file_ec import (
+	FilePriority,
+	RestoreFileSelectionEC,
+	TorrentFileEC,
+	TorrentFileStateEC,
+)
+from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentInfoEC, TorrentDownloadProgressEC
 from yap_torrent.protocol import InfoHash
 from yap_torrent.system import System
 from yap_torrent.systems import get_info_hash, iterate_files, get_torrent_entity, compute_wanted_bitfield
@@ -29,16 +35,45 @@ class FileSystem(System):
 		collection.remove_all_listeners(self)
 		await super().stop()
 
-	async def _on_file_select(self, info_hash: InfoHash, *args):
+	async def _on_file_select(self, info_hash: InfoHash, indices: Optional[Iterable[int]] = None,
+	                          wanted: Optional[bool] = None, priority: Optional[int] = None):
+		"""Change what a torrent downloads. `indices` of None means every file.
+
+		The wanted mask is what the whole download path reads, so it is recomputed here
+		rather than at the call site — and the change is announced, because a peer only
+		becomes interesting (or stops being) the moment the mask moves, and nothing else
+		would look again until its next message.
+		"""
 		torrent_entity = get_torrent_entity(self.env, info_hash)
-		if not torrent_entity:
+		if not torrent_entity or not torrent_entity.has_component(TorrentInfoEC):
+			return
+		if wanted is None and priority is None:
 			return
 
-		# TODO: implement file selection change here
+		selected = None if indices is None else set(indices)
+		changed = False
+		for file_entity in iterate_files(self.env, info_hash):
+			if selected is not None and file_entity.get_component(TorrentFileEC).index not in selected:
+				continue
+			state = file_entity.get_component(TorrentFileStateEC)
+			if wanted is not None and state.wanted != bool(wanted):
+				state.wanted = bool(wanted)
+				changed = True
+			if priority is not None and state.priority != FilePriority(priority):
+				state.priority = FilePriority(priority)
+				changed = True
 
-		# update wanted bitfield
-		torrent_entity.get_component(TorrentDownloadProgressEC).wanted = compute_wanted_bitfield(
-			self.env, info_hash, torrent_entity.get_component(TorrentInfoEC).info)
+		if not changed:
+			return
+
+		if torrent_entity.has_component(TorrentDownloadProgressEC):
+			torrent_entity.get_component(TorrentDownloadProgressEC).wanted = compute_wanted_bitfield(
+				self.env, info_hash, torrent_entity.get_component(TorrentInfoEC).info)
+
+		if not torrent_entity.has_component(SaveTorrentEC):
+			torrent_entity.add_component(SaveTorrentEC())
+
+		await self.env.event_bus.dispatch_async("action.torrent.files_changed", torrent_entity)
 
 	async def _on_info_added(self, torrent_entity: Entity, _component: TorrentInfoEC) -> None:
 		self._create_file_entities(torrent_entity)
@@ -66,7 +101,8 @@ class FileSystem(System):
 			path = info.get_file_path(Path(), file).as_posix()
 
 			file_entity = ds.create_entity()
-			file_entity.add_component(TorrentFileEC(info_hash, index, path, first_piece, pieces_length))
+			file_entity.add_component(
+				TorrentFileEC(info_hash, index, path, first_piece, pieces_length, file.start, file.length))
 			file_entity.add_component(TorrentFileStateEC(bool(wanted), priority))
 			count += 1
 

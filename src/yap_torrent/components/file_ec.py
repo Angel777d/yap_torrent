@@ -16,13 +16,23 @@ class FilePriority(IntEnum):
 
 
 class TorrentFileEC(EntityComponent):
-	def __init__(self, info_hash: InfoHash, index: int, path: str, first_piece: int, pieces_length: int) -> None:
+	"""Where one file lives, both in pieces and in bytes.
+
+	`start`/`length` are the file's byte range inside the torrent's concatenated data.
+	The piece range alone cannot say how much of a file is done: the first and last
+	pieces of a file are usually shared with its neighbours.
+	"""
+
+	def __init__(self, info_hash: InfoHash, index: int, path: str, first_piece: int, pieces_length: int,
+	             start: int = 0, length: int = 0) -> None:
 		super().__init__()
 		self.info_hash: InfoHash = info_hash
 		self.index: int = index
 		self.path: str = path
 		self.first_piece: int = first_piece
 		self.pieces_length: int = pieces_length
+		self.start: int = start
+		self.length: int = length
 
 
 class TorrentFileStateEC(EntityComponent):
