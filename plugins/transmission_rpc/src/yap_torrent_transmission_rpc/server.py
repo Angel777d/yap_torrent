@@ -7,7 +7,7 @@ from aiohttp import web
 
 from yap_torrent.env import Env
 from .components import PLUGIN_CONFIG_KEY, get_speed_settings, get_torrent_ids
-from .methods import METHODS, UNIMPLEMENTED, ServerInfo
+from .methods import CORE_SETTINGS, METHODS, UNIMPLEMENTED, ServerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ class RpcServer:
 		get_speed_settings(env)
 		# a removed torrent's session id is dead weight; nothing may reuse the number
 		env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
+		# which config properties this RPC lets a client change, and how to read each
+		env.settings.register(*CORE_SETTINGS)
 
 		self.host = config.get("host", "0.0.0.0")
 		self.port = int(config.get("port", DEFAULT_PORT))

@@ -17,7 +17,6 @@ import pytest
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import encode
-from yap_torrent.systems.config_system import ConfigSystem
 from yap_torrent.systems.file_system import FileSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
 from yap_torrent.systems.metainfo_system import MetainfoSystem
@@ -55,7 +54,7 @@ async def server():
 	# so the systems that answer those events have to be live. AnnounceSystem is left out
 	# deliberately — it would announce to the metainfo's tracker URL over the network.
 	systems = [
-		ConfigSystem(env), MetainfoSystem(env), MagnetSystem(env), FileSystem(env), TorrentSystem(env),
+		MetainfoSystem(env), MagnetSystem(env), FileSystem(env), TorrentSystem(env),
 		StatsSystem(env),
 	]
 	for system in systems:

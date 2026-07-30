@@ -14,7 +14,9 @@ from yap_torrent.components.torrent_ec import (
 	TorrentQueuePositionEC,
 	TorrentStatsEC,
 )
+from yap_torrent.config import as_bool
 from yap_torrent.env import Env
+from yap_torrent.settings import Setting
 from yap_torrent.protocol import decode
 from yap_torrent.protocol.magnet import MagnetInfo
 from yap_torrent.protocol.structures import Metainfo
@@ -570,9 +572,42 @@ async def session_get(env, info, arguments):
 	return "success", session
 
 
+# The config properties this plugin offers its clients, with the cast each needs to read a
+# JSON value, and — where nothing acts on the value yet — why. Core holds the properties
+# and knows none of this: what is worth exposing, and what a client is allowed to send for
+# it, is ours. Registered at start-up by `RpcServer`.
+_NOT_ENFORCED_BANDWIDTH = "bandwidth limiting is not implemented; the value is stored and reported only"
+_NOT_ENFORCED_QUEUE = "there is no active-torrent queue; the value is stored and reported only"
+_NOT_ENFORCED_PEERS = "connection admission is driven by the queue limits; the value is stored and reported only"
+_NOT_ENFORCED_RATIO = "seeding is never stopped on ratio; the value is stored and reported only"
+_NOT_ENFORCED_INCOMPLETE = "downloads are written straight to download_folder"
+_NOT_ENFORCED_BLOCKLIST = "no blocklist subsystem; no peer is ever filtered"
+
+CORE_SETTINGS: Tuple[Setting, ...] = (
+	Setting("download_folder", Path),
+	Setting("port", int),
+	Setting("dht_enabled", as_bool),
+	Setting("start_added_torrents", as_bool),
+
+	Setting("incomplete_folder", Path, note=_NOT_ENFORCED_INCOMPLETE),
+	Setting("incomplete_folder_enabled", as_bool, note=_NOT_ENFORCED_INCOMPLETE),
+	Setting("speed_limit_down", int, note=_NOT_ENFORCED_BANDWIDTH),
+	Setting("speed_limit_up", int, note=_NOT_ENFORCED_BANDWIDTH),
+	Setting("seed_ratio_limit", float, note=_NOT_ENFORCED_RATIO),
+	Setting("seed_ratio_limited", as_bool, note=_NOT_ENFORCED_RATIO),
+	Setting("download_queue_enabled", as_bool, note=_NOT_ENFORCED_QUEUE),
+	Setting("download_queue_size", int, note=_NOT_ENFORCED_QUEUE),
+	Setting("seed_queue_enabled", as_bool, note=_NOT_ENFORCED_QUEUE),
+	Setting("seed_queue_size", int, note=_NOT_ENFORCED_QUEUE),
+	Setting("max_connections", int, note=_NOT_ENFORCED_PEERS),
+	Setting("peer_limit_per_torrent", int, note=_NOT_ENFORCED_PEERS),
+	Setting("blocklist_enabled", as_bool, note=_NOT_ENFORCED_BLOCKLIST),
+	Setting("blocklist_url", str, note=_NOT_ENFORCED_BLOCKLIST),
+)
+
 # Transmission session key -> core config key. Anything absent here is either
-# restart-only, plugin-owned, or something core has no notion of; session-set ignores
-# those rather than failing the call, which is what Transmission does with unknown args.
+# plugin-owned or something core has no notion of; session-set ignores those rather than
+# failing the call, which is what Transmission does with unknown args.
 SESSION_SETTINGS: Dict[str, str] = {
 	"download-dir": "download_folder",
 	"incomplete-dir": "incomplete_folder",
@@ -612,9 +647,9 @@ async def session_set(env, info, arguments):
 	"""Change session settings (rpc-spec 4.1).
 
 	Core stores several of these without acting on them (speed limits, queues,
-	blocklist) — Config.set logs a warning naming each one. They are still applied
-	rather than rejected so a client's choice round-trips instead of reading back as
-	whatever it was before.
+	blocklist) — the note on each registered Setting says so, and applying one logs it.
+	They are still applied rather than rejected so a client's choice round-trips instead
+	of reading back as whatever it was before.
 	"""
 	# turtle mode and the remembered numbers are live state, not stored preferences:
 	# they change the component and nothing else, and are gone with the process
@@ -642,7 +677,7 @@ async def session_set(env, info, arguments):
 			values[config_key] = resolved
 
 	if values:
-		await env.event_bus.dispatch_async("request.config.set", values)
+		await env.settings.apply(values)
 	return "success", {}
 
 
