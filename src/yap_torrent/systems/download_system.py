@@ -10,7 +10,8 @@ from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerRateEC, PeerRequestsEC, \
 	PeerStatsEC, RemoteUnchokedEC
 from yap_torrent.components.piece_ec import CompletePieceDataEC, PieceDownloadProgressEC, PieceEC
-from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC, TorrentStatsEC
+from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentEC, TorrentInfoEC, \
+	TorrentPieceAvailabilityEC, TorrentStatsEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
@@ -37,14 +38,25 @@ class DownloadSystem(TimeSystem):
 		self.add_listener("peer.local.choked_changed", self._on_queue_changed)
 		self.add_listener("peer.local.interested_changed", self._on_queue_changed)
 		self.add_listener("peer.disconnected", self._on_peer_disconnected)
+		self.add_listener("action.torrent.files_changed", self._on_files_changed)
 
 	async def _update(self, delta_time: float):
 		await _expire_requests(self.env)
 
 	async def __on_message(self, torrent_entity: Entity, peer_entity: Entity, message: Message):
+		if message.message_id == msg.MessageId.HAVE.value:
+			_availability(torrent_entity).add_have(msg.payload_index(message))
+			return
+		if message.message_id == msg.MessageId.BITFIELD.value:
+			# a peer's whole holding at once — recount rather than trust a delta
+			_availability(torrent_entity).invalidate()
+			return
 		if message.message_id != msg.MessageId.PIECE.value:
 			return
 		await _process_piece_message(self.env, peer_entity, torrent_entity, message)
+
+	async def _on_files_changed(self, torrent_entity: Entity):
+		_availability(torrent_entity).invalidate()
 
 	async def _on_queue_changed(self, torrent_entity: Entity, peer_entity: Entity):
 		enter_queue = peer_entity.has_component(RemoteUnchokedEC) and peer_entity.has_component(LocalInterestedEC)
@@ -60,6 +72,7 @@ class DownloadSystem(TimeSystem):
 			_reset_download_queue(self.env, torrent_entity, peer_entity)
 
 	async def _on_peer_disconnected(self, torrent_entity: Entity, peer_entity: Entity):
+		_availability(torrent_entity).invalidate()
 		if peer_entity.has_component(PeerRequestsEC):
 			_reset_download_queue(self.env, torrent_entity, peer_entity)
 
@@ -135,17 +148,38 @@ def _get_or_create_piece(env: Env, torrent_entity: Entity, index: int) -> Entity
 	return piece_entity
 
 
+def _availability(torrent_entity: Entity) -> TorrentPieceAvailabilityEC:
+	if not torrent_entity.has_component(TorrentPieceAvailabilityEC):
+		torrent_entity.add_component(TorrentPieceAvailabilityEC())
+	return torrent_entity.get_component(TorrentPieceAvailabilityEC)
+
+
+def _wanted_and_missing(torrent_entity: Entity) -> Set[int]:
+	"""Pieces this torrent still wants: the wanted mask minus what we already hold."""
+	have = torrent_entity.get_component(TorrentEC).bitfield
+	if torrent_entity.has_component(TorrentDownloadProgressEC):
+		wanted = torrent_entity.get_component(TorrentDownloadProgressEC).wanted.have
+	else:
+		wanted = set(range(torrent_entity.get_component(TorrentInfoEC).info.pieces_num))
+	return wanted.difference(have.have)
+
+
+def _rarest_order(env: Env, torrent_entity: Entity) -> TorrentPieceAvailabilityEC:
+	"""The torrent's availability order, recounted only if the swarm moved since last time."""
+	availability = _availability(torrent_entity)
+	if availability.needs_rebuild:
+		holdings = (peer.get_component(PeerEC).remote_bitfield.have
+		            for peer in iterate_connected_peers(env, get_info_hash(torrent_entity)))
+		availability.rebuild(holdings, _wanted_and_missing(torrent_entity))
+	return availability
+
+
 def _find_rarest(env: Env, torrent_entity: Entity, pieces: Set[int]) -> int:
 	# random-first warm-up so we have something to reciprocate for the choke algorithm
 	if torrent_entity.get_component(TorrentEC).bitfield.have_num < 4:
 		return random.choice(list(pieces))
 
-	counters: Dict[int, int] = {index: 0 for index in pieces}
-	for peer_entity in iterate_connected_peers(env, get_info_hash(torrent_entity)):
-		for index in peer_entity.get_component(PeerEC).remote_bitfield.have.intersection(pieces):
-			counters[index] += 1
-
-	return min(counters.items(), key=lambda item: item[1])[0]
+	return _rarest_order(env, torrent_entity).rarest_of(pieces)
 
 
 def _next_block(env: Env, torrent_entity: Entity, peer_entity: Entity,
@@ -279,5 +313,6 @@ async def _finish_piece(env: Env, torrent_entity: Entity, piece_entity: Entity, 
 	piece_entity.add_component(CompletePieceDataEC(data))
 	piece_entity.add_component(IdleEC())
 	torrent_entity.get_component(TorrentEC).bitfield.set_index(index)
+	_availability(torrent_entity).drop(index)  # held now, so no longer worth ordering
 
 	await env.event_bus.dispatch_async("piece.complete", torrent_entity, piece_entity)

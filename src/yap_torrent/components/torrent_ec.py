@@ -1,7 +1,7 @@
 import time
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
@@ -89,6 +89,71 @@ class TorrentRateEC(EntityComponent):
 		super().__init__()
 		self.down_rate: float = 0.0
 		self.up_rate: float = 0.0
+
+
+class TorrentPieceAvailabilityEC(EntityComponent):
+	def __init__(self) -> None:
+		super().__init__()
+		self._counts: Dict[int, int] = {}
+		self._order: List[int] = []
+		self._unsorted = True
+		self._needs_rebuild = True
+
+	@property
+	def needs_rebuild(self) -> bool:
+		"""Whether the counts describe a swarm that has since changed."""
+		return self._needs_rebuild
+
+	def invalidate(self) -> None:
+		"""The set of peers changed; the next read has to recount."""
+		self._needs_rebuild = True
+
+	def rebuild(self, holdings: Iterable[Iterable[int]], wanted: Set[int]) -> None:
+		"""Recount from scratch: how many of `holdings` cover each piece in `wanted`."""
+		counts = dict.fromkeys(wanted, 0)
+		for held in holdings:
+			for index in held:
+				if index in counts:
+					counts[index] += 1
+
+		self._counts = counts
+		self._unsorted = True
+		self._needs_rebuild = False
+
+	def add_have(self, index: int) -> None:
+		"""One more peer announced this piece. Pieces we do not want are not tracked."""
+		if index in self._counts:
+			self._counts[index] += 1
+			self._unsorted = True
+
+	def drop(self, index: int) -> None:
+		"""Stop offering this piece — we finished it, or it is no longer wanted."""
+		if self._counts.pop(index, None) is not None:
+			self._unsorted = True
+
+	def count(self, index: int) -> int:
+		"""How many peers hold this piece; 0 for one nobody has or we no longer want."""
+		return self._counts.get(index, 0)
+
+	def rarest_first(self) -> List[int]:
+		"""Wanted, obtainable pieces, fewest holders first. Sorted on demand, once."""
+		if self._unsorted:
+			self._order = sorted((index for index, held_by in self._counts.items() if held_by > 0),
+			                     key=self._counts.__getitem__)
+			self._unsorted = False
+		return self._order
+
+	def rarest_of(self, candidates: Set[int]) -> int:
+		"""The rarest of `candidates`, or any of them if none has been counted yet.
+
+		Walking the shared order beats scoring the candidates: for a peer holding most of
+		the torrent the first entry usually matches, and the walk is shared across peers
+		rather than repeated per peer.
+		"""
+		for index in self.rarest_first():
+			if index in candidates:
+				return index
+		return next(iter(candidates))
 
 
 class TorrentState(IntEnum):
