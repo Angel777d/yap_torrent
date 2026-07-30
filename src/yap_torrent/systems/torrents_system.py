@@ -1,35 +1,20 @@
 import logging
-from typing import Iterable, List, Optional
+from typing import Iterable, List
 
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.torrent_ec import (
-	SaveTorrentEC,
 	TorrentInfoEC,
-	TorrentLabelsEC,
 	TorrentLimitsEC,
 	TorrentQueuePositionEC,
 	TorrentState,
 	TorrentStatsEC,
 )
+from yap_torrent.protocol import InfoHash
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_entity, get_torrent_name
+from yap_torrent.systems import get_info_hash, get_torrent_entity, get_torrent_name, mark_for_save
 
 logger = logging.getLogger(__name__)
-
-
-def _move_target(direction, index: int, count: int) -> Optional[int]:
-	"""Where a move puts a torrent (one of top/up/down/bottom or an absolute position)."""
-	# TODO: claude review: this checks is for input, means transmission plugin
-	if isinstance(direction, bool):
-		return None  # bool is an int subclass; a JSON true is not position 1
-	if isinstance(direction, int):
-		return max(0, min(count - 1, direction))
-
-	targets = {"top": 0, "bottom": count - 1, "up": index - 1, "down": index + 1}
-	if direction not in targets:
-		return None
-	return max(0, min(count - 1, targets[direction]))
 
 
 def _renumber(ordered: List[Entity]) -> None:
@@ -38,22 +23,7 @@ def _renumber(ordered: List[Entity]) -> None:
 		position_ec = entity.get_component(TorrentQueuePositionEC)
 		if position_ec.position != position:
 			position_ec.position = position
-			_mark_for_save(entity)
-
-
-def _clean_labels(labels: Iterable[str]) -> List[str]:
-	"""Strip, drop blanks, and de-duplicate while keeping the order given."""
-	seen: List[str] = []
-	for label in labels or ():
-		text = str(label).strip()
-		if text and text not in seen:
-			seen.append(text)
-	return seen
-
-
-def _mark_for_save(torrent_entity: Entity) -> None:
-	if not torrent_entity.has_component(SaveTorrentEC):
-		torrent_entity.add_component(SaveTorrentEC())
+			mark_for_save(entity)
 
 
 class TorrentSystem(System):
@@ -66,8 +36,7 @@ class TorrentSystem(System):
 		self.add_listener("request.torrent.start", self._on_torrent_start)
 		self.add_listener("request.torrent.stop", self._on_torrent_stop)
 		self.add_listener("request.torrent.remove", self._on_torrent_remove)
-		self.add_listener("request.torrent.set_labels", self._on_set_labels)
-		self.add_listener("request.torrent.queue_move", self._on_queue_move)
+		self.add_listener("request.torrent.queue_order", self._on_queue_order)
 		self.add_listener("request.torrent.set_limits", self._on_set_limits)
 
 		# subscribe to new torrents
@@ -97,7 +66,7 @@ class TorrentSystem(System):
 			return
 		logger.info(f"Start torrent {get_torrent_name(torrent_entity)}")
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Active
-		_mark_for_save(torrent_entity)
+		mark_for_save(torrent_entity)
 		await self.env.event_bus.dispatch_async("action.torrent.start", torrent_entity)
 
 	async def _on_torrent_stop(self, info_hash: bytes):
@@ -107,30 +76,11 @@ class TorrentSystem(System):
 			return
 		logger.info(f"Stop torrent {get_torrent_name(torrent_entity)}")
 		torrent_entity.get_component(TorrentStatsEC).state = TorrentState.Inactive
-		_mark_for_save(torrent_entity)
+		mark_for_save(torrent_entity)
 		await self.env.event_bus.dispatch_async("action.torrent.stop", torrent_entity)
 
-	# TODO: claude review: keep logic here clean, just set full new lest. All other logic move to plugin
-	# TODO: claude review: make a solution to keep plugin data in plugin only. like plugin persistance storage
-	async def _on_set_labels(self, info_hash: bytes, labels: Iterable[str]):
-		torrent_entity = get_torrent_entity(self.env, info_hash)
-		if not torrent_entity:
-			logger.warning(f"[TorrentSystem] _on_set_labels: torrent {info_hash.hex()} not found")
-			return
-
-		cleaned = _clean_labels(labels)
-		if torrent_entity.has_component(TorrentLabelsEC):
-			if cleaned == torrent_entity.get_component(TorrentLabelsEC).labels:
-				return
-			torrent_entity.get_component(TorrentLabelsEC).labels = cleaned
-		elif cleaned:
-			torrent_entity.add_component(TorrentLabelsEC(cleaned))
-		else:
-			return
-		_mark_for_save(torrent_entity)
-
 	async def _on_set_limits(self, info_hash: bytes, values: dict):
-		"""Store per-torrent bandwidth/seeding preferences. TODO: nothing enforces them."""
+		"""Store per-torrent bandwidth/seeding preferences. TODO: nothing enforces them yet."""
 		torrent_entity = get_torrent_entity(self.env, info_hash)
 		if not torrent_entity or not values:
 			return
@@ -157,28 +107,36 @@ class TorrentSystem(System):
 
 		if not changed:
 			return
-		logger.warning("Stored per-torrent limits %s for %s, but NOTHING ENFORCES THEM: "
+		logger.warning("Stored per-torrent limits %s for %s, but NOTHING ENFORCES THEM YET: "
 		               "there is no bandwidth limiting or ratio-based stopping in core",
 		               ", ".join(sorted(changed)), get_torrent_name(torrent_entity))
-		_mark_for_save(torrent_entity)
+		mark_for_save(torrent_entity)
 
-	async def _on_queue_move(self, info_hash: bytes, direction):
-		"""Move a torrent in the queue: top/up/down/bottom or a position. Reinsert + renumber."""
-		torrent_entity = get_torrent_entity(self.env, info_hash)
-		if not torrent_entity or not torrent_entity.has_component(TorrentQueuePositionEC):
-			logger.warning(f"[TorrentSystem] _on_queue_move: torrent {info_hash.hex()} is not in the queue")
-			return
+	async def _on_queue_order(self, ordered_info_hashes: Iterable[InfoHash]):
+		"""Set the queue to the order given: entry i takes position i.
 
-		ordered = self._ordered_by_priority()
-		index = ordered.index(torrent_entity)
-		target = _move_target(direction, index, len(ordered))
-		if target is None:
-			logger.warning(f"[TorrentSystem] _on_queue_move: unknown direction '{direction}'")
-			return
-		if target == index:
-			return
+		The list *is* the order — there are no directions here. What "up" or "bottom" or a
+		position out of range means is the caller's to work out, because it depends on the
+		interface the request came from; all the queue needs to hold is the ordinal.
 
-		ordered.insert(target, ordered.pop(index))
+		A torrent in the queue but absent from the list keeps its place relative to the
+		others after it, so a caller that only knows about some of them cannot silently
+		drop the rest. Unknown hashes and repeats are skipped.
+		"""
+		in_queue = self._ordered_by_priority()
+		by_hash = {get_info_hash(entity): entity for entity in in_queue}
+
+		ordered: List[Entity] = []
+		placed = set()
+		for info_hash in ordered_info_hashes or ():
+			entity = by_hash.get(info_hash)
+			if entity is None or info_hash in placed:
+				logger.warning("[TorrentSystem] _on_queue_order: skipping %s", info_hash.hex())
+				continue
+			placed.add(info_hash)
+			ordered.append(entity)
+
+		ordered.extend(entity for entity in in_queue if get_info_hash(entity) not in placed)
 		_renumber(ordered)
 
 	def _ordered_by_priority(self) -> List[Entity]:

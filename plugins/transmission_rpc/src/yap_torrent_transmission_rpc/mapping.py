@@ -24,7 +24,6 @@ from yap_torrent.components.peer_ec import (
 from yap_torrent.components.torrent_ec import (
 	TorrentEC,
 	TorrentInfoEC,
-	TorrentLabelsEC,
 	TorrentLimitsEC,
 	TorrentPathEC,
 	TorrentQueuePositionEC,
@@ -37,12 +36,12 @@ from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrack
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.systems import (
-	file_bytes_completed,
 	get_torrent_name,
 	is_torrent_complete,
 	iterate_connected_peers,
 	iterate_files,
 )
+from .components import get_labels, torrent_id
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +98,30 @@ def status_code(entity: Entity) -> int:
 	if is_torrent_complete(entity):
 		return TR_STATUS_SEED
 	return TR_STATUS_DOWNLOAD
+
+
+def file_bytes_completed(torrent_entity: Entity, file_entity: Entity) -> int:
+	"""How many bytes of one file we hold (counting only the in-file part of each piece).
+
+	Core downloads and reports whole pieces and has no use for a per-file byte count, so
+	the boundary arithmetic lives here, beside the only fields that ask for it.
+	"""
+	info = torrent_entity.get_component(TorrentInfoEC).info
+	bitfield = torrent_entity.get_component(TorrentEC).bitfield
+	file_ec = file_entity.get_component(TorrentFileEC)
+
+	piece_length = info.piece_length
+	file_start = file_ec.start
+	file_end = file_start + file_ec.length
+
+	total = 0
+	for index in range(file_ec.first_piece, file_ec.first_piece + file_ec.pieces_length):
+		if not bitfield.have_index(index):
+			continue
+		piece_start = index * piece_length
+		piece_end = piece_start + info.calculate_piece_size(index)
+		total += max(0, min(file_end, piece_end) - max(file_start, piece_start))
+	return total
 
 
 def _file_entities(entity: Entity, env: Env) -> List[Entity]:
@@ -318,7 +341,7 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 
 	# Every getter is lazy so we only compute what the client asked for.
 	getters: Dict[str, Callable[[], Any]] = {
-		"id": lambda: torrent_ec.index,
+		"id": lambda: torrent_id(env, torrent_ec.info_hash),
 		"hashString": lambda: info_hash_hex,
 		"name": lambda: get_torrent_name(entity),
 		"status": lambda: status_code(entity),
@@ -362,7 +385,7 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 		"activityDate": lambda: int(stats.activity_date),
 		"editDate": lambda: 0,
 		"dateCreated": lambda: 0,
-		# stored per torrent, enforced by nothing (see TorrentLimitsEC)
+		# stored per torrent, enforced by nothing yet (see TorrentLimitsEC)
 		"seedRatioLimit": lambda: limits.seed_ratio_limit,
 		"seedRatioMode": lambda: limits.seed_ratio_mode,
 		"seedIdleLimit": lambda: 0,
@@ -370,9 +393,7 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 		"queuePosition": lambda: (
 			entity.get_component(TorrentQueuePositionEC).position if entity.has_component(TorrentQueuePositionEC) else 0
 		),
-		"labels": lambda: (
-			list(entity.get_component(TorrentLabelsEC).labels) if entity.has_component(TorrentLabelsEC) else []
-		),
+		"labels": lambda: get_labels(entity),
 		"group": lambda: "",
 		"downloadLimit": lambda: limits.download_limit,
 		"downloadLimited": lambda: limits.download_limited,

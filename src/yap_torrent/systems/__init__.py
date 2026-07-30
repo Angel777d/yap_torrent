@@ -1,14 +1,14 @@
 import math
 from pathlib import Path
-from typing import Optional, Dict, Generator, Iterator, List
+from typing import Any, Optional, Dict, Generator, List
 
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.common import IdleEC
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState, PeerStatsEC, PeerPendingRemoveEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentPathEC, TorrentStatsEC, \
-	ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, TorrentQueuePositionEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentCustomDataEC, TorrentPathEC, \
+	TorrentStatsEC, SaveTorrentEC, ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, TorrentQueuePositionEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
@@ -79,10 +79,6 @@ def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
 		if e.get_component(PeerEC).info_hash == info_hash:
 			yield e
 
-def iterate_active_torrents(env: Env) -> Generator[Entity]:
-	return (e for e in env.data_storage.get_collection(TorrentEC) if is_torrent_active(e))
-
-
 def iterate_torrents_in_queue_order(env: Env) -> List[Entity]:
 	def position(entity: Entity):
 		if entity.has_component(TorrentQueuePositionEC):
@@ -124,25 +120,30 @@ def compute_wanted_bitfield(env: Env, info_hash: InfoHash, info: TorrentInfo) ->
 			wanted.set_index(index)
 	return wanted
 
-# TODO: claude review: move to transmission plugin
-def file_bytes_completed(torrent_entity: Entity, file_entity: Entity) -> int:
-	"""How many bytes of one file we hold (counting only the in-file part of each piece)."""
-	info = torrent_entity.get_component(TorrentInfoEC).info
-	bitfield = torrent_entity.get_component(TorrentEC).bitfield
-	file_ec = file_entity.get_component(TorrentFileEC)
 
-	piece_length = info.piece_length
-	file_start = file_ec.start
-	file_end = file_start + file_ec.length
+def mark_for_save(torrent_entity: Entity) -> None:
+	"""Ask LocalDataSystem to write this torrent out on its next tick."""
+	if not torrent_entity.has_component(SaveTorrentEC):
+		torrent_entity.add_component(SaveTorrentEC())
 
-	total = 0
-	for index in range(file_ec.first_piece, file_ec.first_piece + file_ec.pieces_length):
-		if not bitfield.have_index(index):
-			continue
-		piece_start = index * piece_length
-		piece_end = piece_start + info.calculate_piece_size(index)
-		total += max(0, min(file_end, piece_end) - max(file_start, piece_start))
-	return total
+
+def get_custom_data(torrent_entity: Entity, plugin_name: str, default: Any = None) -> Any:
+	"""Whatever `plugin_name` last stored on this torrent, or `default`."""
+	if not torrent_entity.has_component(TorrentCustomDataEC):
+		return default
+	return torrent_entity.get_component(TorrentCustomDataEC).data.get(plugin_name, default)
+
+
+def set_custom_data(torrent_entity: Entity, plugin_name: str, value: Any) -> None:
+	"""Store `value` under `plugin_name` and mark the torrent for saving.
+
+	Core does not read the value and has no opinion on its shape, so what goes in it — and
+	whether writing the same thing twice is worth a save — is the plugin's call.
+	"""
+	if not torrent_entity.has_component(TorrentCustomDataEC):
+		torrent_entity.add_component(TorrentCustomDataEC())
+	torrent_entity.get_component(TorrentCustomDataEC).data[plugin_name] = value
+	mark_for_save(torrent_entity)
 
 
 def iterate_files(env: Env, info_hash: bytes) -> Generator[Entity]:

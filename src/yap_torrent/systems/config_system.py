@@ -2,7 +2,6 @@ import logging
 from typing import Any, Dict
 
 from yap_torrent.config import SettingStatus
-from yap_torrent.env import Env
 from yap_torrent.system import System
 
 logger = logging.getLogger(__name__)

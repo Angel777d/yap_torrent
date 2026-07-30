@@ -595,3 +595,354 @@ async def test_the_initial_values_come_from_config(client, server):
 	settings = get_it(env)
 	assert settings.alt_speed_down == 77
 	assert settings.alt_speed_enabled is True
+
+
+# ---------------------------------------------------------------------------
+# state this plugin owns
+# ---------------------------------------------------------------------------
+# Labels are a Transmission idea. Core has no component for one — it keeps them in the
+# torrent's custom_data under our name and hands them back without reading them, so
+# everything that decides what a label *is* has to be tested here.
+def test_labels_are_cleaned_before_they_are_stored():
+	from yap_torrent_transmission_rpc.components import clean_labels
+
+	assert clean_labels([" iso ", "", "linux", "iso", "   "]) == ["iso", "linux"]
+	assert clean_labels(None) == []
+
+
+async def test_setting_labels_replaces_the_previous_set(client):
+	# torrent-set labels is a replace, not a merge
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "labels": ["a", "b"]})
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "labels": ["c"]})
+	await asyncio.sleep(0.01)
+
+	assert await get_field(client, session_id, info_hash, "labels") == ["c"]
+
+
+async def test_blanks_and_duplicates_are_dropped_in_order(client):
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	await rpc(client, session_id, "torrent-set",
+	          {"ids": [info_hash], "labels": [" iso ", "", "linux", "iso", "   "]})
+	await asyncio.sleep(0.01)
+
+	assert await get_field(client, session_id, info_hash, "labels") == ["iso", "linux"]
+
+
+async def test_an_unlabelled_torrent_reports_an_empty_list(client):
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	assert await get_field(client, session_id, info_hash, "labels") == []
+
+
+async def test_labels_live_in_the_torrent_custom_data(client, server):
+	# where they land matters: custom_data is what LocalDataSystem persists, so a label
+	# stored anywhere else would not survive a restart
+	from yap_torrent.systems import get_custom_data, get_torrent_entity
+	from yap_torrent.components.torrent_ec import SaveTorrentEC
+	from yap_torrent_transmission_rpc.components import PLUGIN_CONFIG_KEY
+
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "labels": ["linux"]})
+	await asyncio.sleep(0.01)
+
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+	assert get_custom_data(entity, PLUGIN_CONFIG_KEY) == {"labels": ["linux"]}
+	assert entity.has_component(SaveTorrentEC)  # a label lost to a restart is not a label
+
+
+async def test_setting_the_same_labels_again_does_not_ask_for_a_save(client, server):
+	from yap_torrent.systems import get_torrent_entity
+	from yap_torrent.components.torrent_ec import SaveTorrentEC
+
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "labels": ["a"]})
+	await asyncio.sleep(0.01)
+	entity.remove_component(SaveTorrentEC)
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "labels": ["a"]})
+	await asyncio.sleep(0.01)
+
+	assert entity.has_component(SaveTorrentEC) is False
+
+
+async def test_a_boolean_queue_position_is_not_position_one(client):
+	# bool is an int subclass, so a JSON true would otherwise move the torrent to slot 1.
+	# Core takes an int at face value; catching this is ours.
+	session_id = await handshake(client)
+	first = await add_torrent(client, session_id, make_metainfo(b"first.txt"))
+	second = await add_torrent(client, session_id, make_metainfo(b"second.txt"))
+
+	await rpc(client, session_id, "torrent-set", {"ids": [first], "queuePosition": True})
+	await asyncio.sleep(0.01)
+
+	assert await get_field(client, session_id, first, "queuePosition") == 0
+	assert await get_field(client, session_id, second, "queuePosition") == 1
+
+
+async def test_an_absolute_queue_position_still_moves_the_torrent(client):
+	session_id = await handshake(client)
+	first = await add_torrent(client, session_id, make_metainfo(b"first.txt"))
+	second = await add_torrent(client, session_id, make_metainfo(b"second.txt"))
+
+	await rpc(client, session_id, "torrent-set", {"ids": [first], "queuePosition": 1})
+	await asyncio.sleep(0.01)
+
+	assert await get_field(client, session_id, first, "queuePosition") == 1
+	assert await get_field(client, session_id, second, "queuePosition") == 0
+
+
+# --- per-file byte counts ---------------------------------------------------
+# file_bytes_completed lives here now: core downloads and reports whole pieces, and the
+# first and last piece of a file are shared with its neighbours, so scaling the overall
+# percentage would report a file complete that is not.
+async def test_completed_bytes_are_counted_per_file_not_per_piece(client, server):
+	from yap_torrent.components.torrent_ec import TorrentEC
+	from yap_torrent.systems import get_torrent_entity
+
+	session_id = await handshake(client)
+	# a=10000 (piece 0), b=20000 (pieces 0..1), c=40000 (pieces 1..4) — boundaries shared
+	info = {
+		"name": b"t", "piece length": 16384, "pieces": b"\x00" * 20 * 5,
+		"files": [{"path": [b"a"], "length": 10000},
+		          {"path": [b"b"], "length": 20000},
+		          {"path": [b"c"], "length": 40000}],
+	}
+	info_hash = await add_torrent(client, session_id, encode({"info": info}))
+
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+	entity.get_component(TorrentEC).bitfield.set_index(0)  # piece 0 only
+
+	files = await get_field(client, session_id, info_hash, "files")
+	assert [f["bytesCompleted"] for f in files] == [10000, 16384 - 10000, 0]
+
+
+async def test_a_complete_torrent_reports_every_file_whole(client, server):
+	from yap_torrent.components.torrent_ec import TorrentEC
+	from yap_torrent.systems import get_torrent_entity
+
+	session_id = await handshake(client)
+	info = {
+		"name": b"t", "piece length": 16384, "pieces": b"\x00" * 20 * 5,
+		"files": [{"path": [b"a"], "length": 10000},
+		          {"path": [b"b"], "length": 20000},
+		          {"path": [b"c"], "length": 40000}],
+	}
+	info_hash = await add_torrent(client, session_id, encode({"info": info}))
+
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+	for index in range(5):
+		entity.get_component(TorrentEC).bitfield.set_index(index)
+
+	files = await get_field(client, session_id, info_hash, "files")
+	assert [f["bytesCompleted"] for f in files] == [10000, 20000, 40000]
+	assert sum(f["bytesCompleted"] for f in files) == 70000
+
+
+# ---------------------------------------------------------------------------
+# queue directions (rpc-spec 4.7)
+# ---------------------------------------------------------------------------
+# Core holds ordinals and is handed a finished order; top/up/down/bottom and an absolute
+# queuePosition are Transmission's vocabulary, so the whole meaning of a move is tested
+# here rather than in core.
+async def _positions(client, session_id, hashes):
+	return [await get_field(client, session_id, h, "queuePosition") for h in hashes]
+
+
+async def _queue_of(client, session_id, count=4):
+	hashes = []
+	for index in range(count):
+		hashes.append(await add_torrent(client, session_id, make_metainfo(f"t{index}.txt".encode())))
+	assert await _positions(client, session_id, hashes) == list(range(count))
+	return hashes
+
+
+async def test_move_to_top_pushes_everything_else_down(client):
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "queue-move-top", {"ids": [hashes[2]]})
+	await asyncio.sleep(0.01)
+
+	assert await _positions(client, session_id, hashes) == [1, 2, 0, 3]
+
+
+async def test_move_to_bottom_pulls_everything_else_up(client):
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "queue-move-bottom", {"ids": [hashes[1]]})
+	await asyncio.sleep(0.01)
+
+	assert await _positions(client, session_id, hashes) == [0, 3, 1, 2]
+
+
+async def test_up_and_down_swap_with_one_neighbour(client):
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "queue-move-up", {"ids": [hashes[2]]})
+	await asyncio.sleep(0.01)
+	assert await _positions(client, session_id, hashes) == [0, 2, 1, 3]
+
+	await rpc(client, session_id, "queue-move-down", {"ids": [hashes[2]]})
+	await asyncio.sleep(0.01)
+	assert await _positions(client, session_id, hashes) == [0, 1, 2, 3]
+
+
+async def test_moving_past_an_end_stays_at_that_end(client):
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "queue-move-up", {"ids": [hashes[0]]})
+	await rpc(client, session_id, "queue-move-down", {"ids": [hashes[3]]})
+	await asyncio.sleep(0.01)
+
+	assert await _positions(client, session_id, hashes) == [0, 1, 2, 3]
+
+
+async def test_a_multi_torrent_move_keeps_the_selection_in_order(client):
+	# bottom-ward moves are applied in reverse, or the selection is turned inside out
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "queue-move-bottom", {"ids": [hashes[0], hashes[1]]})
+	await asyncio.sleep(0.01)
+
+	assert await _positions(client, session_id, hashes) == [2, 3, 0, 1]
+
+
+async def test_an_absolute_position_moves_the_torrent(client):
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "torrent-set", {"ids": [hashes[0]], "queuePosition": 3})
+	await asyncio.sleep(0.01)
+
+	assert await _positions(client, session_id, hashes) == [3, 0, 1, 2]
+
+
+async def test_an_out_of_range_position_clamps_to_an_end(client):
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "torrent-set", {"ids": [hashes[1]], "queuePosition": 99})
+	await asyncio.sleep(0.01)
+
+	assert await _positions(client, session_id, hashes) == [0, 3, 1, 2]
+
+
+async def test_a_multi_torrent_move_to_top_keeps_the_selection_in_order(client):
+	# the mirror of the bottom case, and it needs the opposite application order
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "queue-move-top", {"ids": [hashes[2], hashes[3]]})
+	await asyncio.sleep(0.01)
+
+	assert await _positions(client, session_id, hashes) == [2, 3, 0, 1]
+
+
+async def test_a_multi_torrent_step_keeps_the_selection_in_order(client):
+	session_id = await handshake(client)
+	hashes = await _queue_of(client, session_id)
+
+	await rpc(client, session_id, "queue-move-down", {"ids": [hashes[0], hashes[1]]})
+	await asyncio.sleep(0.01)
+	assert await _positions(client, session_id, hashes) == [1, 2, 0, 3]
+
+	await rpc(client, session_id, "queue-move-up", {"ids": [hashes[0], hashes[1]]})
+	await asyncio.sleep(0.01)
+	assert await _positions(client, session_id, hashes) == [0, 1, 2, 3]
+
+
+# ---------------------------------------------------------------------------
+# session torrent ids
+# ---------------------------------------------------------------------------
+# Core names a torrent by its info_hash and holds no ordinal, so the small int a client
+# uses is minted and kept here. It only has to be unique and stable for the session.
+async def test_a_torrent_keeps_its_id_for_the_session(client):
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+
+	first = await get_field(client, session_id, info_hash, "id")
+	second = await get_field(client, session_id, info_hash, "id")
+
+	assert first == second
+
+
+async def test_every_torrent_gets_a_distinct_id(client):
+	session_id = await handshake(client)
+	hashes = [await add_torrent(client, session_id, make_metainfo(f"t{i}.txt".encode())) for i in range(3)]
+
+	ids = [await get_field(client, session_id, h, "id") for h in hashes]
+
+	assert len(set(ids)) == 3
+
+
+async def test_a_torrent_can_be_addressed_by_its_id(client):
+	# the whole point of the id: ids and hashes have to select the same torrent
+	session_id = await handshake(client)
+	first = await add_torrent(client, session_id, make_metainfo(b"first.txt"))
+	second = await add_torrent(client, session_id, make_metainfo(b"second.txt"))
+	first_id = await get_field(client, session_id, first, "id")
+
+	data = await rpc(client, session_id, "torrent-get", {"ids": [first_id], "fields": ["hashString"]})
+
+	assert [t["hashString"] for t in data["arguments"]["torrents"]] == [first]
+	assert second not in [t["hashString"] for t in data["arguments"]["torrents"]]
+
+
+async def test_the_id_reported_on_add_is_the_one_torrent_get_uses(client, server):
+	session_id = await handshake(client)
+	added = await rpc(client, session_id, "torrent-add",
+	                  {"metainfo": base64.b64encode(make_metainfo()).decode()})
+	await asyncio.sleep(0.01)
+	stub = added["arguments"]["torrent-added"]
+
+	assert await get_field(client, session_id, stub["hashString"], "id") == stub["id"]
+
+
+async def test_ids_are_not_shared_between_sessions(server):
+	# they are runtime only: a fresh app has minted nothing
+	from yap_torrent_transmission_rpc.components import TorrentIdsEC, get_torrent_ids
+
+	ids = get_torrent_ids(server.env)
+	assert get_torrent_ids(server.env) is ids  # one instance for the app
+	assert len(server.env.data_storage.get_collection(TorrentIdsEC)) == 1
+
+	first = ids.id_for(b"\x01" * 20)
+	assert ids.id_for(b"\x01" * 20) == first
+	assert ids.id_for(b"\x02" * 20) != first
+
+
+async def test_a_removed_torrent_does_not_keep_its_id_for_ever(client, server):
+	# the id used to die with the torrent entity; held in our own map it has to be dropped,
+	# or a long session accumulates an entry per torrent it ever saw
+	from yap_torrent_transmission_rpc.components import get_torrent_ids
+
+	await server.start()
+	try:
+		session_id = await handshake(client)
+		info_hash = await add_torrent(client, session_id, make_metainfo())
+		ids = get_torrent_ids(server.env)
+		minted = ids.id_for(bytes.fromhex(info_hash))
+
+		await rpc(client, session_id, "torrent-remove", {"ids": [info_hash]})
+		await asyncio.sleep(0.01)
+
+		assert bytes.fromhex(info_hash) not in ids._ids
+		# and the number is not handed out again
+		assert ids.id_for(b"\x07" * 20) != minted
+	finally:
+		await server.stop()

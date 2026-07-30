@@ -11,6 +11,7 @@ from pathlib import Path
 from yap_torrent.components.peer_ec import PeerEC, PeerState
 from yap_torrent.components.torrent_ec import (
 	SaveTorrentEC,
+	TorrentCustomDataEC,
 	TorrentEC,
 	TorrentInfoEC,
 	TorrentQueuePositionEC,
@@ -21,7 +22,14 @@ from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
 from yap_torrent.protocol.structures import Metainfo, PeerInfo
-from yap_torrent.systems import add_known_peer, create_torrent_entity, find_peer_entity, get_torrent_entity
+from yap_torrent.systems import (
+	add_known_peer,
+	create_torrent_entity,
+	find_peer_entity,
+	get_custom_data,
+	get_torrent_entity,
+	set_custom_data,
+)
 from yap_torrent.systems.local_data_system import LocalDataSystem, _export_torrent_data, _save
 from yap_torrent.systems.peer_data_system import PeerDataSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
@@ -128,6 +136,79 @@ def test_pausing_a_torrent_marks_it_for_saving(tmp_path):
 	asyncio.run(run())
 
 
+# --- plugin custom data -----------------------------------------------------
+# Core stores a plugin's entry and hands it back, without reading it. That is what lets a
+# concept only one plugin has survive a restart without becoming a core component.
+def test_custom_data_round_trips_whatever_a_plugin_put_there(tmp_path):
+	async def run():
+		env = _env(tmp_path)
+		meta = _meta()
+		torrent = _torrent(env, meta)
+
+		set_custom_data(torrent, "some_plugin", {"labels": ["linux"], "seen": 3})
+		_save(tmp_path / "active" / meta.make_info_hash().hex(), _export_torrent_data(env, torrent))
+
+		fresh = _env(tmp_path)
+		await LocalDataSystem(fresh).start()
+
+		restored = get_torrent_entity(fresh, meta.make_info_hash())
+		assert get_custom_data(restored, "some_plugin") == {"labels": ["linux"], "seen": 3}
+
+	asyncio.run(run())
+
+
+def test_a_custom_value_need_not_be_a_dict(tmp_path):
+	# it is stored as Any: core has no shape in mind for it
+	async def run():
+		env = _env(tmp_path)
+		meta = _meta()
+		torrent = _torrent(env, meta)
+
+		set_custom_data(torrent, "counter", 7)
+		set_custom_data(torrent, "names", ["a", "b"])
+		_save(tmp_path / "active" / meta.make_info_hash().hex(), _export_torrent_data(env, torrent))
+
+		fresh = _env(tmp_path)
+		await LocalDataSystem(fresh).start()
+
+		restored = get_torrent_entity(fresh, meta.make_info_hash())
+		assert get_custom_data(restored, "counter") == 7
+		assert get_custom_data(restored, "names") == ["a", "b"]
+
+	asyncio.run(run())
+
+
+def test_one_plugin_cannot_write_over_another(tmp_path):
+	env = _env(tmp_path)
+	torrent = _torrent(env, _meta())
+
+	set_custom_data(torrent, "first", {"a": 1})
+	set_custom_data(torrent, "second", {"b": 2})
+
+	assert get_custom_data(torrent, "first") == {"a": 1}
+	assert get_custom_data(torrent, "second") == {"b": 2}
+	assert get_custom_data(torrent, "third", "fallback") == "fallback"
+
+
+def test_storing_custom_data_asks_for_a_save(tmp_path):
+	# it only reaches disk on a marker or at shutdown, and a crash takes the shutdown path
+	env = _env(tmp_path)
+	torrent = _torrent(env, _meta())
+
+	set_custom_data(torrent, "p", {"a": 1})
+
+	assert torrent.has_component(SaveTorrentEC)
+
+
+def test_a_torrent_no_plugin_has_touched_carries_nothing(tmp_path):
+	env = _env(tmp_path)
+	torrent = _torrent(env, _meta())
+
+	assert torrent.has_component(TorrentCustomDataEC) is False
+	assert get_custom_data(torrent, "p") is None
+	assert "custom_data" not in _export_torrent_data(env, torrent)
+
+
 # --- the peer store ---------------------------------------------------------
 def test_only_addresses_we_dialled_are_kept(tmp_path):
 	# a peer that connected to *us* is recorded at the source port of its socket. Nothing
@@ -168,43 +249,5 @@ def test_reloaded_peers_stay_dialable(tmp_path):
 		assert peer is not None
 		assert peer.get_component(PeerEC).can_reach is True
 		assert peer.get_component(PeerEC).state == PeerState.Unknown  # re-proved, not assumed
-
-	asyncio.run(run())
-
-
-def test_a_save_written_before_the_rename_still_loads(tmp_path):
-	# the queue position used to be called 'priority' in both the component and the save
-	# file; a save from an older build must not lose its place in the queue
-	async def run():
-		env = _env(tmp_path)
-		meta = _meta()
-		save = _export_torrent_data(env, _torrent(env, meta))
-		save.pop("queue_position", None)
-		save["priority"] = 5  # the old key
-		_save(tmp_path / "active" / meta.make_info_hash().hex(), save)
-
-		fresh = _env(tmp_path)
-		await LocalDataSystem(fresh).start()
-
-		restored = get_torrent_entity(fresh, meta.make_info_hash())
-		assert restored.get_component(TorrentQueuePositionEC).position == 5
-
-	asyncio.run(run())
-
-
-def test_the_new_key_wins_when_both_are_present(tmp_path):
-	async def run():
-		env = _env(tmp_path)
-		meta = _meta()
-		save = _export_torrent_data(env, _torrent(env, meta))
-		save["queue_position"] = 2
-		save["priority"] = 9
-		_save(tmp_path / "active" / meta.make_info_hash().hex(), save)
-
-		fresh = _env(tmp_path)
-		await LocalDataSystem(fresh).start()
-
-		restored = get_torrent_entity(fresh, meta.make_info_hash())
-		assert restored.get_component(TorrentQueuePositionEC).position == 2
 
 	asyncio.run(run())

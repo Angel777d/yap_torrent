@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 from aiohttp import web
 
 from yap_torrent.env import Env
-from .components import PLUGIN_CONFIG_KEY, get_speed_settings
+from .components import PLUGIN_CONFIG_KEY, get_speed_settings, get_torrent_ids
 from .methods import METHODS, UNIMPLEMENTED, ServerInfo
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,8 @@ class RpcServer:
 		# seed the app-wide speed singleton from config now, so its initial values come
 		# from the file rather than from whichever request happens to touch it first
 		get_speed_settings(env)
+		# a removed torrent's session id is dead weight; nothing may reuse the number
+		env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
 
 		self.host = config.get("host", "0.0.0.0")
 		self.port = int(config.get("port", DEFAULT_PORT))
@@ -54,7 +56,11 @@ class RpcServer:
 		logger.info("Transmission RPC server started on %s:%s%s", self.host, self.port, self.path)
 		return self
 
+	async def _on_torrent_remove(self, info_hash: bytes):
+		get_torrent_ids(self.env).forget(info_hash)
+
 	async def stop(self):
+		self.env.event_bus.remove_all_listeners(scope=self)
 		await self.runner.shutdown()
 		await self.runner.cleanup()
 		await self.app.cleanup()

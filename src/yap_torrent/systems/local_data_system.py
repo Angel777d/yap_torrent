@@ -8,7 +8,7 @@ from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC, RestoreFileSelectionEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, TorrentPathEC, \
-	TorrentLabelsEC, TorrentLimitsEC, TorrentQueuePositionEC, TorrentStatsEC
+	TorrentCustomDataEC, TorrentLimitsEC, TorrentQueuePositionEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.system import System
@@ -103,8 +103,9 @@ def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:
 	if torrent_entity.has_component(TorrentQueuePositionEC):
 		result['queue_position'] = torrent_entity.get_component(TorrentQueuePositionEC).position
 
-	if torrent_entity.has_component(TorrentLabelsEC):
-		result['labels'] = torrent_entity.get_component(TorrentLabelsEC).labels
+	if torrent_entity.has_component(TorrentCustomDataEC):
+		# opaque: plugin name -> whatever that plugin put there
+		result['custom_data'] = torrent_entity.get_component(TorrentCustomDataEC).data
 
 	if torrent_entity.has_component(TorrentLimitsEC):
 		result['limits'] = torrent_entity.get_component(TorrentLimitsEC).export()
@@ -144,14 +145,13 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	bitfield = save_data.get('bitfield', bytes())
 	torrent_entity.get_component(TorrentEC).bitfield.update(bitfield)
 
-	# 'priority' is the pre-rename key; older saves still use it
-	position = save_data.get('queue_position', save_data.get('priority'))
+	position = save_data.get('queue_position')
 	if position is not None:
 		torrent_entity.add_component(TorrentQueuePositionEC(int(position)))
 
-	labels = save_data.get('labels')
-	if labels:
-		torrent_entity.add_component(TorrentLabelsEC(labels))
+	custom_data = save_data.get('custom_data')
+	if custom_data:
+		torrent_entity.add_component(TorrentCustomDataEC(custom_data))
 
 	limits = save_data.get('limits')
 	if limits:

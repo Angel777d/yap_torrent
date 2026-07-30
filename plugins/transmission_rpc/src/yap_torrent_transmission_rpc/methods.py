@@ -4,13 +4,14 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Tuple, Optional, Set
+from typing import Any, Awaitable, Callable, Dict, List, Tuple, Optional, Set
 
 import aiohttp
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.torrent_ec import (
 	TorrentEC,
+	TorrentQueuePositionEC,
 	TorrentStatsEC,
 )
 from yap_torrent.env import Env
@@ -18,9 +19,14 @@ from yap_torrent.protocol import decode
 from yap_torrent.protocol.magnet import MagnetInfo
 from yap_torrent.protocol.structures import Metainfo
 from yap_torrent.components.file_ec import FilePriority
-from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_active
+from yap_torrent.systems import (
+	get_torrent_entity,
+	get_torrent_name,
+	is_torrent_active,
+	iterate_torrents_in_queue_order,
+)
 from yap_torrent.systems.stats_system import session_rates
-from .components import get_speed_settings
+from .components import get_speed_settings, set_labels, torrent_id
 from .mapping import DEFAULT_FIELDS, STALLED_AFTER_SECONDS, build_torrent
 
 logger = logging.getLogger(__name__)
@@ -52,8 +58,8 @@ class TorrentIDs:
 		else:
 			logger.warning("Invalid ids argument: %s", ids)
 
-	def contains(self, torrent: TorrentEC):
-		return torrent.index in self.indexes or torrent.info_hash.hex() in self.hashes
+	def contains(self, torrent: TorrentEC, index: int):
+		return index in self.indexes or torrent.info_hash.hex() in self.hashes
 
 	def empty(self):
 		return not (self.indexes or self.hashes)
@@ -134,9 +140,10 @@ async def fetch_url(url: str) -> Optional[bytes]:
 def iterate_torrents(env: Env, ids: TorrentIDs, removed: TorrentIDs):
 	for e in env.data_storage.get_collection(TorrentEC):
 		torrent = e.get_component(TorrentEC)
-		if removed.contains(torrent):
+		this_id = torrent_id(env, torrent.info_hash)
+		if removed.contains(torrent, this_id):
 			continue
-		if not ids.empty() and not ids.contains(torrent):
+		if not ids.empty() and not ids.contains(torrent, this_id):
 			continue
 		yield e
 
@@ -149,7 +156,7 @@ async def torrent_start(env, info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(env, ids, info.removed):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent.index)
+		info.recent.add(torrent_id(env, torrent.info_hash))
 		await env.event_bus.dispatch_async("request.torrent.start", torrent.info_hash)
 	return "success", {}
 
@@ -163,7 +170,7 @@ async def torrent_stop(env, info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(env, ids, info.removed):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent.index)
+		info.recent.add(torrent_id(env, torrent.info_hash))
 		await env.event_bus.dispatch_async("request.torrent.stop", torrent.info_hash)
 	return "success", {}
 
@@ -173,7 +180,7 @@ async def torrent_verify(env, info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(env, ids, info.removed):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent.index)
+		info.recent.add(torrent_id(env, torrent.info_hash))
 		await env.event_bus.dispatch_async("request.torrent.invalidate", torrent.info_hash)
 	return "success", {}
 
@@ -183,7 +190,7 @@ async def torrent_reannounce(env, info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(env, ids, info.removed):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent.index)
+		info.recent.add(torrent_id(env, torrent.info_hash))
 		await env.event_bus.dispatch_async("request.torrent.reannounce", torrent.info_hash)
 	return "success", {}
 
@@ -195,7 +202,7 @@ async def torrent_reannounce(env, info, arguments):
 # over one unsupported key would break clients that always send a full settings block.
 # Still inert: "location" (no move-on-disk in core) and the deprecated trackerAdd /
 # trackerRemove / trackerReplace. The bandwidth and ratio keys below ARE accepted and
-# stored, but nothing enforces them — see TorrentLimitsEC.
+# stored, but nothing enforces them yet — see TorrentLimitsEC.
 _FILE_PRIORITIES = {
 	"priority-high": FilePriority.High,
 	"priority-normal": FilePriority.Normal,
@@ -216,11 +223,63 @@ _LIMIT_ARGUMENTS = {
 }
 
 
-async def _apply_torrent_settings(env, info_hash: bytes, arguments: Dict[str, Any]):
+def _move_target(direction: Any, index: int, count: int) -> Optional[int]:
+	"""Where a move puts a torrent: one of top/up/down/bottom, or an absolute position.
+
+	This is Transmission's vocabulary, not core's — core holds a queue of ordinals and is
+	handed the finished order. Both the meaning of a direction and the clamping of a
+	position out of range are decided here, including that a JSON `true` is not position 1
+	(`bool` is an int subclass, so the int branch would otherwise swallow it).
+	"""
+	if isinstance(direction, bool):
+		return None
+	if isinstance(direction, int):
+		return max(0, min(count - 1, direction))
+
+	targets = {"top": 0, "bottom": count - 1, "up": index - 1, "down": index + 1}
+	if direction not in targets:
+		return None
+	return max(0, min(count - 1, targets[direction]))
+
+
+def _queued(env: Env) -> List[Entity]:
+	"""The torrents holding a queue place, in queue order."""
+	return [entity for entity in iterate_torrents_in_queue_order(env)
+	        if entity.has_component(TorrentQueuePositionEC)]
+
+
+async def _move_in_queue(env: Env, targets: List[Entity], direction: Any) -> None:
+	"""Reinsert each of `targets` where `direction` puts it, then hand core the new order."""
+	ordered = _queued(env)
+	moved = False
+
+	for entity in targets:
+		if entity not in ordered:
+			continue
+		index = ordered.index(entity)
+		target = _move_target(direction, index, len(ordered))
+		if target is None:
+			logger.warning("Ignoring invalid queue position/direction: %r", direction)
+			return
+		if target == index:
+			continue
+		ordered.insert(target, ordered.pop(index))
+		moved = True
+
+	if not moved:
+		return
+	await env.event_bus.dispatch_async(
+		"request.torrent.queue_order", [e.get_component(TorrentEC).info_hash for e in ordered])
+
+
+async def _apply_torrent_settings(env, torrent_entity: Entity, arguments: Dict[str, Any]):
 	"""Apply every torrent-set-shaped argument. Shared with torrent-add."""
+	info_hash = torrent_entity.get_component(TorrentEC).info_hash
+
 	labels = arguments.get("labels")
 	if labels is not None:
-		await env.event_bus.dispatch_async("request.torrent.set_labels", info_hash, labels)
+		# ours end to end: core has no label concept, so they live in its custom_data
+		set_labels(torrent_entity, labels)
 
 	# an empty list means "all files" to Transmission, which is also what
 	# request.file.select reads None as
@@ -241,9 +300,8 @@ async def _apply_torrent_settings(env, info_hash: bytes, arguments: Dict[str, An
 	if limits:
 		await env.event_bus.dispatch_async("request.torrent.set_limits", info_hash, limits)
 
-	position = arguments.get("queuePosition")
-	if position is not None:
-		await env.event_bus.dispatch_async("request.torrent.queue_move", info_hash, position)
+	if arguments.get("queuePosition") is not None:
+		await _move_in_queue(env, [torrent_entity], arguments["queuePosition"])
 
 
 @method("torrent-set")
@@ -251,8 +309,8 @@ async def torrent_set(env, info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(env, ids, info.removed):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent.index)
-		await _apply_torrent_settings(env, torrent.info_hash, arguments)
+		info.recent.add(torrent_id(env, torrent.info_hash))
+		await _apply_torrent_settings(env, entity, arguments)
 	return "success", {}
 
 
@@ -262,15 +320,18 @@ async def torrent_set(env, info, arguments):
 def _queue_mover(direction: str) -> Handler:
 	async def handler(env, info, arguments):
 		ids = TorrentIDs.read_ids(arguments, info.recent)
-		# bottom-ward moves are applied in reverse so a multi-torrent selection keeps its
-		# relative order instead of being turned inside out
+		# The order a multi-torrent selection is applied in decides whether it keeps its
+		# relative order or is turned inside out, and the two kinds of move want opposite
+		# orders. For an end jump, whichever is applied last ends up nearest that end — so
+		# "top" runs backwards and "bottom" forwards. For a single step, each torrent has
+		# to move before the neighbour it is stepping past does — so "up" runs forwards
+		# (nearest the top first) and "down" backwards.
 		entities = list(iterate_torrents(env, ids, info.removed))
-		if direction in ("bottom", "down"):
+		if direction in ("top", "down"):
 			entities.reverse()
 		for entity in entities:
-			torrent = entity.get_component(TorrentEC)
-			info.recent.add(torrent.index)
-			await env.event_bus.dispatch_async("request.torrent.queue_move", torrent.info_hash, direction)
+			info.recent.add(torrent_id(env, entity.get_component(TorrentEC).info_hash))
+		await _move_in_queue(env, entities, direction)
 		return "success", {}
 
 	return handler
@@ -291,7 +352,7 @@ async def torrent_remove(env: Env, info: ServerInfo, arguments):
 		torrent = entity.get_component(TorrentEC)
 		logger.info("[torrent-remove] remove torrent: %s (delete_data=%s)", get_torrent_name(entity), delete_data)
 
-		info.removed.add(torrent.index)
+		info.removed.add(torrent_id(env, torrent.info_hash))
 		env.event_bus.dispatch("request.torrent.remove", torrent.info_hash, delete_data)
 
 	return "success", {}
@@ -367,9 +428,9 @@ async def torrent_add(env, info, arguments):
 	return 'either "filename" or "metainfo" must be included', {}
 
 
-def _added_stub(entity: Entity) -> Dict[str, Any]:
+def _added_stub(env: Env, entity: Entity) -> Dict[str, Any]:
 	return {
-		"id": entity.get_component(TorrentEC).index,
+		"id": torrent_id(env, entity.get_component(TorrentEC).info_hash),
 		"hashString": entity.get_component(TorrentEC).info_hash.hex(),
 		"name": get_torrent_name(entity),
 	}
@@ -385,7 +446,7 @@ async def _add_metainfo(env: Env, info: ServerInfo, data: bytes, download_dir: O
 
 	existing = get_torrent_entity(env, info_hash)
 	if existing is not None:
-		return "success", {"torrent-duplicate": _added_stub(existing)}
+		return "success", {"torrent-duplicate": _added_stub(env, existing)}
 
 	await env.event_bus.dispatch_async("request.metainfo.add", file_info, download_dir)
 
@@ -400,12 +461,12 @@ async def _add_metainfo(env: Env, info: ServerInfo, data: bytes, download_dir: O
 	# torrent-set. The file entities are built by a collection listener dispatched as a
 	# task, so yield once first or a file selection would land before there are files.
 	await asyncio.sleep(0)
-	await _apply_torrent_settings(env, info_hash, arguments)
+	await _apply_torrent_settings(env, torrent_entity, arguments)
 
-	info.recent.add(torrent_entity.get_component(TorrentEC).index)
+	info.recent.add(torrent_id(env, torrent_entity.get_component(TorrentEC).info_hash))
 
 	logger.info("torrent-add: added %s", info_hash.hex())
-	return "success", {"torrent-added": _added_stub(torrent_entity)}
+	return "success", {"torrent-added": _added_stub(env, torrent_entity)}
 
 
 async def _add_magnet(env: Env, info: ServerInfo, magnet_link: str, paused):
@@ -416,7 +477,7 @@ async def _add_magnet(env: Env, info: ServerInfo, magnet_link: str, paused):
 	info_hash = magnet.info_hash
 	existing = get_torrent_entity(env, info_hash)
 	if existing is not None:
-		return "success", {"torrent-duplicate": _added_stub(existing)}
+		return "success", {"torrent-duplicate": _added_stub(env, existing)}
 
 	await env.event_bus.dispatch_async("request.magnet.add", magnet_link)
 
@@ -427,11 +488,11 @@ async def _add_magnet(env: Env, info: ServerInfo, magnet_link: str, paused):
 	if paused:
 		env.event_bus.dispatch("request.torrent.stop", info_hash)
 
-	info.recent.add(torrent_entity.get_component(TorrentEC).index)
+	info.recent.add(torrent_id(env, torrent_entity.get_component(TorrentEC).info_hash))
 
 	# a magnet has no metadata yet, so prefer its display name (dn) over the
 	# entity's placeholder name until real metadata arrives
-	stub = _added_stub(torrent_entity)
+	stub = _added_stub(env, torrent_entity)
 	if magnet.name:
 		stub["name"] = magnet.name
 

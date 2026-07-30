@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from typing import Dict, Hashable, Optional, Set
 
 from angelovich.core.DataStorage import EntityComponent, EntityHashComponent, Entity

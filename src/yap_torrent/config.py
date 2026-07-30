@@ -25,73 +25,92 @@ class SettingStatus(Enum):
 	INVALID = "invalid"
 
 
-@dataclass(frozen=True)
-class Setting:
-	key: str
-	attr: str
-	cast: Callable[[Any], Any]
-	enforced: bool = True
-	restart_required: bool = False
-	note: str = ""
-
-
 def _as_bool(value: Any) -> bool:
 	if isinstance(value, str):
 		return value.strip().lower() in ("1", "true", "yes", "on")
 	return bool(value)
 
 
-_NOT_ENFORCED_BANDWIDTH = "bandwidth limiting is not implemented; the value is stored and reported only"
-_NOT_ENFORCED_QUEUE = "there is no active-torrent queue; the value is stored and reported only"
-_NOT_ENFORCED_PEERS = "connection admission is driven by the queue limits; the value is stored and reported only"
+@dataclass(frozen=True)
+class Setting:
+	"""One config key: how to read it, what it defaults to, and what acts on it.
 
-# Keys that may be changed at runtime. Keys absent from here are load-only.
+	The key is also the attribute name, so `config.download_folder` and the `"download_folder"`
+	entry in config.json are the same thing by construction rather than by a mapping kept in
+	step by hand.
+
+	`default` may be a callable taking the half-built `Config`, for the keys whose default is
+	derived from an earlier one — declaration order is load order.
+	"""
+	key: str
+	cast: Callable[[Any], Any]
+	default: Any
+	runtime: bool = True  # False: load-only; `set()` refuses it
+	restart_required: bool = False
+	unenforced: str = ""  # why nothing acts on it; empty means something does
+
+	@property
+	def enforced(self) -> bool:
+		return not self.unenforced
+
+	def resolve(self, config: "Config", data: Dict[str, Any]) -> Any:
+		default = self.default(config) if callable(self.default) else self.default
+		return self.cast(data.get(self.key, default))
+
+
+_BANDWIDTH = "bandwidth limiting is not implemented; the value is stored and reported only"
+_QUEUE = "there is no active-torrent queue; the value is stored and reported only"
+_PEERS = "connection admission is driven by the queue limits; the value is stored and reported only"
+_RATIO = "seeding is never stopped on ratio; the value is stored and reported only"
+_INCOMPLETE = "downloads are written straight to download_folder"
+_BLOCKLIST = "no blocklist subsystem; no peer is ever filtered"
+
+# Every key core knows, in load order. `runtime=False` means load-only — absent from
+# `Config.setting()`, and `set()` reports it UNKNOWN just like a key that does not exist.
 SETTINGS: Tuple[Setting, ...] = (
-	Setting("download_folder", "download_folder", Path),
-	Setting("incomplete_folder", "incomplete_folder", Path, enforced=False,
-	        note="downloads are written straight to download_folder"),
-	Setting("incomplete_folder_enabled", "incomplete_folder_enabled", _as_bool, enforced=False,
-	        note="downloads are written straight to download_folder"),
-	Setting("watch_folder", "watch_folder", Path),
+	Setting("data_folder", Path, "data", runtime=False),
+	Setting("active_folder", Path, lambda c: c.data_folder / "active", runtime=False),
+	Setting("log_path", str, lambda c: f"{c.data_folder}/torrent.log", runtime=False),
+	Setting("peers_file", str, lambda c: f"{c.data_folder}/peers.dat", runtime=False),
+	Setting("use_log_file", _as_bool, True, runtime=False),
+	Setting("disabled_plugins", set, (), runtime=False),
+	Setting("dht_peers_per_lookup", int, 20, runtime=False),
 
-	Setting("download_peers_limit", "download_peers_limit", int),
-	Setting("upload_peers_limit", "upload_peers_limit", int),
-	Setting("peer_idle_timeout", "peer_idle_timeout", float),
-	Setting("upload_retry_cooldown", "upload_retry_cooldown", float),
-	Setting("block_request_timeout", "block_request_timeout", float),
-	Setting("max_cached_pieces", "max_cached_pieces", int),
-	Setting("piece_cache_ttl", "piece_cache_ttl", float),
+	Setting("download_folder", Path, lambda c: c.data_folder / "download"),
+	Setting("watch_folder", Path, lambda c: c.data_folder / "watch"),
+	Setting("incomplete_folder", Path, lambda c: c.data_folder / "incomplete", unenforced=_INCOMPLETE),
+	Setting("incomplete_folder_enabled", _as_bool, False, unenforced=_INCOMPLETE),
 
-	Setting("port", "port", int, restart_required=True),
-	Setting("dht_port", "dht_port", int, restart_required=True),
+	Setting("download_peers_limit", int, 8),
+	Setting("upload_peers_limit", int, 4),
+	Setting("peer_idle_timeout", float, 30),
+	Setting("upload_retry_cooldown", float, 300),
+	Setting("block_request_timeout", float, 60),
+	Setting("max_cached_pieces", int, 100),
+	Setting("piece_cache_ttl", float, 15),
+
+	Setting("port", int, 6889, restart_required=True),
+	Setting("dht_port", int, 6999, restart_required=True),
+	Setting("dht_enabled", _as_bool, True, restart_required=True),
+
+	Setting("start_added_torrents", _as_bool, True),
 
 	# TODO: enforce these
-	Setting("speed_limit_down", "speed_limit_down", int, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("speed_limit_up", "speed_limit_up", int, enforced=False, note=_NOT_ENFORCED_BANDWIDTH),
-
-	Setting("seed_ratio_limit", "seed_ratio_limit", float, enforced=False,
-	        note="seeding is never stopped on ratio; the value is stored and reported only"),
-	Setting("seed_ratio_limited", "seed_ratio_limited", _as_bool, enforced=False,
-	        note="seeding is never stopped on ratio; the value is stored and reported only"),
-
-	Setting("download_queue_enabled", "download_queue_enabled", _as_bool, enforced=False, note=_NOT_ENFORCED_QUEUE),
-	Setting("download_queue_size", "download_queue_size", int, enforced=False, note=_NOT_ENFORCED_QUEUE),
-	Setting("seed_queue_enabled", "seed_queue_enabled", _as_bool, enforced=False, note=_NOT_ENFORCED_QUEUE),
-	Setting("seed_queue_size", "seed_queue_size", int, enforced=False, note=_NOT_ENFORCED_QUEUE),
-
-	Setting("max_connections", "max_connections", int, enforced=False, note=_NOT_ENFORCED_PEERS),
-	Setting("peer_limit_per_torrent", "peer_limit_per_torrent", int, enforced=False, note=_NOT_ENFORCED_PEERS),
-
-	Setting("blocklist_enabled", "blocklist_enabled", _as_bool, enforced=False,
-	        note="no blocklist subsystem; no peer is ever filtered"),
-	Setting("blocklist_url", "blocklist_url", str, enforced=False,
-	        note="no blocklist subsystem; no peer is ever filtered"),
-
-	Setting("start_added_torrents", "start_added_torrents", _as_bool),
-	Setting("dht_enabled", "dht_enabled", _as_bool, restart_required=True),
+	Setting("speed_limit_down", int, 0, unenforced=_BANDWIDTH),  # KB/s; 0 is off, no separate flag
+	Setting("speed_limit_up", int, 0, unenforced=_BANDWIDTH),
+	Setting("seed_ratio_limit", float, 2.0, unenforced=_RATIO),
+	Setting("seed_ratio_limited", _as_bool, False, unenforced=_RATIO),
+	Setting("download_queue_enabled", _as_bool, False, unenforced=_QUEUE),
+	Setting("download_queue_size", int, 0, unenforced=_QUEUE),
+	Setting("seed_queue_enabled", _as_bool, False, unenforced=_QUEUE),
+	Setting("seed_queue_size", int, 0, unenforced=_QUEUE),
+	Setting("max_connections", int, 30, unenforced=_PEERS),
+	Setting("peer_limit_per_torrent", int, lambda c: c.max_connections, unenforced=_PEERS),
+	Setting("blocklist_enabled", _as_bool, False, unenforced=_BLOCKLIST),
+	Setting("blocklist_url", str, "", unenforced=_BLOCKLIST),
 )
 
-_SETTINGS_BY_KEY: Dict[str, Setting] = {setting.key: setting for setting in SETTINGS}
+_RUNTIME_SETTINGS: Dict[str, Setting] = {s.key: s for s in SETTINGS if s.runtime}
 
 
 class Config:
@@ -108,70 +127,16 @@ class Config:
 		except json.JSONDecodeError:
 			logger.warning(f"Config file at {path} is invalid. Using default settings.")
 
+		self._data = data
+		for setting in SETTINGS:
+			setattr(self, setting.key, setting.resolve(self, data))
+
 		peer_id = data.get("peer_id")
 		if not peer_id:
 			peer_id = generate_peer_id()
 			data["peer_id"] = peer_id
-			self._data = data
-			if Path(path).exists():
-				self._save()
+			self._save()
 		self.peer_id: bytes = peer_id.encode("latin-1")
-
-		self.data_folder: Path = Path(data.get("data_folder", "data"))
-
-		self.active_folder: Path = Path(data.get("active_folder", f"{self.data_folder}/active"))
-		self.watch_folder: Path = Path(data.get("watch_folder", f"{self.data_folder}/watch"))
-		self.download_folder: Path = Path(data.get("download_folder", f"{self.data_folder}/download"))
-
-		self.use_log_file: bool = data.get("use_log_file", True)
-		self.log_path: str = data.get("log_path", f"{self.data_folder}/torrent.log")
-
-		self.disabled_plugins: set[str] = set(data.get("disabled_plugins", []))
-
-		self.port: int = int(data.get("port", 6889))
-
-		self.max_connections = int(data.get("max_connections", 30))
-
-		self.download_peers_limit: int = int(data.get("download_peers_limit", 8))
-		self.upload_peers_limit: int = int(data.get("upload_peers_limit", 4))
-
-		self.peer_idle_timeout: float = float(data.get("peer_idle_timeout", 30))
-		self.upload_retry_cooldown: float = float(data.get("upload_retry_cooldown", 300))
-		self.block_request_timeout: float = float(data.get("block_request_timeout", 60))
-
-		self.peers_file: str = data.get("peers_file", f"{self.data_folder}/peers.dat")
-
-		self.max_cached_pieces: int = int(data.get("max_cached_pieces", 100))
-		self.piece_cache_ttl: float = float(data.get("piece_cache_ttl", 15))
-
-		self.dht_port: int = int(data.get("dht_port", 6999))
-		self.dht_peers_per_lookup: int = int(data.get("dht_peers_per_lookup", 20))
-		self.dht_enabled: bool = _as_bool(data.get("dht_enabled", True))
-
-		# stored, not enforced (see the enforced=False entries in SETTINGS)
-		self.incomplete_folder: Path = Path(data.get("incomplete_folder", f"{self.data_folder}/incomplete"))
-		self.incomplete_folder_enabled: bool = _as_bool(data.get("incomplete_folder_enabled", False))
-
-		# speed limits in KB/s; 0 means no limit, no separate on/off flag
-		self.speed_limit_down: int = int(data.get("speed_limit_down", 0))
-		self.speed_limit_up: int = int(data.get("speed_limit_up", 0))
-
-		self.seed_ratio_limit: float = float(data.get("seed_ratio_limit", 2.0))
-		self.seed_ratio_limited: bool = _as_bool(data.get("seed_ratio_limited", False))
-
-		self.download_queue_enabled: bool = _as_bool(data.get("download_queue_enabled", False))
-		self.download_queue_size: int = int(data.get("download_queue_size", 0))
-		self.seed_queue_enabled: bool = _as_bool(data.get("seed_queue_enabled", False))
-		self.seed_queue_size: int = int(data.get("seed_queue_size", 0))
-
-		self.peer_limit_per_torrent: int = int(data.get("peer_limit_per_torrent", self.max_connections))
-
-		self.blocklist_enabled: bool = _as_bool(data.get("blocklist_enabled", False))
-		self.blocklist_url: str = data.get("blocklist_url", "")
-
-		self.start_added_torrents: bool = _as_bool(data.get("start_added_torrents", True))
-
-		self._data = data
 
 	def _save(self):
 		# only rewrite a config file that already exists; a missing path means defaults
@@ -198,16 +163,14 @@ class Config:
 
 	@staticmethod
 	def setting(key: str) -> Optional[Setting]:
-		return _SETTINGS_BY_KEY.get(key)
+		return _RUNTIME_SETTINGS.get(key)
 
 	def get(self, key: str) -> Any:
-		setting = _SETTINGS_BY_KEY.get(key)
-		if setting is None:
-			return None
-		return getattr(self, setting.attr, None)
+		setting = _RUNTIME_SETTINGS.get(key)
+		return getattr(self, setting.key, None) if setting else None
 
 	def set(self, key: str, value: Any) -> SettingStatus:
-		setting = _SETTINGS_BY_KEY.get(key)
+		setting = _RUNTIME_SETTINGS.get(key)
 		if setting is None:
 			logger.warning("Ignoring unknown setting '%s'", key)
 			return SettingStatus.UNKNOWN
@@ -218,18 +181,17 @@ class Config:
 			logger.warning("Ignoring bad value for '%s': %r (%s)", key, value, ex)
 			return SettingStatus.INVALID
 
-		current = getattr(self, setting.attr, None)
-		if current == cast_value:
+		if getattr(self, setting.key, None) == cast_value:
 			return SettingStatus.UNCHANGED
 
-		self._data[key] = value if not isinstance(cast_value, Path) else str(cast_value)
+		self._data[key] = str(cast_value) if isinstance(cast_value, Path) else value
 		self._save()
 
 		if setting.restart_required:
 			logger.warning("Setting '%s' is stored but only takes effect after a restart", key)
 			return SettingStatus.RESTART_REQUIRED
 
-		setattr(self, setting.attr, cast_value)
-		if not setting.enforced:
-			logger.warning("Setting '%s' is stored but NOT enforced: %s", key, setting.note)
+		setattr(self, setting.key, cast_value)
+		if setting.unenforced:
+			logger.warning("Setting '%s' is stored but NOT enforced: %s", key, setting.unenforced)
 		return SettingStatus.CHANGED

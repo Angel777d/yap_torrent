@@ -1,17 +1,105 @@
-"""Runtime state this plugin owns, held in the ECS the rest of the app shares."""
+"""State this plugin owns: runtime settings in the ECS, per-torrent data in custom_data."""
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
-from angelovich.core.DataStorage import EntityComponent
+from angelovich.core.DataStorage import Entity, EntityComponent
 
 from yap_torrent.env import Env
+from yap_torrent.systems import get_custom_data, set_custom_data
 
 logger = logging.getLogger(__name__)
 
-# our section in config.json, read at startup for the initial values
+# our section in config.json, read at startup for the initial values. It doubles as our
+# name in a torrent's custom_data — both are the entry-point name.
 PLUGIN_CONFIG_KEY = "yap_torrent_transmission_rpc"
 
+# --- per-torrent state ------------------------------------------------------
+# Labels are a Transmission idea: core has no use for one and never had a reason to know
+# what it was. They live in the torrent's custom_data under our name, which core stores
+# and reloads without looking inside.
+_LABELS = "labels"
 
+
+def clean_labels(labels: Iterable[str]) -> List[str]:
+	"""Strip, drop blanks, and de-duplicate while keeping the order given."""
+	seen: List[str] = []
+	for label in labels or ():
+		text = str(label).strip()
+		if text and text not in seen:
+			seen.append(text)
+	return seen
+
+
+def get_labels(entity: Entity) -> List[str]:
+	return list(get_custom_data(entity, PLUGIN_CONFIG_KEY, {}).get(_LABELS, ()))
+
+
+def set_labels(entity: Entity, labels: Iterable[str]) -> None:
+	"""Replace the label set, cleaned. torrent-set's labels is a replace, not a merge.
+
+	Writing the same labels again is not worth a save, and core leaves that judgement to
+	us — it stores whatever it is handed.
+	"""
+	cleaned = clean_labels(labels)
+	if cleaned == get_labels(entity):
+		return
+
+	data = dict(get_custom_data(entity, PLUGIN_CONFIG_KEY, {}))
+	if cleaned:
+		data[_LABELS] = cleaned
+	else:
+		data.pop(_LABELS, None)
+	set_custom_data(entity, PLUGIN_CONFIG_KEY, data)
+
+
+# --- session torrent ids ----------------------------------------------------
+class TorrentIdsEC(EntityComponent):
+	"""Transmission's session-scoped integer torrent ids. **Runtime only.**
+
+	The RPC lets a client name a torrent by a small int that need only be unique and
+	stable for the life of the session. Core identifies a torrent by its info_hash and
+	nothing else — an ordinal is not state its logic needs — so the mapping is ours, is
+	never persisted, and starts empty every run, which is exactly what the spec says an
+	id is.
+
+	Exactly one instance exists for the whole app; reach it with `get_torrent_ids`.
+	"""
+
+	def __init__(self) -> None:
+		super().__init__()
+		self._ids: Dict[bytes, int] = {}
+		self._last: int = 0
+
+	def id_for(self, info_hash: bytes) -> int:
+		"""This torrent's session id, minting one on first sight."""
+		if info_hash not in self._ids:
+			self._last += 1
+			self._ids[info_hash] = self._last
+		return self._ids[info_hash]
+
+	def forget(self, info_hash: bytes) -> None:
+		"""Drop a removed torrent's entry, so a long session's map tracks live torrents
+		rather than every torrent it ever saw. `_last` only ever goes up, so the number
+		itself is not handed out again."""
+		self._ids.pop(info_hash, None)
+
+
+def get_torrent_ids(env: Env) -> TorrentIdsEC:
+	"""The app's one TorrentIdsEC, created on first use."""
+	for entity in env.data_storage.get_collection(TorrentIdsEC):
+		return entity.get_component(TorrentIdsEC)
+
+	ids = TorrentIdsEC()
+	env.data_storage.create_entity().add_component(ids)
+	return ids
+
+
+def torrent_id(env: Env, info_hash: bytes) -> int:
+	"""The session id this plugin reports for a torrent."""
+	return get_torrent_ids(env).id_for(info_hash)
+
+
+# --- runtime settings -------------------------------------------------------
 class SpeedSettingsEC(EntityComponent):
 	"""The parts of Transmission's speed model core does not have. **Runtime only.**
 

@@ -21,8 +21,8 @@ from yap_torrent.components.peer_ec import (
 	RemoteInterestedEC,
 	RemoteUnchokedEC, PeerPendingRemoveEC,
 )
-from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentInfoEC, TorrentEC, TorrentStatsEC, \
-	TorrentState, TorrentQueuePositionEC
+from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, TorrentInfoEC, TorrentEC, \
+	TorrentQueuePositionEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield

@@ -1,8 +1,10 @@
-"""Tests for choosing what a torrent downloads, and for reporting how far each file got.
+"""Tests for choosing what a torrent downloads.
 
 The wanted mask is what the whole download path reads, so a selection change has to reach
 it — and has to be announced, since interest is otherwise only re-derived when a peer
 happens to say something.
+
+How far each file got is reported by the transmission_rpc plugin, and tested there.
 """
 import asyncio
 import time
@@ -13,8 +15,6 @@ from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, 
 from yap_torrent.components.torrent_ec import (
 	SaveTorrentEC,
 	TorrentDownloadProgressEC,
-	TorrentEC,
-	TorrentInfoEC,
 )
 from yap_torrent.config import Config
 from yap_torrent.env import Env
@@ -23,7 +23,6 @@ from yap_torrent.protocol.structures import Metainfo, PeerInfo
 from yap_torrent.systems import (
 	add_known_peer,
 	create_torrent_entity,
-	file_bytes_completed,
 	get_info_hash,
 	iterate_files,
 )
@@ -33,7 +32,6 @@ from yap_torrent.systems.intrest_system import InterestedSystem
 PIECE_LEN = 16384
 # a=10000 (piece 0), b=20000 (pieces 0..1), c=40000 (pieces 1..4) — every boundary shared
 FILES = [(b"a", 10000), (b"b", 20000), (b"c", 40000)]
-TOTAL = sum(length for _, length in FILES)
 
 
 def _env() -> Env:
@@ -172,34 +170,3 @@ class _FakeConnection:
 
 	def close(self):
 		pass
-
-
-# --- reporting per-file progress --------------------------------------------
-def test_completed_bytes_are_counted_per_file_not_per_piece():
-	# piece 0 covers bytes 0..16384, which is all of file a and the first 6384 of file b:
-	# counting whole pieces over a file's piece range would report both as complete
-	async def run():
-		env = _env()
-		_, torrent = await _torrent_with_files(env)
-		torrent.get_component(TorrentEC).bitfield.set_index(0)
-
-		files = _by_index(env, torrent)
-		assert file_bytes_completed(torrent, files[0]) == 10000  # all of a
-		assert file_bytes_completed(torrent, files[1]) == PIECE_LEN - 10000  # 6384 of b
-		assert file_bytes_completed(torrent, files[2]) == 0  # c starts in piece 1
-
-	asyncio.run(run())
-
-
-def test_a_complete_torrent_reports_every_file_whole():
-	async def run():
-		env = _env()
-		_, torrent = await _torrent_with_files(env)
-		for index in range(5):
-			torrent.get_component(TorrentEC).bitfield.set_index(index)
-
-		files = _by_index(env, torrent)
-		assert [file_bytes_completed(torrent, files[i]) for i in range(3)] == [10000, 20000, 40000]
-		assert sum(file_bytes_completed(torrent, f) for f in files.values()) == TOTAL
-
-	asyncio.run(run())
