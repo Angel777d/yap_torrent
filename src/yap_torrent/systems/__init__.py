@@ -1,6 +1,6 @@
 import math
 from pathlib import Path
-from typing import Any, Optional, Dict, Generator, List
+from typing import Any, Optional, Dict, Generator, List, Set
 
 from angelovich.core.DataStorage import Entity
 
@@ -14,6 +14,13 @@ from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.protocol.structures import Bitfield
 from yap_torrent.protocol.structures import PeerInfo
+
+
+def interested_pieces(torrent_entity: Entity, remote_bitfield: Bitfield) -> Set[int]:
+	missing = torrent_entity.get_component(TorrentEC).bitfield.interested_in(remote_bitfield)
+	if torrent_entity.has_component(TorrentDownloadProgressEC):
+		return missing.intersection(torrent_entity.get_component(TorrentDownloadProgressEC).wanted.have)
+	return missing
 
 
 def is_torrent_complete(torrent_entity: Entity) -> bool:
@@ -78,6 +85,7 @@ def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
 			continue
 		if e.get_component(PeerEC).info_hash == info_hash:
 			yield e
+
 
 def iterate_torrents_in_queue_order(env: Env) -> List[Entity]:
 	def position(entity: Entity):

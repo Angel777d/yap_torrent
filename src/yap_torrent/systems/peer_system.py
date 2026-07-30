@@ -35,8 +35,7 @@ from yap_torrent.systems import (
 	get_torrent_entity,
 	is_torrent_active,
 	iterate_peers,
-	iterate_connected_peers, )
-from yap_torrent.systems.intrest_system import interested_pieces
+	iterate_connected_peers, interested_pieces, )
 from yap_torrent.systems.logic.peer import next_state_on_failure, should_attempt
 
 logger = logging.getLogger(__name__)

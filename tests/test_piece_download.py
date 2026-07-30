@@ -8,8 +8,7 @@ from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
 from yap_torrent.protocol.structures import PieceInfo, Metainfo, Bitfield
-from yap_torrent.systems import compute_wanted_bitfield, create_torrent_entity, get_info_hash
-from yap_torrent.systems.intrest_system import interested_pieces
+from yap_torrent.systems import compute_wanted_bitfield, create_torrent_entity, get_info_hash, interested_pieces
 
 
 def _wanted(env, torrent):

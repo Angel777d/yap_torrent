@@ -16,8 +16,8 @@ from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.protocol.structures import PieceBlockInfo
 from yap_torrent.system import TimeSystem
-from yap_torrent.systems import get_info_hash, get_torrent_entity, is_torrent_complete, iterate_connected_peers
-from yap_torrent.systems.intrest_system import interested_pieces
+from yap_torrent.systems import get_info_hash, get_torrent_entity, is_torrent_complete, iterate_connected_peers, \
+	interested_pieces
 from yap_torrent.utils import check_hash
 
 logger = logging.getLogger(__name__)

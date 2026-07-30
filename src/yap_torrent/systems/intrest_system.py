@@ -16,16 +16,10 @@ from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.protocol.structures import Bitfield
 from yap_torrent.system import System
-from yap_torrent.systems import get_info_hash, iterate_connected_peers, iterate_torrents_in_queue_order
+from yap_torrent.systems import get_info_hash, iterate_connected_peers, iterate_torrents_in_queue_order, \
+	interested_pieces
 
 logger = logging.getLogger(__name__)
-
-
-def interested_pieces(torrent_entity: Entity, remote_bitfield: Bitfield) -> Set[int]:
-	missing = torrent_entity.get_component(TorrentEC).bitfield.interested_in(remote_bitfield)
-	if torrent_entity.has_component(TorrentDownloadProgressEC):
-		return missing.intersection(torrent_entity.get_component(TorrentDownloadProgressEC).wanted.have)
-	return missing
 
 
 class InterestedSystem(System):
