@@ -22,7 +22,7 @@ from yap_torrent.systems import (
 	iterate_connected_peers,
 	iterate_torrents_in_queue_order,
 )
-from yap_torrent.systems.peer_logic import ChokeCandidate, select_unchoked
+from yap_torrent.systems.logic.peer import ChokeCandidate, select_unchoked
 
 logger = logging.getLogger(__name__)
 

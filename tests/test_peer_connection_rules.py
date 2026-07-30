@@ -32,7 +32,7 @@ from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
 from yap_torrent.protocol.structures import Bitfield, Metainfo, PeerInfo
 from yap_torrent.systems import add_known_peer, create_torrent_entity, get_info_hash
-from yap_torrent.systems.peer_logic import QUESTIONABLE_RETRY
+from yap_torrent.systems.logic.peer import QUESTIONABLE_RETRY
 from yap_torrent.systems.peer_system import (
 	PeerSystem,
 	calculate_candidates,

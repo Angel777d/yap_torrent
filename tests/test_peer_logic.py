@@ -1,6 +1,6 @@
 """Tests for the pure peer logic (Part C): state machine + choke selection."""
 from yap_torrent.components.peer_ec import PeerState
-from yap_torrent.systems.peer_logic import (
+from yap_torrent.systems.logic.peer import (
 	ChokeCandidate,
 	MAX_QUESTIONABLE_FAILS,
 	can_connect,
