@@ -182,26 +182,33 @@ class DHTClientProtocol(DatagramProtocol):
 
 	def connection_lost(self, exc):
 		logger.debug("Connection closed")
-		self.on_con_lost.set_result(True)
+		if not self.on_con_lost.done():
+			self.on_con_lost.set_result(True)
 
 
 async def __send_message(message: Dict[str, Any], host: str, port: int, timeout=2) -> Optional[KRPCMessage]:
 	message["v"] = CLIENT_VERSION
+
+	loop = asyncio.get_running_loop()
+	on_con_lost = loop.create_future()
+
 	try:
-		loop = asyncio.get_running_loop()
-		on_con_lost = loop.create_future()
 		transport, protocol = await loop.create_datagram_endpoint(
 			lambda: DHTClientProtocol(encode(message), on_con_lost),
 			remote_addr=(host, port)
 		)
+	except Exception as ex:
+		logger.debug("Failed to create connection to %s:%s: %s", host, port, ex)
+		return None
+
+	try:
 		async with asyncio.timeout(timeout):
 			await on_con_lost
 	except TimeoutError:
 		logger.debug("Message %s to %s:%s failed by timeout", message, host, port)
 		return None
-	except Exception as ex:
-		logger.debug("Message %s to %s:%s failed: %s", message, host, port, ex)
-		return None
+	finally:
+		transport.close()
 
 	if protocol.response:
 		try:
