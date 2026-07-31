@@ -6,7 +6,13 @@ compatible server, so existing Transmission remote clients (Transmission Remote 
 `transmission-remote`, the `transmission-rpc` Python library, mobile remotes, …) can
 drive yap_torrent.
 
-## Install
+## Installation
+
+```bash
+pip install yap_torrent_transmission_rpc
+```
+
+Or from a checkout, for development:
 
 ```bash
 pip install -e plugins/transmission_rpc
