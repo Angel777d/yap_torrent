@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 import time
 from typing import List
 
@@ -86,7 +87,27 @@ class Application:
 
 		self.env = env
 
+	def shutdown(self, sig: signal.Signals) -> None:
+		logger.info("Shutting down on %s", getattr(sig, "name", sig))
+		if self.env.close_event:
+			self.env.close_event.set()
+
+	def _install_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
+		for name in ("SIGHUP", "SIGTERM", "SIGINT"):
+			sig = getattr(signal, name, None)
+			if sig is None:
+				continue
+			try:
+				loop.add_signal_handler(sig, self.shutdown, sig)
+			except NotImplementedError:
+				try:
+					signal.signal(sig, lambda signum, frame, _sig=sig: self.shutdown(_sig))
+				except (ValueError, OSError) as ex:
+					logger.debug("Cannot install a handler for %s: %s", name, ex)
+
 	async def run(self, close_event: asyncio.Event):
+		self._install_signal_handlers(asyncio.get_running_loop())
+
 		env = self.env
 		env.close_event = close_event
 
@@ -131,12 +152,7 @@ class Application:
 		for plugin in self.plugins:
 			await plugin.stop()
 
-		# lock close
-		for system in self.systems:
-			system.close()
-
-		for plugin in self.plugins:
-			plugin.close()
+		self.close()
 
 		logger.info("Torrent application closed")
 
@@ -145,3 +161,11 @@ class Application:
 		# leftovers = asyncio.all_tasks()
 		# print(leftovers)
 		pass
+
+	def close(self):
+		# lock close
+		for system in self.systems:
+			system.close()
+
+		for plugin in self.plugins:
+			plugin.close()
