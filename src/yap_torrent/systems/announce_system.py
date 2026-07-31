@@ -8,7 +8,7 @@ from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrack
 from yap_torrent.env import Env
 from yap_torrent.protocol.tracker import make_announce
 from yap_torrent.system import System
-from yap_torrent.systems import get_torrent_name, is_torrent_active
+from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_active
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ class AnnounceSystem(System):
 		self.add_listener("action.torrent.complete", self._on_torrent_complete)
 		self.add_listener("action.torrent.stop", self._on_torrent_stop)
 		self.add_listener("action.torrent.start", self._on_torrent_start)
+		self.add_listener("request.torrent.reannounce", self._on_torrent_reannounce)
 
 		# make "started" announcements
 		for torrent_entity in _iterate_active_torrents(self.env):
@@ -55,6 +56,19 @@ class AnnounceSystem(System):
 
 	async def _on_torrent_stop(self, torrent_entity: Entity):
 		await self.__tracker_announce(torrent_entity, "stopped")
+
+	async def _on_torrent_reannounce(self, info_hash: bytes):
+		"""Announce now, whatever the timer or the failure history says."""
+		torrent_entity = get_torrent_entity(self.env, info_hash)
+		if not torrent_entity:
+			logger.warning("request.torrent.reannounce: torrent %s not found", info_hash.hex())
+			return
+		if not torrent_entity.has_component(TorrentTrackerDataEC):
+			logger.info("request.torrent.reannounce: %s has no trackers", get_torrent_name(torrent_entity))
+			return
+
+		torrent_entity.get_component(TorrentTrackerDataEC).reset_failures()
+		await self.__tracker_announce(torrent_entity)
 
 	async def _update(self, delta_time: float):
 		current_time = time.monotonic()

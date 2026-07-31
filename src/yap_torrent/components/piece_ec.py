@@ -1,11 +1,9 @@
-﻿import logging
-import time
-from typing import Hashable
+import logging
+from typing import Dict, Hashable, Optional, Set
 
-from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
+from angelovich.core.DataStorage import EntityComponent, EntityHashComponent, Entity
 
-from yap_torrent.protocol.structures import PieceInfo
-from yap_torrent.utils import check_hash
+from yap_torrent.protocol.structures import PieceBlockInfo, PieceInfo
 
 logger = logging.getLogger(__name__)
 
@@ -13,20 +11,8 @@ logger = logging.getLogger(__name__)
 class PieceEC(EntityHashComponent):
 	def __init__(self, info_hash: bytes, info: PieceInfo):
 		super().__init__()
-		self.info_hash = info_hash
-		self.info = info
-		self.data: bytes = bytes()
-
-	def set_data(self, data: bytes) -> bool:
-		if check_hash(data, self.info.piece_hash):
-			self.data = data
-			return True
-
-		return False
-
-	@property
-	def completed(self) -> bool:
-		return len(self.data) > 0
+		self.info_hash: bytes = info_hash
+		self.info: PieceInfo = info
 
 	@staticmethod
 	def make_hash(info_hash: bytes, index: int) -> Hashable:
@@ -35,23 +21,57 @@ class PieceEC(EntityHashComponent):
 	def __hash__(self):
 		return hash(self.make_hash(self.info_hash, self.info.index))
 
-	def get_block(self, begin, length) -> bytes:
-		return self.data[begin:begin + length]
 
-
-class PiecePendingRemoveEC(EntityComponent):
-	REMOVE_TIMEOUT = 15  # TODO: move to config
-
-	def __init__(self) -> None:
+class PieceDownloadProgressEC(EntityComponent):
+	def __init__(self, info: PieceInfo):
 		super().__init__()
-		self.__last_update: float = 0
+		self.info: PieceInfo = info
+		self.data: bytearray = bytearray(info.size)
+		self._blocks: Set[PieceBlockInfo] = info.create_blocks()
+		self._expected: Dict[int, int] = {block.begin: block.length for block in self._blocks}
+		self._requested: Set[PieceBlockInfo] = set()
+		self._received: Set[int] = set()  # begin offsets
+		self.downloading_by: set[Entity] = set()  # peer entities requesting this piece
 
-	def update(self):
-		self.__last_update = time.monotonic()
+	def next_block(self) -> Optional[PieceBlockInfo]:
+		for block in self._blocks.difference(self._requested):
+			return block
+		return None
 
-	def can_remove(self) -> bool:
-		return time.monotonic() - self.__last_update > self.REMOVE_TIMEOUT
+	def mark_requested(self, block: PieceBlockInfo) -> None:
+		self._requested.add(block)
 
-	@property
-	def last_update(self) -> float:
-		return self.__last_update
+	def release(self, block: PieceBlockInfo) -> None:
+		"""Return a still-unreceived block to the pool (e.g. its peer disconnected)."""
+		if block.begin not in self._received:
+			self._requested.discard(block)
+
+	def all_requested(self) -> bool:
+		return len(self._requested) >= len(self._blocks)
+
+	def missing_blocks(self):
+		"""Blocks not yet received — endgame candidates for redundant requests."""
+		return [block for block in self._blocks if block.begin not in self._received]
+
+	def add_block(self, begin: int, data: bytes) -> bool:
+		if self._expected.get(begin) != len(data):
+			logger.warning("piece %s: dropping block at offset %s with unexpected length %s",
+			               self.info.index, begin, len(data))
+			return self.is_full()
+		if begin in self._received:
+			return self.is_full()
+		self._received.add(begin)
+		self.data[begin:begin + len(data)] = data
+		return self.is_full()
+
+	def is_full(self) -> bool:
+		return len(self._received) == len(self._blocks)
+
+
+class CompletePieceDataEC(EntityComponent):
+	def __init__(self, data: bytes):
+		super().__init__()
+		self.data: bytes = data
+
+	def get_block(self, begin: int, length: int) -> bytes:
+		return self.data[begin:begin + length]

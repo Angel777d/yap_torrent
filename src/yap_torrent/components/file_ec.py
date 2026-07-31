@@ -16,36 +16,31 @@ class FilePriority(IntEnum):
 
 
 class TorrentFileEC(EntityComponent):
-	"""Runtime, metadata-derived description of a single file in a torrent.
+	"""Where one file lives: piece range plus its byte range (start/length) in the torrent."""
 
-	One per file. Recreated every session from TorrentInfo and never persisted.
-	Linked to its torrent by the shared info_hash (see iterate_files).
-	"""
-
-	def __init__(self, info_hash: InfoHash, index: int, path: str, first_piece: int, pieces_length: int) -> None:
+	def __init__(self, info_hash: InfoHash, index: int, path: str, first_piece: int, pieces_length: int,
+	             start: int = 0, length: int = 0) -> None:
 		super().__init__()
 		self.info_hash: InfoHash = info_hash
 		self.index: int = index
 		self.path: str = path
 		self.first_piece: int = first_piece
 		self.pieces_length: int = pieces_length
+		self.start: int = start
+		self.length: int = length
 
 
 class TorrentFileStateEC(EntityComponent):
-	"""Persisted per-file user selection. The only per-file state saved to disk."""
-
-	def __init__(self, wanted: bool = True, priority: FilePriority = FilePriority.Normal) -> None:
+	def __init__(self, wanted: bool = True, priority: int = 0) -> None:
 		super().__init__()
 		self.wanted: bool = wanted
-		self.priority: FilePriority = priority
+		self.priority: FilePriority = FilePriority(priority)
+
+	def serialize(self) -> Tuple[bool, int]:
+		return self.wanted, self.priority.value
 
 
 class RestoreFileSelectionEC(EntityComponent):
-	"""Transient marker on a torrent entity carrying file selection restored from
-	disk. Applied by FileSystem once the file entities are materialized, then removed.
-	"""
-
 	def __init__(self, selection: Dict[int, Tuple[bool, int]]) -> None:
 		super().__init__()
-		# index -> (wanted, priority value)
 		self.selection: Dict[int, Tuple[bool, int]] = selection

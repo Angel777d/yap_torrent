@@ -45,6 +45,12 @@ def payload_request(message: Message) -> tuple[int, int, int]:
 	raise RuntimeError("wrong message type for request property")
 
 
+def payload_cancel(message: Message) -> tuple[int, int, int]:
+	if message.message_id == MessageId.CANCEL.value:
+		return struct.unpack(f"!III", message.payload)
+	raise RuntimeError("wrong message type for cancel property")
+
+
 def choke() -> bytes:
 	return struct.pack('!B', MessageId.CHOKE.value)
 

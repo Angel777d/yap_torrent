@@ -42,7 +42,7 @@ class System:
 		return task
 
 	def add_listener(self, event: str, callback: DispatcherCallbackType):
-		self.env.event_bus.add_listener(event, callback)
+		self.env.event_bus.add_listener(event, callback, scope=self)
 
 	def close(self) -> None:
 		for task in self.__tasks:

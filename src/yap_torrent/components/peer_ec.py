@@ -1,15 +1,161 @@
 import logging
 import time
 from asyncio import Task
-from typing import Set, Iterable, Iterator, Dict
+from enum import IntEnum
+from typing import Dict, Hashable, KeysView, List, Optional
 
-from angelovich.core.DataStorage import EntityComponent
+from angelovich.core.DataStorage import EntityComponent, EntityHashComponent
 
-from yap_torrent.protocol import bt_main_messages as msg
+from yap_torrent.protocol import bt_main_messages as msg, InfoHash
 from yap_torrent.protocol.connection import Connection
 from yap_torrent.protocol.structures import PeerInfo, PieceBlockInfo, Bitfield
 
 logger = logging.getLogger(__name__)
+
+
+class PeerState(IntEnum):
+	Unknown = 0
+	Questionable = 1
+	NoConnection = 2
+	Suspicious = 3
+	Good = 4
+
+
+class PeerEC(EntityHashComponent):
+	def __init__(self, info_hash: bytes, peer_info: PeerInfo, state: PeerState = PeerState.Unknown) -> None:
+		super().__init__()
+		self.info_hash: InfoHash = info_hash
+		self.peer_info: PeerInfo = peer_info
+
+		self.state: PeerState = state
+		self.fail_count: int = 0
+		self.last_attempt: float = 0.0
+		self.remote_bitfield: Bitfield = Bitfield()
+
+		self.can_reach: bool = False
+
+	@staticmethod
+	def make_hash(info_hash: bytes, host: str, port: int) -> Hashable:
+		return info_hash, host, port
+
+	def key(self) -> Hashable:
+		"""Stable identity, unlike id(), which entity reuse invalidates."""
+		return self.make_hash(self.info_hash, self.peer_info.host, self.peer_info.port)
+
+	def __hash__(self):
+		return hash(self.key())
+
+
+class LocalInterestedEC(EntityComponent):
+	"""We are interested in this peer (it has pieces in our wanted set)."""
+	pass
+
+
+class RemoteUnchokedEC(EntityComponent):
+	"""The remote peer has unchoked us (we may request)."""
+	pass
+
+
+class RemoteInterestedEC(EntityComponent):
+	"""The peer is interested in our pieces."""
+	pass
+
+
+class LocalUnchokedEC(EntityComponent):
+	"""We have unchoked this peer (we serve it)."""
+	pass
+
+
+class PeerStatsEC(EntityComponent):
+	def __init__(self) -> None:
+		super().__init__()
+		self.uploaded: int = 0
+		self.downloaded: int = 0
+
+	def add_uploaded(self, n: int) -> None:
+		self.uploaded += n
+
+	def add_downloaded(self, n: int) -> None:
+		self.downloaded += n
+
+
+class PeerRateEC(EntityComponent):
+	def __init__(self) -> None:
+		super().__init__()
+		self.up_rate: float = 0.0
+		self.down_rate: float = 0.0
+		self._up_window: int = 0
+		self._down_window: int = 0
+		self._last_sample: float = time.monotonic()
+
+	def add_uploaded(self, n: int) -> None:
+		self._up_window += n
+
+	def add_downloaded(self, n: int) -> None:
+		self._down_window += n
+
+	def sample_rate(self, now: float) -> None:
+		dt = now - self._last_sample
+		if dt <= 0:
+			return
+		self.up_rate = self._up_window / dt
+		self.down_rate = self._down_window / dt
+		self._up_window = 0
+		self._down_window = 0
+		self._last_sample = now
+
+
+class PeerRequestsEC(EntityComponent):
+	"""The pipeline: blocks asked of this peer, each with the time it was requested.
+
+	Scoped to the download queue — DownloadSystem attaches it on queue entry and removes
+	it on exit or disconnect. No __len__/__bool__: get_component raises on a falsy
+	component, so an empty pipeline would look missing.
+	"""
+
+	def __init__(self) -> None:
+		super().__init__()
+		self._requested: Dict[PieceBlockInfo, float] = {}
+		self._send_tasks: set[Task] = set()
+
+	@property
+	def blocks(self) -> KeysView[PieceBlockInfo]:
+		"""The blocks currently in flight (membership, len, iteration)."""
+		return self._requested.keys()
+
+	def add(self, block: PieceBlockInfo, task: Task) -> None:
+		self._requested[block] = time.monotonic()
+		self._send_tasks.add(task)
+		task.add_done_callback(self._send_tasks.discard)
+
+	def discard(self, block: PieceBlockInfo) -> None:
+		self._requested.pop(block, None)
+
+	def take(self, index: int, begin: int) -> Optional[PieceBlockInfo]:
+		"""Drop the in-flight block at (index, begin), whatever length came back."""
+		for block in self._requested:
+			if block.index == index and block.begin == begin:
+				del self._requested[block]
+				return block
+		return None
+
+	def for_piece(self, index: int) -> List[PieceBlockInfo]:
+		return [block for block in self._requested if block.index == index]
+
+	def clear(self) -> List[PieceBlockInfo]:
+		"""Empty the pipeline, returning what was in it."""
+		blocks = list(self._requested)
+		self._requested.clear()
+		return blocks
+
+	def expired(self, timeout: float, now: float) -> List[PieceBlockInfo]:
+		return [block for block, sent_at in self._requested.items() if now - sent_at > timeout]
+
+	def _reset(self):
+		for task in self._send_tasks:
+			task.cancel()
+		self._send_tasks.clear()
+		super()._reset()
 
 
 class PeerConnectionEC(EntityComponent):
@@ -25,95 +171,38 @@ class PeerConnectionEC(EntityComponent):
 
 		self.reserved: bytes = reserved
 
-		self.local_choked = True
-		self.local_interested = False
-
-		self.remote_choked = True
-		self.remote_interested = False
-
-		self.remote_bitfield: Bitfield = Bitfield()
-
-	def __hash__(self):
-		return hash(self.peer_info.host)
-
 	def disconnect(self):
-		self.task.cancel()
+		if self.task:
+			self.task.cancel()
 		self.connection.close()
 
 	def _reset(self):
-		self.task.cancel()
+		if self.task:
+			self.task.cancel()
 		self.connection.close()
-
 		super()._reset()
-
-	async def choke(self) -> None:
-		if self.remote_choked:
-			return
-		await self.connection.send(msg.choke())
-		self.remote_choked = True
-
-	async def unchoke(self) -> None:
-		if not self.remote_choked:
-			return
-		await self.connection.send(msg.unchoke())
-		self.remote_choked = False
 
 	async def request(self, block: PieceBlockInfo) -> None:
 		await self.connection.send(msg.request(block.index, block.begin, block.length))
+
+	async def send(self, message: bytes) -> None:
+		await self.connection.send(message)
+
+	@property
+	def connection_time(self) -> float:
+		return self.connection.connection_time
 
 	def __repr__(self):
 		return f"Peer {self.peer_info.host} [{self.connection.remote_peer_id}]"
 
 
-class KnownPeersEC(EntityComponent):
-	_MAX_CONNECT_ATTEMPTS = 5
-	_COOLDOWN_DURATION = 30
-
-	def __init__(self):
-		super().__init__()
-		self._peers: Set[PeerInfo] = set()
-		self._fails: Dict[str, int] = {}
-		self._last_attempts: Dict[str, float] = {}
-
-	@property
-	def peers(self) -> Set[PeerInfo]:
-		return set(p for p in self._peers if self._fails[p.host] < self._MAX_CONNECT_ATTEMPTS)
-
-	def update_peers(self, peers: Iterable[PeerInfo]):
-		new_peers = set(peers) - self._peers
-		logger.debug("New peers amount: %s", len(new_peers))
-		self._peers.update(new_peers)
-
-		for peer in new_peers:
-			self._fails[peer.host] = 0
-			self._last_attempts[peer.host] = 0
-
-	def get_fails_count(self, peer: PeerInfo):
-		return self._fails.get(peer.host, 0)
-
-	def mark_good(self, peer: PeerInfo):
-		self._fails[peer.host] = 0
-
-	def mark_failed(self, peer: PeerInfo):
-		self._fails[peer.host] += 1
-		self._last_attempts[peer.host] = time.monotonic()
-
-	def get_peers_to_connect(self, active_peers: Set[str]) -> Iterator[PeerInfo]:
-		for peer in self._peers:
-			if peer.host in active_peers:
-				continue
-
-			# give up after 5 failed attempts
-			if self._fails[peer.host] > self._MAX_CONNECT_ATTEMPTS:
-				continue
-
-			# on a cooldown, skip
-			if time.monotonic() - self._last_attempts[peer.host] < self._COOLDOWN_DURATION:
-				continue
-
-			# finally, return a peer to connect
-			yield peer
+class PeerConnectionInProgressEC(EntityComponent):
+	"""Marker: an outbound connection attempt is in flight (avoids double-connect)."""
+	pass
 
 
 class PeerDisconnectedEC(EntityComponent):
+	pass
+
+class PeerPendingRemoveEC(EntityComponent):
 	pass

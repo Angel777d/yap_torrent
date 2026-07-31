@@ -10,11 +10,6 @@ def bytes_to_int(value: bytes) -> int:
 	return int.from_bytes(value, byteorder='big')
 
 
-def int_to_bytes(i: int) -> bytes:
-	length = i.bit_length() // 8
-	return i.to_bytes(length, byteorder='big')
-
-
 def compact_address(host: str, port: int) -> bytes:
 	return ipaddress.ip_address(host).packed + struct.pack('!H', port)
 

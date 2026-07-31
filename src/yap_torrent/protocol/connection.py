@@ -32,6 +32,16 @@ def __create_handshake_message(info_hash: bytes, peer_id: bytes, reserved=bytes(
 	return struct.pack(f"!B{pstrlen}s8s20s20s", pstrlen, PSTR_V1, reserved, info_hash, peer_id)
 
 
+def close_writer(writer: Optional[StreamWriter]) -> None:
+	"""Close a stream we are abandoning. Never raises: the socket may already be gone."""
+	if writer is None:
+		return
+	try:
+		writer.close()
+	except Exception as ex:  # noqa: BLE001
+		logger.debug("Error closing writer: %s", ex)
+
+
 async def __read_handshake_message(reader: StreamReader) -> Tuple[bytes, bytes, bytes, bytes, bytes]:
 	pstrlen = await reader.readexactly(1)
 	pstr = await reader.readexactly(int.from_bytes(pstrlen))
@@ -64,26 +74,28 @@ async def connect(peer_info: PeerInfo, info_hash: bytes, local_peer_id: bytes, t
 	message = __create_handshake_message(info_hash, local_peer_id, reserved)
 	logger.debug("Send handshake to: %s, message: %s", peer_info, message)
 
-	writer.write(message)
-	await writer.drain()
 	try:
+		writer.write(message)
+		await writer.drain()
 		async with asyncio.timeout(timeout):
 			handshake_response = await __read_handshake_message(reader)
 	except TimeoutError:
 		logger.debug("Handshake to %s failed by timeout", peer_info)
+		close_writer(writer)
 		return None
 	except IncompleteReadError:
 		logger.debug("Peer %s closed the connection.", peer_info)
+		close_writer(writer)
 		return None
 	except OSError as ex:
 		# looks like simple connectin lost.
 		logger.debug("OSError on %s. Exception %s", peer_info, ex)
+		close_writer(writer)
 		return None
 	except Exception as ex:
 		logger.error("Unexpected: Handshake to %s failed by %s", peer_info, ex)
+		close_writer(writer)
 		return None
-	# finally:
-	# 	writer.close()
 
 	pstrlen, pstr, reserved, remote_info_hash, remote_peer_id = handshake_response
 	logger.debug("Received handshake from: %s %s, message: %s", remote_peer_id, peer_info, handshake_response)
@@ -104,18 +116,20 @@ async def on_connect(
 			pstrlen, pstr, remote_reserved, info_hash, remote_peer_id = await __read_handshake_message(reader)
 	except TimeoutError:
 		logger.debug("Incoming handshake timeout error")
+		close_writer(writer)
 		return None
 	except IncompleteReadError as ex:
 		logger.debug("Incoming handshake connection error %s", ex)
+		close_writer(writer)
 		return None
 	except ConnectionResetError as ex:
 		logger.debug("Incoming handshake connection error %s", ex)
+		close_writer(writer)
 		return None
 	except Exception as ex:
 		logger.error("Incoming handshake unexpected error %s", ex)
+		close_writer(writer)
 		return None
-	# finally:
-	# 	writer.close()
 
 	try:
 		message = __create_handshake_message(info_hash, local_peer_id, reserved)
@@ -124,9 +138,8 @@ async def on_connect(
 		await writer.drain()
 	except Exception as ex:
 		logger.error("Handshake to %s failed by %s", remote_peer_id, ex)
+		close_writer(writer)
 		return None
-	# finally:
-	# 	writer.close()
 
 	return pstrlen, pstr, remote_reserved, info_hash, remote_peer_id
 

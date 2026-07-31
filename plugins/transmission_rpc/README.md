@@ -6,7 +6,13 @@ compatible server, so existing Transmission remote clients (Transmission Remote 
 `transmission-remote`, the `transmission-rpc` Python library, mobile remotes, …) can
 drive yap_torrent.
 
-## Install
+## Installation
+
+```bash
+pip install yap_torrent_transmission_rpc
+```
+
+Or from a checkout, for development:
 
 ```bash
 pip install -e plugins/transmission_rpc
@@ -46,14 +52,68 @@ clients transparently retry with it. This is handled automatically for real clie
 
 ## Supported methods
 
+This targets the **legacy** Transmission RPC protocol — `method`/`arguments`/`tag` with
+kebab-case names — which is what existing remotes and the `transmission-rpc` Python client
+speak. Transmission 4.1 deprecates it in favour of JSON-RPC 2.0 with snake_case names
+(`rpc_version` 19); that is a separate surface, not a newer version of this one. The
+supported range is declared by `RPC_VERSION_MIN_SUPPORTED` / `RPC_VERSION_MAX_SUPPORTED`
+in `methods.py` (14–17, semver 5.3.0 — the semver must track the max per the spec's
+version table, because clients gate features on it).
+
 Implemented: `torrent-add`, `torrent-remove`, `torrent-start`, `torrent-start-now`,
-`torrent-stop`, `torrent-verify`, `torrent-get`, `session-get`, `session-stats`,
-`free-space`, `port-test`.
+`torrent-stop`, `torrent-verify`, `torrent-get`, `torrent-set`, `torrent-reannounce`,
+`queue-move-top`, `queue-move-up`, `queue-move-down`, `queue-move-bottom`, `session-get`,
+`session-set`, `session-stats`, `free-space`, `port-test`.
+
+`torrent-set` — and `torrent-add`, which takes the same arguments — applies `labels`,
+`files-wanted`, `files-unwanted`, `priority-high|normal|low` and `queuePosition`, and
+**stores** `downloadLimit`, `uploadLimit`, `honorsSessionLimits`, `seedRatioLimit`,
+`seedRatioMode`, `peer-limit` and `bandwidthPriority` without enforcing them: core has no
+bandwidth limiting or ratio tracking, so the values round-trip and core logs a warning
+naming each one. `location` and the deprecated tracker edits are ignored.
+
+`session-set` writes through to core's config (which persists to `config.json`). Speed
+limits, queue sizes and the blocklist keys are stored but not enforced, and core warns on
+each change.
+
+**The speed model is mostly the plugin's.** Core holds one number per direction where
+**0 means no limit** — no separate on/off flag, and no second "alternative" pair. The
+plugin translates:
+
+- `speed-limit-down` / `speed-limit-down-enabled` (and the `-up` pair) fold into core's
+  single number. Switching a limit off writes 0; the number you typed is remembered in the
+  plugin's config section, so it is still in the box afterwards and comes back when you
+  switch the limit on again. A number sent **without** the flag does not switch a disabled
+  limit on — that is what the flag is for — it is only remembered.
+- `alt-speed-down` / `alt-speed-up` / `alt-speed-enabled` (turtle mode) never reach core at
+  all.
+
+Both the turtle values and the remembered numbers live in `SpeedSettingsEC`, a **singleton
+component in the shared ECS** — one instance for the whole app, reachable with
+`get_speed_settings(env)`, so anything else that wants to know whether turtle mode is on
+reads the same object. It is **runtime state**: seeded from the
+`yap_torrent_transmission_rpc` section of `config.json` at startup and never written back,
+because turning turtle mode on is something you do now, not something the next run should
+inherit. The only speed value that outlives the process is the one core already keeps — the
+limit actually in force.
+
+Once core enforces limits, enabling turtle mode should push the alt pair into core's
+`speed_limit_*` and restore the normal pair on the way out — see the `SpeedSettingsEC` TODO.
 
 Every other spec method is recognised but returns an explanatory error string (it is *not*
 treated as an unknown method). See `UNIMPLEMENTED` in `methods.py` for the list and the notes
 on what each one needs. `torrent-add` accepts a magnet link or `.torrent` path/URL via the
 `filename` field, or base64 `.torrent` content via `metainfo`.
+
+`torrent-get` supports both `format: "objects"` and `format: "table"`, and reports live
+transfer rates and ETA, the added/started/done/activity dates, queue position, labels,
+exact per-file `bytesCompleted` with each file's wanted flag and priority, per-tracker
+announce state, and tracker errors via `error`/`errorString`. `percentDone`,
+`sizeWhenDone` and `leftUntilDone` are relative to the files the user **wants**, per
+`tr_stat`; `percentComplete` is of the whole torrent. Every documented field is answered —
+absent keys are not safe, since `transmission-rpc` reads them as `self.fields[name]` and
+raises `KeyError`. Still placeholder: the `peers` detail list, `availability`,
+`secondsDownloading` / `secondsSeeding`, and the seed-idle fields.
 
 ## Tests
 

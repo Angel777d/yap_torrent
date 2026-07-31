@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Tuple, Iterable, Set, Optional
 from angelovich.core.DataStorage import Entity
 
 import yap_torrent.dht.connection as dht_connection
-from yap_torrent.components.peer_ec import PeerConnectionEC, KnownPeersEC
+from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC
 from yap_torrent.config import Config
 from yap_torrent.dht import bt_dht_messages as msg
@@ -172,8 +172,7 @@ class DHTSystem(System, DHTServerProtocolHandler):
 
 		found_peers_count = 0
 		while True:
-			# TODO: move to config
-			if found_peers_count > 20:
+			if found_peers_count > self.env.config.dht_peers_per_lookup:
 				break
 
 			# find nodes
@@ -216,32 +215,22 @@ class DHTSystem(System, DHTServerProtocolHandler):
 				found_peers_count += len(values)
 				self._update_peers(info_hash, set(PeerInfo.from_bytes(v) for v in values))
 
-		# return torrent to the pending list
+		join_nodes = sorted((node for node in all_nodes.values() if node.token),
+		                    key=lambda n: distance(info_hash, n.node_id))[:self.BUCKET_CAPACITY]
+		for node in join_nodes:
+			res = await dht_connection.announce_peer(
+				self._my_node_id,
+				info_hash,
+				node.token,
+				self.env.config.port,
+				node.host,
+				node.port
+			)
+			logger.debug(f'announce peer result: {res}')
+
+		# keep searching if we did not find any peers yet
 		if not found_peers_count:
 			self.pending_torrents.append(info_hash)
-		# join a swarm
-		else:
-			join_nodes = sorted((node for node in all_nodes.values() if node.token),
-			                    key=lambda n: distance(info_hash, n.node_id))[:self.BUCKET_CAPACITY]
-			my_port = self.env.config.dht_port
-			for node in join_nodes:
-				res = await dht_connection.announce_peer(
-					self._my_node_id,
-					info_hash,
-					node.token,
-					my_port,
-					node.host,
-					node.port
-				)
-				logger.debug(f'announce peer result: {res}')
-
-	# async def update_node_state(self, node: DHTNode):
-	# 	logger.info(f'update state of {node}')
-	# 	ping_response = await dht_connection.ping(self._my_node_id, node.host, node.port)
-	# 	if ping_response:
-	# 		node.mark_good()
-	# 	else:
-	# 		node.mark_fail()
 
 	async def _ping_new_host(self, host: str, port: int) -> None:
 		logger.debug('ping sent to %s:%s', host, port)
@@ -306,8 +295,9 @@ class DHTSystem(System, DHTServerProtocolHandler):
 			arguments: Dict[str, Any],
 			addr: tuple[str | Any, int]) -> Dict[str, Any]:
 		host = addr[0]
+		# BEP-5: a non-zero implied_port means ignore "port" and use the UDP source port
 		implied_port = arguments.get("implied_port", 0)
-		port: int = arguments.get("port", 0) if implied_port else addr[1]
+		port: int = addr[1] if implied_port else arguments.get("port", addr[1])
 		info_hash: bytes = arguments.get("info_hash", bytes())
 
 		self._update_peers(info_hash, {PeerInfo(host, port)})
@@ -335,7 +325,10 @@ class DHTSystem(System, DHTServerProtocolHandler):
 
 		torrent = self.env.data_storage.get_collection(TorrentEC).find(info_hash)
 		if torrent:
-			peers.update(torrent.get_component(KnownPeersEC).peers)
+			for peer_entity in self.env.data_storage.get_collection(PeerEC):
+				peer_ec = peer_entity.get_component(PeerEC)
+				if peer_ec.info_hash == info_hash:
+					peers.add((peer_ec.peer_info.host, peer_ec.peer_info.port))
 
 		return list(compact_address(host, port) for host, port in peers)
 

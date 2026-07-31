@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 import time
 from typing import List
 
@@ -20,8 +21,11 @@ from yap_torrent.systems.intrest_system import InterestedSystem
 from yap_torrent.systems.local_data_system import LocalDataSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
 from yap_torrent.systems.metainfo_system import MetainfoSystem
+from yap_torrent.systems.peer_data_system import PeerDataSystem
 from yap_torrent.systems.peer_system import PeerSystem
 from yap_torrent.systems.piece_system import PieceSystem
+from yap_torrent.systems.settings_system import SettingsSystem
+from yap_torrent.systems.stats_system import StatsSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
 from yap_torrent.systems.upload_system import UploadSystem
 from yap_torrent.systems.validation_system import ValidationSystem
@@ -46,20 +50,17 @@ def open_port(ip: str, port: int, dht_port: int):
 		logger.info(f"open UDP port: {open_res}")
 
 
-def create_peer_id():
-	# TODO: generate and/or save peer id
-	return b'-PY0001-111111111111'
-
-
 class Application:
 	def __init__(self, config: Config):
 		ip, external_ip = network_setup()
 		open_port(ip, config.port, config.dht_port)
 
-		env = Env(create_peer_id(), ip, external_ip, config)
+		env = Env(config.peer_id, ip, external_ip, config)
 		print(
 			f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
+			# first: plugins register against it at start-up, after every system is up
+			SettingsSystem(env),
 			MetainfoSystem(env),
 			FileSystem(env),
 			PeerSystem(env),
@@ -68,6 +69,8 @@ class Application:
 			DownloadSystem(env),
 			UploadSystem(env),
 			PieceSystem(env),
+			# after the transfer systems, so a sample reads the bytes this tick moved
+			StatsSystem(env),
 			ValidationSystem(env),
 			ExtensionSystem(env),
 			ExtMetadataSystem(env),
@@ -75,6 +78,7 @@ class Application:
 			MagnetSystem(env),
 			TorrentSystem(env),
 			LocalDataSystem(env),
+			PeerDataSystem(env),
 			WatcherSystem(env),
 			AnnounceSystem(env),
 		]
@@ -83,7 +87,27 @@ class Application:
 
 		self.env = env
 
+	def shutdown(self, sig: signal.Signals) -> None:
+		logger.info("Shutting down on %s", getattr(sig, "name", sig))
+		if self.env.close_event:
+			self.env.close_event.set()
+
+	def _install_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
+		for name in ("SIGHUP", "SIGTERM", "SIGINT"):
+			sig = getattr(signal, name, None)
+			if sig is None:
+				continue
+			try:
+				loop.add_signal_handler(sig, self.shutdown, sig)
+			except NotImplementedError:
+				try:
+					signal.signal(sig, lambda signum, frame, _sig=sig: self.shutdown(_sig))
+				except (ValueError, OSError) as ex:
+					logger.debug("Cannot install a handler for %s: %s", name, ex)
+
 	async def run(self, close_event: asyncio.Event):
+		self._install_signal_handlers(asyncio.get_running_loop())
+
 		env = self.env
 		env.close_event = close_event
 
@@ -128,12 +152,7 @@ class Application:
 		for plugin in self.plugins:
 			await plugin.stop()
 
-		# lock close
-		for system in self.systems:
-			system.close()
-
-		for plugin in self.plugins:
-			plugin.close()
+		self.close()
 
 		logger.info("Torrent application closed")
 
@@ -142,3 +161,11 @@ class Application:
 		# leftovers = asyncio.all_tasks()
 		# print(leftovers)
 		pass
+
+	def close(self):
+		# lock close
+		for system in self.systems:
+			system.close()
+
+		for plugin in self.plugins:
+			plugin.close()

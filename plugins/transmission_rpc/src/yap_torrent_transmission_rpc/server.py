@@ -6,7 +6,8 @@ from typing import Any, Dict, Optional, Tuple
 from aiohttp import web
 
 from yap_torrent.env import Env
-from .methods import METHODS, UNIMPLEMENTED, ServerInfo
+from .components import PLUGIN_CONFIG_KEY, get_speed_settings, get_torrent_ids
+from .methods import CORE_SETTINGS, METHODS, UNIMPLEMENTED, ServerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,19 @@ class RpcServer:
 	def __init__(self, env: Env):
 		self.env = env
 
+		config = env.config.get_plugin_config(PLUGIN_CONFIG_KEY)
+
 		self.info: ServerInfo = ServerInfo(
 			uuid.uuid4().hex + uuid.uuid4().hex[:16],  # 48-char id, like Transmission
-			time.monotonic()
+			time.monotonic(),
 		)
+		# seed the app-wide speed singleton from config now, so its initial values come
+		# from the file rather than from whichever request happens to touch it first
+		get_speed_settings(env)
+		# a removed torrent's session id is dead weight; nothing may reuse the number
+		env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
 
-		config = env.config.get_plugin_config("yap_torrent_transmission_rpc")
+
 		self.host = config.get("host", "0.0.0.0")
 		self.port = int(config.get("port", DEFAULT_PORT))
 		self.path = config.get("path", DEFAULT_PATH)
@@ -43,13 +51,19 @@ class RpcServer:
 		return app
 
 	async def start(self):
+		# which config properties this RPC lets a client change, and how to read each
+		await self.env.event_bus.dispatch_async("request.setting.register", CORE_SETTINGS)
 		await self.runner.setup()
 		site = web.TCPSite(self.runner, self.host, self.port)
 		await site.start()
 		logger.info("Transmission RPC server started on %s:%s%s", self.host, self.port, self.path)
 		return self
 
+	async def _on_torrent_remove(self, info_hash: bytes):
+		get_torrent_ids(self.env).forget(info_hash)
+
 	async def stop(self):
+		self.env.event_bus.remove_all_listeners(scope=self)
 		await self.runner.shutdown()
 		await self.runner.cleanup()
 		await self.app.cleanup()
