@@ -31,8 +31,7 @@ class RpcServer:
 		get_speed_settings(env)
 		# a removed torrent's session id is dead weight; nothing may reuse the number
 		env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
-		# which config properties this RPC lets a client change, and how to read each
-		env.settings.register(*CORE_SETTINGS)
+
 
 		self.host = config.get("host", "0.0.0.0")
 		self.port = int(config.get("port", DEFAULT_PORT))
@@ -52,6 +51,8 @@ class RpcServer:
 		return app
 
 	async def start(self):
+		# which config properties this RPC lets a client change, and how to read each
+		await self.env.event_bus.dispatch_async("request.setting.register", CORE_SETTINGS)
 		await self.runner.setup()
 		site = web.TCPSite(self.runner, self.host, self.port)
 		await site.start()

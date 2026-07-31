@@ -676,8 +676,8 @@ async def session_set(env, info, arguments):
 		if resolved is not None:
 			values[config_key] = resolved
 
-	if values:
-		await env.settings.apply(values)
+	for key, value in values.items():
+		await env.event_bus.dispatch_async("request.setting.apply", key, value)
 	return "success", {}
 
 

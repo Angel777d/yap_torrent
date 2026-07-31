@@ -23,6 +23,7 @@ from yap_torrent.systems.metainfo_system import MetainfoSystem
 from yap_torrent.systems.peer_data_system import PeerDataSystem
 from yap_torrent.systems.peer_system import PeerSystem
 from yap_torrent.systems.piece_system import PieceSystem
+from yap_torrent.systems.settings_system import SettingsSystem
 from yap_torrent.systems.stats_system import StatsSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
 from yap_torrent.systems.upload_system import UploadSystem
@@ -57,6 +58,8 @@ class Application:
 		print(
 			f"peer_id:{env.peer_id}, ip: {env.ip}, ext: {env.external_ip}, port: {env.config.port}, dht_port: {env.config.dht_port}")
 		self.systems: List[System] = [
+			# first: plugins register against it at start-up, after every system is up
+			SettingsSystem(env),
 			MetainfoSystem(env),
 			FileSystem(env),
 			PeerSystem(env),

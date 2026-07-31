@@ -20,9 +20,11 @@ from yap_torrent.protocol import encode
 from yap_torrent.systems.file_system import FileSystem
 from yap_torrent.systems.magnet_system import MagnetSystem
 from yap_torrent.systems.metainfo_system import MetainfoSystem
+from yap_torrent.systems.settings_system import SettingsSystem
 from yap_torrent.systems.stats_system import StatsSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
 from yap_torrent_transmission_rpc.components import get_speed_settings
+from yap_torrent_transmission_rpc.methods import CORE_SETTINGS
 from yap_torrent_transmission_rpc.server import CSRF_HEADER, RpcServer
 
 RPC_PATH = "/transmission/rpc"
@@ -54,11 +56,14 @@ async def server():
 	# so the systems that answer those events have to be live. AnnounceSystem is left out
 	# deliberately — it would announce to the metainfo's tracker URL over the network.
 	systems = [
-		MetainfoSystem(env), MagnetSystem(env), FileSystem(env), TorrentSystem(env),
+		SettingsSystem(env), MetainfoSystem(env), MagnetSystem(env), FileSystem(env), TorrentSystem(env),
 		StatsSystem(env),
 	]
 	for system in systems:
 		await system.start()
+	# the fixture never binds the HTTP server, so do by hand the one part of RpcServer.start
+	# that is not about sockets: telling core which config properties this RPC exposes
+	await env.event_bus.dispatch_async("request.setting.register", CORE_SETTINGS)
 	yield RpcServer(env)
 	for system in systems:
 		await system.stop()

@@ -5,7 +5,6 @@ from angelovich.core.DataStorage import DataStorage
 from angelovich.core.Dispatcher import Dispatcher
 
 from yap_torrent.config import Config
-from yap_torrent.settings import Settings
 
 
 class Env:
@@ -17,5 +16,3 @@ class Env:
 		self.data_storage: DataStorage = DataStorage()
 		self.event_bus = Dispatcher()
 		self.close_event: Optional[asyncio.Event] = None
-		# empty until a plugin registers what it offers; core only listens for the events
-		self.settings: Settings = Settings(self)
