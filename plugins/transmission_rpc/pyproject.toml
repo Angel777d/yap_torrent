@@ -7,13 +7,17 @@ include = [
     "src/*",
 ]
 
+# named explicitly so the bundled web UI (html/) ships in the wheel alongside the modules
+[tool.hatch.build.targets.wheel]
+packages = ["src/yap_torrent_transmission_rpc"]
+
 [project.entry-points.'yap_torrent.plugins']
 yap_torrent_transmission_rpc = 'yap_torrent_transmission_rpc'
 
 [project]
 name = "yap_torrent_transmission_rpc"
-version = "0.0.1"
-description = "Transmission RPC server API for yap torrent"
+version = "0.1.0"
+description = "Transmission RPC server API and web interface for yap torrent"
 readme = { file = "README.md", content-type = "text/markdown" }
 
 authors = [
@@ -39,7 +43,7 @@ dependencies = [
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
-keywords = ["Torrent", "BitTorrent", "Transmission", "RPC"]
+keywords = ["Torrent", "BitTorrent", "Transmission", "RPC", "Web Interface"]
 
 [project.optional-dependencies]
 test = [
