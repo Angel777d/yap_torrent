@@ -36,7 +36,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "yap_torrent",
+    "yap_torrent>=0.2.0",
     "aiohttp",
 ]
 
