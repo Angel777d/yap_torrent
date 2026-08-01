@@ -45,14 +45,14 @@ def calculate_downloaded(torrent_entity: Entity) -> float:
 
 
 def create_torrent_entity(env: Env, info_hash: InfoHash, path: Path, stats: Dict[str, int],
-                          torrent_info: Optional[TorrentInfo] = None, ) -> Entity:
+                          torrent_info: Optional[TorrentInfo] = None, display_name: str = "") -> Entity:
 	torrent_entity = env.data_storage.create_entity()
 	torrent_entity.add_component(TorrentPathEC(path))
 	torrent_entity.add_component(TorrentStatsEC(**stats))
 
 	if torrent_info:
 		torrent_entity.add_component(TorrentInfoEC(torrent_info))
-	torrent_entity.add_component(TorrentEC(info_hash))
+	torrent_entity.add_component(TorrentEC(info_hash, display_name))
 	return torrent_entity
 
 
@@ -65,10 +65,17 @@ def get_info_hash(torrent_entity: Entity) -> InfoHash:
 
 
 def get_torrent_name(entity: Entity):
+	"""What to call a torrent. Metadata wins; a magnet keeps its `dn` until then.
+
+	The fallback is hex, not the raw bytes: this reaches logs, a TUI and the browser, and
+	`f"{info_hash}"` on bytes renders as `b'\\xaa\\xbb...'` — unreadable, and not the form
+	anything else names a torrent by.
+	"""
 	if entity.has_component(TorrentInfoEC):
 		return entity.get_component(TorrentInfoEC).info.name
-	else:
-		return f"[{entity.get_component(TorrentEC).info_hash}]"
+
+	torrent = entity.get_component(TorrentEC)
+	return torrent.display_name or f"[{torrent.info_hash.hex()}]"
 
 
 def iterate_connected_peers(env: Env, info_hash: bytes) -> Generator[Entity]:

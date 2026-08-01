@@ -28,6 +28,7 @@ from yap_torrent.systems import (
 	find_peer_entity,
 	get_custom_data,
 	get_torrent_entity,
+	get_torrent_name,
 	set_custom_data,
 )
 from yap_torrent.systems.local_data_system import LocalDataSystem, _export_torrent_data, _save
@@ -85,6 +86,44 @@ def test_a_torrent_round_trips_through_the_save_file(tmp_path):
 		assert restored.get_component(TorrentQueuePositionEC).position == 3
 
 	asyncio.run(run())
+
+
+def test_a_magnet_keeps_the_name_it_was_added_under(tmp_path):
+	# a magnet has no metadata, so its "dn" is the only name anyone has for it — and BEP-9
+	# may take minutes to arrive, or never. Losing it on restart leaves an unreadable row
+	# in every interface until then.
+	async def run():
+		env = _env(tmp_path)
+		info_hash = b"\xaa" * 20
+		torrent = create_torrent_entity(env, info_hash, env.config.download_folder, {},
+		                                display_name="a readable name")
+		_save(tmp_path / "active" / info_hash.hex(), _export_torrent_data(env, torrent))
+
+		fresh = _env(tmp_path)
+		await LocalDataSystem(fresh).start()
+
+		restored = get_torrent_entity(fresh, info_hash)
+		assert get_torrent_name(restored) == "a readable name"
+
+	asyncio.run(run())
+
+
+def test_a_nameless_torrent_falls_back_to_hex_not_raw_bytes(tmp_path):
+	# f"{info_hash}" on bytes renders as b'\xaa\xaa...', which reached the log, the TUI and
+	# the browser alike
+	env = _env(tmp_path)
+	torrent = create_torrent_entity(env, b"\xaa" * 20, env.config.download_folder, {})
+
+	assert get_torrent_name(torrent) == f"[{'aa' * 20}]"
+
+
+def test_metadata_outranks_the_name_it_was_added_under(tmp_path):
+	env = _env(tmp_path)
+	meta = _meta("the real name")
+	torrent = create_torrent_entity(env, meta.make_info_hash(), env.config.download_folder, {},
+	                                meta.info, display_name="what the magnet said")
+
+	assert get_torrent_name(torrent) == "the real name"
 
 
 def test_one_unreadable_save_does_not_take_the_others_with_it(tmp_path):
