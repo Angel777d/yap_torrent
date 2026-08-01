@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>YAP Torrent</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<!-- substituted by the server: the RPC endpoint is configurable, so the page is told -->
+	<meta name="rpc-path" content="{{RPC_PATH}}">
+	<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<header class="top-bar">
+	<h1>YAP Torrent</h1>
+
+	<div class="add-form">
+		<label class="sr-only" for="add-input">Magnet link or torrent URL</label>
+		<input type="text" id="add-input" placeholder="magnet:?xt=urn:btih:… or https://…/file.torrent"/>
+		<button class="btn-add" data-action="add-url">Add</button>
+		<button data-action="pick-file">Add file…</button>
+		<input type="file" id="add-file" accept=".torrent,application/x-bittorrent" multiple hidden>
+	</div>
+
+	<div class="top-right">
+		<span class="session-rates" id="session-rates">↓ 0 B/s ↑ 0 B/s</span>
+		<button data-action="open-settings">Settings</button>
+	</div>
+</header>
+
+<div class="toolbar">
+	<div class="toolbar-group">
+		<button data-action="torrent-start" disabled>Start</button>
+		<button data-action="torrent-stop" disabled>Stop</button>
+		<button data-action="torrent-verify" disabled>Verify</button>
+		<button data-action="torrent-reannounce" disabled>Reannounce</button>
+	</div>
+	<div class="toolbar-group">
+		<button data-action="queue-move-top" disabled title="Move to top of queue">⇈</button>
+		<button data-action="queue-move-up" disabled title="Move up the queue">↑</button>
+		<button data-action="queue-move-down" disabled title="Move down the queue">↓</button>
+		<button data-action="queue-move-bottom" disabled title="Move to bottom of queue">⇊</button>
+	</div>
+	<div class="toolbar-group toolbar-right">
+		<span class="selection-count" id="selection-count"></span>
+		<button class="btn-remove" data-action="remove" disabled>Remove</button>
+	</div>
+</div>
+
+<div class="main-container">
+	<div class="torrents-panel">
+		<div id="torrents-list" class="torrents-list">Loading…</div>
+	</div>
+
+	<div class="torrent-info-panel">
+		<div id="torrent-info">
+			<p class="no-selection">Select a torrent to view details</p>
+		</div>
+	</div>
+</div>
+
+<footer class="status-bar">
+	<span id="status-summary">—</span>
+	<span id="status-error" class="status-error"></span>
+</footer>
+
+<!-- Remove confirmation -->
+<div class="modal-overlay" id="remove-modal" hidden>
+	<div class="modal">
+		<h2>Remove torrents</h2>
+		<p id="remove-modal-text">Remove the selected torrents?</p>
+		<label class="checkbox-row">
+			<input type="checkbox" id="remove-delete-data">
+			Also delete the downloaded files from disk
+		</label>
+		<div class="modal-buttons">
+			<button data-action="remove-cancel">Cancel</button>
+			<button class="btn-remove" data-action="remove-confirm">Remove</button>
+		</div>
+	</div>
+</div>
+
+<!-- Session settings -->
+<div class="modal-overlay" id="settings-modal" hidden>
+	<div class="modal modal-wide">
+		<h2>Session settings</h2>
+		<div class="settings-grid" id="settings-grid"></div>
+		<p class="modal-note" id="settings-note"></p>
+		<div class="modal-buttons">
+			<button data-action="settings-cancel">Cancel</button>
+			<button class="btn-add" data-action="settings-save">Save</button>
+		</div>
+	</div>
+</div>
+
+<script src="static/app.js"></script>
+</body>
+</html>

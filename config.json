@@ -2,14 +2,15 @@
   "data_folder": "data",
   "active_folder": "data/active",
   "download_folder": "D:\\torrents",
-  "watch_folder": "D:\\download",
   "trash_folder": "D:\\trash",
   "disabled_plugins": [],
   "port": 6889,
   "max_connections": 50,
   "dht_port": 6999,
-  "yap_torrent_web": {
+  "use_log_file": false,
+  "yap_torrent_transmission_rpc": {
     "host": "0.0.0.0",
-    "port": 8081
-  }
+    "port": 9091
+  },
+  "peer_id": "-PY0001-2YNjOuOOuWRc"
 }

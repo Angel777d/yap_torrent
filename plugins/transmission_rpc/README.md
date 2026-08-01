@@ -4,7 +4,8 @@ A [yap_torrent](https://github.com/Angel777d/yap_torrent) plugin that exposes a
 [Transmission RPC](https://github.com/transmission/transmission/blob/main/docs/rpc-spec.md)
 compatible server, so existing Transmission remote clients (Transmission Remote GUI,
 `transmission-remote`, the `transmission-rpc` Python library, mobile remotes, …) can
-drive yap_torrent.
+drive yap_torrent — **and a browser UI, served on the same port, that is itself one of
+those clients.**
 
 ## Installation
 
@@ -31,18 +32,49 @@ Add a `yap_torrent_transmission_rpc` block to `config.json`:
     "host": "0.0.0.0",
     "port": 9091,
     "path": "/transmission/rpc",
+    "web_enabled": true,
+    "web_path": "/transmission/web",
     "username": null,
     "password": null
   }
 }
 ```
 
-- `host` / `port` — where the RPC server binds (Transmission's default port is `9091`).
+- `host` / `port` — where the server binds (Transmission's default port is `9091`).
 - `path` — RPC endpoint path (Transmission's default is `/transmission/rpc`).
+- `web_enabled` — serve the bundled browser UI. Turning it off leaves the RPC untouched.
+- `web_path` — where the UI is mounted. `/` redirects to it.
 - `username` / `password` — **reserved for a future HTTP Basic auth implementation.**
   They are read but not enforced yet; the endpoint is currently unauthenticated.
 
-Point your client at `http://<host>:9091/transmission/rpc`.
+Point a remote at `http://<host>:9091/transmission/rpc`, or a browser at
+`http://<host>:9091/`.
+
+## Web interface
+
+The UI lives in `src/yap_torrent_transmission_rpc/html/` and is a **pure RPC client** — it
+has no endpoint of its own and reads nothing out of the ECS. Everything it shows comes from
+`torrent-get` / `session-get`, and everything it does goes out as a spec method, which is
+why it lives here rather than in a plugin of its own: a field added for a Transmission
+remote is a field the browser can show, and a torrent becomes JSON in exactly one place
+(`mapping.py`). It replaces the old `yap_torrent_web` plugin, which derived the same values
+a second time behind its own `/api/*` routes.
+
+Sharing the RPC's port is what keeps it same-origin, so there is no CORS to configure and
+the CSRF handshake below works from the page unchanged. The endpoint is substituted into
+the page at serve time (the `rpc-path` meta tag), so a changed `path` needs no edit to the
+script.
+
+It covers: the torrent list with live rates, status and ETA, refreshed every 2s; add by
+magnet, URL or `.torrent` upload; start / stop / verify / reannounce; remove, with or
+without the data; queue reordering; per-file wanted flags and priorities; labels; tracker
+state; and a session settings panel. Multi-select with ctrl/cmd-click applies an action to
+every selected torrent.
+
+The settings panel says plainly which values do nothing yet, because `session-set` answers
+`success` for all of them: the peer port and DHT are start-up-only (saved, but the running
+client keeps its values), and the speed, queue, ratio and peer limits are stored and
+reported back but enforced by nothing.
 
 ## CSRF handshake
 
@@ -121,7 +153,7 @@ raises `KeyError`. Still placeholder: the `peers` detail list, `availability`,
 # only the test runner is needed; yap_torrent / angelovich.core are imported
 # from source by conftest.py (no package install required)
 pip install pytest pytest-aiohttp
-pytest plugins/transmission_rpc
+pytest plugins/transmission_rpc          # test_rpc.py: the methods; test_web_ui.py: the UI routes
 
 # manual smoke test against a running instance:
 python plugins/transmission_rpc/scripts/manual_test.py --url http://127.0.0.1:9091/transmission/rpc

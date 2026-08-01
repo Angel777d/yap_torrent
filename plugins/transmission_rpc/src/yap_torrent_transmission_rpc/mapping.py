@@ -228,6 +228,11 @@ def _progress(entity: Entity, info: Optional[TorrentInfo], env: Env) -> _Progres
 	return _Progress(total_size, wanted_size, have_total, have_wanted)
 
 
+def _queued_count(env: Env) -> int:
+	"""How many torrents hold a queue ordinal — i.e. the first position after the queue."""
+	return sum(1 for e in env.data_storage.get_collection(TorrentQueuePositionEC))
+
+
 def _limits(entity: Entity) -> TorrentLimitsEC:
 	"""Per-torrent limits, or the defaults for a torrent that has never had any set."""
 	if entity.has_component(TorrentLimitsEC):
@@ -390,8 +395,13 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 		"seedRatioMode": lambda: limits.seed_ratio_mode,
 		"seedIdleLimit": lambda: 0,
 		"seedIdleMode": lambda: 0,
+		# A torrent gets its ordinal when it gains metadata, so a magnet has none yet.
+		# Core sorts those last (`math.inf` in iterate_torrents_in_queue_order); the JSON
+		# equivalent is one past the last real position — reporting 0 put it level with the
+		# torrent actually at the head of the queue, and -1 would sort it above that.
 		"queuePosition": lambda: (
-			entity.get_component(TorrentQueuePositionEC).position if entity.has_component(TorrentQueuePositionEC) else 0
+			entity.get_component(TorrentQueuePositionEC).position
+			if entity.has_component(TorrentQueuePositionEC) else _queued_count(env)
 		),
 		"labels": lambda: get_labels(entity),
 		"group": lambda: "",

@@ -706,6 +706,37 @@ async def test_an_absolute_queue_position_still_moves_the_torrent(client):
 	assert await get_field(client, session_id, second, "queuePosition") == 0
 
 
+async def test_a_torrent_with_no_metadata_sorts_after_the_queue(client):
+	# A torrent gets its ordinal when it gains metadata, so a magnet has none. Reporting 0
+	# put it level with whatever is actually at the head of the queue, and a client sorting
+	# on the field would interleave the two arbitrarily; core itself sorts these last.
+	session_id = await handshake(client)
+	first = await add_torrent(client, session_id, make_metainfo(b"first.txt"))
+	second = await add_torrent(client, session_id, make_metainfo(b"second.txt"))
+
+	added = await rpc(client, session_id, "torrent-add",
+	                  {"filename": "magnet:?xt=urn:btih:" + "ab" * 20 + "&dn=pending"})
+	magnet = added["arguments"]["torrent-added"]["hashString"]
+	await asyncio.sleep(0.01)
+
+	assert await get_field(client, session_id, first, "queuePosition") == 0
+	assert await get_field(client, session_id, second, "queuePosition") == 1
+	# one past the last real position, so it sorts last rather than tying with `first`
+	assert await get_field(client, session_id, magnet, "queuePosition") == 2
+
+
+async def test_a_magnet_is_named_by_its_display_name(client):
+	# until BEP-9 arrives the "dn" is the only name there is, and it has to reach the field
+	# a client actually shows rather than only the torrent-add reply
+	session_id = await handshake(client)
+	added = await rpc(client, session_id, "torrent-add",
+	                  {"filename": "magnet:?xt=urn:btih:" + "cd" * 20 + "&dn=a+readable+name"})
+	info_hash = added["arguments"]["torrent-added"]["hashString"]
+	await asyncio.sleep(0.01)
+
+	assert await get_field(client, session_id, info_hash, "name") == "a readable name"
+
+
 # --- per-file byte counts ---------------------------------------------------
 # file_bytes_completed lives here now: core downloads and reports whole pieces, and the
 # first and last piece of a file are shared with its neighbours, so scaling the overall

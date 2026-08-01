@@ -22,7 +22,9 @@ class MagnetSystem(System):
 			return
 
 		path = Path(self.env.config.download_folder)
-		torrent_entity = create_torrent_entity(self.env, magnet.info_hash, path, {})
+		# the magnet's "dn" is all anyone has to go on until BEP-9 delivers the metadata,
+		# which can be minutes away or never
+		torrent_entity = create_torrent_entity(self.env, magnet.info_hash, path, {}, display_name=magnet.name)
 		if magnet.trackers:
 			torrent_entity.add_component(TorrentTrackerEC([magnet.trackers]))
 			torrent_entity.add_component(TorrentTrackerDataEC())

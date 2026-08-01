@@ -93,7 +93,10 @@ class Application:
 			self.env.close_event.set()
 
 	def _install_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
-		for name in ("SIGHUP", "SIGTERM", "SIGINT"):
+		# SIGBREAK is Windows' Ctrl+Break — the other way a console app is asked to stop
+		# there, and the only one a caller can deliver to a process it did not share a
+		# console with. SIGHUP is POSIX-only. Each is skipped where it does not exist.
+		for name in ("SIGHUP", "SIGBREAK", "SIGTERM", "SIGINT"):
 			sig = getattr(signal, name, None)
 			if sig is None:
 				continue

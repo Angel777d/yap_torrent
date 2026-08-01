@@ -11,10 +11,16 @@ from yap_torrent.protocol.structures import Bitfield
 
 
 class TorrentEC(EntityHashComponent):
-	def __init__(self, info_hash: InfoHash) -> None:
+	def __init__(self, info_hash: InfoHash, display_name: str = "") -> None:
 		super().__init__()
 		self.info_hash: InfoHash = info_hash
 		self.bitfield: Bitfield = Bitfield()
+		# What to call this torrent until its metadata arrives — a magnet's "dn", when it
+		# carried one. `TorrentInfoEC.info.name` is the real name and wins the moment it
+		# exists, so this is never consulted again after that; it lives here rather than in
+		# its own component because it is part of what identifies a torrent to a person,
+		# and it has to survive a restart the same way the info_hash does.
+		self.display_name: str = display_name
 
 	def __hash__(self):
 		return hash(self.info_hash)

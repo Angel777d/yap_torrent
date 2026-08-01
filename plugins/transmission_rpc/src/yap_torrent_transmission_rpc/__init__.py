@@ -22,9 +22,10 @@ class TransmissionRpcPlugin(TorrentPlugin):
 
 	@staticmethod
 	def get_purpose() -> Set[str]:
-		# Unique purpose so it never conflicts with the web/ui plugins and can
-		# run alongside them.
-		return {"transmission-rpc"}
+		# "web" as well as its own purpose: this plugin now serves the browser UI beside
+		# the RPC, so a still-installed yap_torrent_web is skipped rather than racing it
+		# for a port. It remains compatible with the TUI/console plugins.
+		return {"transmission-rpc", "web"}
 
 
 logger = logging.getLogger(__name__)

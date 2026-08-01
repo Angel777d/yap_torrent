@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from aiohttp import web
@@ -14,6 +15,13 @@ logger = logging.getLogger(__name__)
 CSRF_HEADER = "X-Transmission-Session-Id"
 DEFAULT_PORT = 9091
 DEFAULT_PATH = "/transmission/rpc"
+# Transmission serves its own UI next to the RPC on the same port, so a browser pointed
+# at the host gets the client and a remote gets the API without a second server.
+DEFAULT_WEB_PATH = "/transmission/web"
+HTML_DIR = Path(__file__).parent / "html"
+# the page asks the server where the RPC lives rather than assuming, because `path` is
+# configurable and the UI may be reached through a reverse proxy
+RPC_PATH_PLACEHOLDER = "{{RPC_PATH}}"
 
 
 class RpcServer:
@@ -37,6 +45,11 @@ class RpcServer:
 		self.port = int(config.get("port", DEFAULT_PORT))
 		self.path = config.get("path", DEFAULT_PATH)
 
+		# the bundled browser UI. It is only ever a client of the RPC below — it holds no
+		# state and reaches core through the same methods a Transmission remote uses.
+		self.web_enabled = bool(config.get("web_enabled", True))
+		self.web_path = str(config.get("web_path", DEFAULT_WEB_PATH)).rstrip("/")
+
 		# Reserved for a future HTTP Basic auth implementation (see _check_auth).
 		self._auth_username = config.get("username")
 		self._auth_password = config.get("password")
@@ -48,7 +61,27 @@ class RpcServer:
 	def make_app(self) -> web.Application:
 		app = web.Application()
 		app.router.add_post(self.path, self.handle_rpc)
+		if self.web_enabled:
+			# the index is reached at "<web_path>/" so its relative asset links resolve
+			# under the prefix; the two paths that are not that redirect to it
+			app.router.add_get("/", self.handle_redirect_to_web)
+			app.router.add_get(self.web_path, self.handle_redirect_to_web)
+			app.router.add_get(f"{self.web_path}/", self.handle_index)
+			app.router.add_static(f"{self.web_path}/static", HTML_DIR / "static")
 		return app
+
+	async def handle_redirect_to_web(self, _: web.Request) -> web.Response:
+		raise web.HTTPFound(f"{self.web_path}/")
+
+	async def handle_index(self, _: web.Request) -> web.Response:
+		# read per request rather than cached: the page is fetched once per browser
+		# session, and editing it during development should not need a restart
+		try:
+			page = (HTML_DIR / "index.html").read_text(encoding="utf-8")
+		except OSError as ex:
+			logger.error("Cannot read the web UI index: %s", ex)
+			raise web.HTTPInternalServerError(reason="web UI is not installed")
+		return web.Response(text=page.replace(RPC_PATH_PLACEHOLDER, self.path), content_type="text/html")
 
 	async def start(self):
 		# which config properties this RPC lets a client change, and how to read each
@@ -57,6 +90,8 @@ class RpcServer:
 		site = web.TCPSite(self.runner, self.host, self.port)
 		await site.start()
 		logger.info("Transmission RPC server started on %s:%s%s", self.host, self.port, self.path)
+		if self.web_enabled:
+			logger.info("Web UI served at http://%s:%s%s/", self.host, self.port, self.web_path)
 		return self
 
 	async def _on_torrent_remove(self, info_hash: bytes):

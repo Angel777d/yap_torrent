@@ -99,6 +99,10 @@ def _export_torrent_data(env: Env, torrent_entity: Entity) -> dict[str, Any]:
 		torrent_info = torrent_entity.get_component(TorrentInfoEC).info
 		result['torrent_info'] = torrent_info
 		result['bitfield'] = torrent_entity.get_component(TorrentEC).bitfield.dump(torrent_info.pieces_num)
+	elif torrent_entity.get_component(TorrentEC).display_name:
+		# only worth saving while there is no metadata — once there is, the real name wins
+		# and this is never read again
+		result['display_name'] = torrent_entity.get_component(TorrentEC).display_name
 
 	if torrent_entity.has_component(TorrentQueuePositionEC):
 		result['queue_position'] = torrent_entity.get_component(TorrentQueuePositionEC).position
@@ -139,7 +143,8 @@ def _import_torrent_data(env, save_data: dict[str, Any]):
 	path: Path = Path(save_data.get('path'))
 	torrent_info = save_data.get('torrent_info', None)
 	stats = save_data.get('stats', {})
-	torrent_entity = create_torrent_entity(env, info_hash, path, stats, torrent_info)
+	torrent_entity = create_torrent_entity(env, info_hash, path, stats, torrent_info,
+	                                       save_data.get('display_name', ""))
 
 	# update bitfield
 	bitfield = save_data.get('bitfield', bytes())
