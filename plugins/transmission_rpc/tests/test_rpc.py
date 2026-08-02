@@ -28,6 +28,8 @@ from yap_torrent_transmission_rpc.methods import CORE_SETTINGS
 from yap_torrent_transmission_rpc.server import CSRF_HEADER, RpcServer
 
 RPC_PATH = "/transmission/rpc"
+# the entry point name discovery would assign; the config block and the custom_data key
+PLUGIN_NAME = "yap_torrent_transmission_rpc"
 
 
 def make_metainfo(name: bytes = b"hello.txt") -> bytes:
@@ -64,7 +66,7 @@ async def server():
 	# the fixture never binds the HTTP server, so do by hand the one part of RpcServer.start
 	# that is not about sockets: telling core which config properties this RPC exposes
 	await env.event_bus.dispatch_async("request.setting.register", CORE_SETTINGS)
-	yield RpcServer(env)
+	yield RpcServer(PLUGIN_NAME, env)
 	for system in systems:
 		await system.stop()
 		system.close()
@@ -588,17 +590,28 @@ async def test_the_speed_settings_are_one_component_for_the_whole_app(client, se
 
 async def test_the_initial_values_come_from_config(client, server):
 	# runtime state, but not from nowhere: config.json seeds it at startup
-	from yap_torrent_transmission_rpc.components import PLUGIN_CONFIG_KEY, get_speed_settings as get_it
+	from yap_torrent_transmission_rpc.components import get_speed_settings as get_it
 
 	env = server.env
-	env.config.data[PLUGIN_CONFIG_KEY] = {"alt_speed_down": 77, "alt_speed_enabled": True}
 	# drop the singleton the fixture seeded so the next read rebuilds it from config
 	for entity in list(env.data_storage.get_collection(type(get_it(env)))):
 		env.data_storage.remove_entity(entity)
 
-	settings = get_it(env)
+	settings = get_it(env, {"alt_speed_down": 77, "alt_speed_enabled": True})
 	assert settings.alt_speed_down == 77
 	assert settings.alt_speed_enabled is True
+
+
+async def test_the_config_block_follows_the_entry_point_name():
+	# discovery, not the package, decides what we are called: a plugin installed under
+	# another entry point name reads its settings from that block
+	config = Config(path="__no_such_config__.json")
+	config.set_plugin_config("renamed_rpc", {"port": 9999, "path": "/elsewhere"})
+	env = Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", config)
+
+	info = RpcServer("renamed_rpc", env).info
+	assert info.name == "renamed_rpc"
+	assert (info.port, info.path) == (9999, "/elsewhere")
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +662,6 @@ async def test_labels_live_in_the_torrent_custom_data(client, server):
 	# stored anywhere else would not survive a restart
 	from yap_torrent.systems import get_custom_data, get_torrent_entity
 	from yap_torrent.components.torrent_ec import SaveTorrentEC
-	from yap_torrent_transmission_rpc.components import PLUGIN_CONFIG_KEY
 
 	session_id = await handshake(client)
 	info_hash = await add_torrent(client, session_id, make_metainfo())
@@ -658,8 +670,23 @@ async def test_labels_live_in_the_torrent_custom_data(client, server):
 	await asyncio.sleep(0.01)
 
 	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
-	assert get_custom_data(entity, PLUGIN_CONFIG_KEY) == {"labels": ["linux"]}
+	assert get_custom_data(entity, server.info.name) == {"labels": ["linux"]}
 	assert entity.has_component(SaveTorrentEC)  # a label lost to a restart is not a label
+
+
+async def test_labels_are_namespaced_by_the_plugin_name(client, server):
+	# the custom_data key is whatever discovery called us, not a constant: labels written
+	# under one entry point name are not visible under another
+	from yap_torrent.systems import get_torrent_entity
+	from yap_torrent_transmission_rpc.components import get_labels, set_labels
+
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+
+	set_labels(entity, "renamed_rpc", ["linux"])
+	assert get_labels(entity, "renamed_rpc") == ["linux"]
+	assert get_labels(entity, PLUGIN_NAME) == []
 
 
 async def test_setting_the_same_labels_again_does_not_ask_for_a_save(client, server):
@@ -678,6 +705,28 @@ async def test_setting_the_same_labels_again_does_not_ask_for_a_save(client, ser
 	await asyncio.sleep(0.01)
 
 	assert entity.has_component(SaveTorrentEC) is False
+
+
+async def test_a_torrent_set_that_says_nothing_about_labels_keeps_them(client, server):
+	# absent and [] are different requests: only an explicit empty list clears. Reading a
+	# missing "labels" as [] makes every unrelated torrent-set wipe the torrent's labels.
+	from yap_torrent.systems import get_torrent_entity
+	from yap_torrent_transmission_rpc.components import get_labels
+
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "labels": ["linux"]})
+	await asyncio.sleep(0.01)
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "downloadLimit": 100})
+	await asyncio.sleep(0.01)
+	assert get_labels(entity, server.info.name) == ["linux"]
+
+	await rpc(client, session_id, "torrent-set", {"ids": [info_hash], "labels": []})
+	await asyncio.sleep(0.01)
+	assert get_labels(entity, server.info.name) == []
 
 
 async def test_a_boolean_queue_position_is_not_position_one(client):

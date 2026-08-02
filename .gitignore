@@ -3,3 +3,7 @@
 /torrent.log
 **/dist
 secrets
+/.claude/
+/CLAUDE.md
+__pycache__/
+*.pyc

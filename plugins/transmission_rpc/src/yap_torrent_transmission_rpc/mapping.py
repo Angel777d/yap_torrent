@@ -42,6 +42,7 @@ from yap_torrent.systems import (
 	iterate_files,
 )
 from .components import get_labels, torrent_id
+from .server_info import ServerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,7 @@ def _progress(entity: Entity, info: Optional[TorrentInfo], env: Env) -> _Progres
 
 def _queued_count(env: Env) -> int:
 	"""How many torrents hold a queue ordinal — i.e. the first position after the queue."""
-	return sum(1 for e in env.data_storage.get_collection(TorrentQueuePositionEC))
+	return sum(1 for _ in env.data_storage.get_collection(TorrentQueuePositionEC))
 
 
 def _limits(entity: Entity) -> TorrentLimitsEC:
@@ -326,8 +327,13 @@ def _error_string(entity: Entity) -> str:
 	return ""
 
 
-def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
-	"""Build a single torrent object containing only the requested ``fields``."""
+def build_torrent(entity: Entity, fields, server_info: ServerInfo) -> Dict[str, Any]:
+	"""Build a single torrent object containing only the requested ``fields``.
+
+	`server_info` carries the env and the plugin's entry point name, which the fields we
+	keep in the torrent's custom_data rather than in a core component are keyed by.
+	"""
+	env = server_info.env
 	torrent_ec = entity.get_component(TorrentEC)
 	info_hash_hex = torrent_ec.info_hash.hex()
 	stats = entity.get_component(TorrentStatsEC)
@@ -403,7 +409,7 @@ def build_torrent(entity: Entity, fields, env: Env) -> Dict[str, Any]:
 			entity.get_component(TorrentQueuePositionEC).position
 			if entity.has_component(TorrentQueuePositionEC) else _queued_count(env)
 		),
-		"labels": lambda: get_labels(entity),
+		"labels": lambda: get_labels(entity, server_info.name),
 		"group": lambda: "",
 		"downloadLimit": lambda: limits.download_limit,
 		"downloadLimited": lambda: limits.download_limited,

@@ -10,8 +10,10 @@ import pytest
 
 from yap_torrent.config import Config
 from yap_torrent.env import Env
-from yap_torrent_transmission_rpc.components import PLUGIN_CONFIG_KEY
-from yap_torrent_transmission_rpc.server import DEFAULT_WEB_PATH, RPC_PATH_PLACEHOLDER, RpcServer
+from yap_torrent_transmission_rpc.server_info import DEFAULT_WEB_PATH
+from yap_torrent_transmission_rpc.server import RPC_PATH_PLACEHOLDER, RpcServer
+
+PLUGIN_NAME = "yap_torrent_transmission_rpc"
 
 
 def make_server(**plugin_config) -> RpcServer:
@@ -19,8 +21,8 @@ def make_server(**plugin_config) -> RpcServer:
 	# do not depend on — or disturb — the repo's config.json
 	config = Config(path="__no_such_config__.json")
 	if plugin_config:
-		config.set_plugin_config(PLUGIN_CONFIG_KEY, plugin_config)
-	return RpcServer(Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", config))
+		config.set_plugin_config(PLUGIN_NAME, plugin_config)
+	return RpcServer(PLUGIN_NAME, Env(b"-PY0001-111111111111", "127.0.0.1", "127.0.0.1", config))
 
 
 @pytest.fixture

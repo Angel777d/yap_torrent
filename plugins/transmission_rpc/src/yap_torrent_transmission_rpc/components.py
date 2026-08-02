@@ -9,9 +9,7 @@ from yap_torrent.systems import get_custom_data, set_custom_data
 
 logger = logging.getLogger(__name__)
 
-# our section in config.json, read at startup for the initial values. It doubles as our
-# name in a torrent's custom_data — both are the entry-point name.
-PLUGIN_CONFIG_KEY = "yap_torrent_transmission_rpc"
+# the `name` these take is the plugin's entry point name, carried on ServerInfo
 
 # --- per-torrent state ------------------------------------------------------
 # Labels are a Transmission idea: core has no use for one and never had a reason to know
@@ -30,26 +28,26 @@ def clean_labels(labels: Iterable[str]) -> List[str]:
 	return seen
 
 
-def get_labels(entity: Entity) -> List[str]:
-	return list(get_custom_data(entity, PLUGIN_CONFIG_KEY, {}).get(_LABELS, ()))
+def get_labels(entity: Entity, name: str) -> List[str]:
+	return list(get_custom_data(entity, name, {}).get(_LABELS, ()))
 
 
-def set_labels(entity: Entity, labels: Iterable[str]) -> None:
+def set_labels(entity: Entity, name: str, labels: Iterable[str]) -> None:
 	"""Replace the label set, cleaned. torrent-set's labels is a replace, not a merge.
 
 	Writing the same labels again is not worth a save, and core leaves that judgement to
 	us — it stores whatever it is handed.
 	"""
 	cleaned = clean_labels(labels)
-	if cleaned == get_labels(entity):
+	if cleaned == get_labels(entity, name):
 		return
 
-	data = dict(get_custom_data(entity, PLUGIN_CONFIG_KEY, {}))
+	data = get_custom_data(entity, name, {})
 	if cleaned:
 		data[_LABELS] = cleaned
 	else:
 		data.pop(_LABELS, None)
-	set_custom_data(entity, PLUGIN_CONFIG_KEY, data)
+	set_custom_data(entity, name, data)
 
 
 # --- session torrent ids ----------------------------------------------------
@@ -185,14 +183,18 @@ class SpeedSettingsEC(EntityComponent):
 		return remembered if turned_on else 0
 
 
-def get_speed_settings(env: Env) -> SpeedSettingsEC:
-	"""The app's one SpeedSettingsEC, created from config on first use."""
+def get_speed_settings(env: Env, config: Optional[Dict[str, Any]] = None) -> SpeedSettingsEC:
+	"""The app's one SpeedSettingsEC, created from `config` on first use.
+
+	`config` is only read when the singleton does not exist yet, which is why RpcServer
+	seeds it at start-up and every later reader can leave it out.
+	"""
 	collection = env.data_storage.get_collection(SpeedSettingsEC)
 	for entity in collection:
 		return entity.get_component(SpeedSettingsEC)
 
 	settings = SpeedSettingsEC(
-		env.config.get_plugin_config(PLUGIN_CONFIG_KEY),
+		config,
 		env.config.speed_limit_down,
 		env.config.speed_limit_up,
 	)
