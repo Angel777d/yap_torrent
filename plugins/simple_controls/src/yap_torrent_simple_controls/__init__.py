@@ -18,7 +18,7 @@ class SimpleControlsPlugin(TorrentPlugin):
 
 	@staticmethod
 	def get_purpose() -> Set[str]:
-		return set("ui")
+		return {"ui", }
 
 
 logger = logging.getLogger(__name__)

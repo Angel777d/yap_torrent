@@ -25,7 +25,7 @@ RPC_PATH_PLACEHOLDER = "{{RPC_PATH}}"
 
 
 class RpcServer:
-	def __init__(self, env: Env):
+	def __init__(self, name: str, env: Env):
 		self.env = env
 
 		config = env.config.get_plugin_config(PLUGIN_CONFIG_KEY)

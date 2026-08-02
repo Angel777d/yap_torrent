@@ -31,6 +31,9 @@ def discover_plugins(config: Config) -> List[TorrentPlugin]:
 				logger.warning(f"Plugin {name} is not inherited from TorrentPlugin")
 				continue
 
+			# the entry point name is the authority: it is what disabled_plugins matches
+			plugin.set_name(name)
+
 			# TODO: rework with specific entry point for UI
 			plugin_purpose = plugin.get_purpose()
 			if purposes.intersection(plugin_purpose):

@@ -142,19 +142,13 @@ def mark_for_save(torrent_entity: Entity) -> None:
 		torrent_entity.add_component(SaveTorrentEC())
 
 
-def get_custom_data(torrent_entity: Entity, plugin_name: str, default: Any = None) -> Any:
-	"""Whatever `plugin_name` last stored on this torrent, or `default`."""
+def get_custom_data(torrent_entity: Entity, plugin_name: str, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
 	if not torrent_entity.has_component(TorrentCustomDataEC):
 		return default
 	return torrent_entity.get_component(TorrentCustomDataEC).data.get(plugin_name, default)
 
 
-def set_custom_data(torrent_entity: Entity, plugin_name: str, value: Any) -> None:
-	"""Store `value` under `plugin_name` and mark the torrent for saving.
-
-	Core does not read the value and has no opinion on its shape, so what goes in it — and
-	whether writing the same thing twice is worth a save — is the plugin's call.
-	"""
+def set_custom_data(torrent_entity: Entity, plugin_name: str, value: Dict[str, Any]) -> None:
 	if not torrent_entity.has_component(TorrentCustomDataEC):
 		torrent_entity.add_component(TorrentCustomDataEC())
 	torrent_entity.get_component(TorrentCustomDataEC).data[plugin_name] = value

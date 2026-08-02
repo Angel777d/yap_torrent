@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 # yap_torrent.plugins.ui
 class UIPlugin(TorrentPlugin):
 	def __init__(self):
+		super().__init__()
 		self._app = None
 
 	async def start(self, env: Env):
@@ -30,7 +31,7 @@ class UIPlugin(TorrentPlugin):
 
 	@staticmethod
 	def get_purpose() -> Set[str]:
-		return set("ui")
+		return {"ui", }
 
 
 plugin = UIPlugin()

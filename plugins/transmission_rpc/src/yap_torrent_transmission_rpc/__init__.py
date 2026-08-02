@@ -8,10 +8,11 @@ from .server import RpcServer
 
 class TransmissionRpcPlugin(TorrentPlugin):
 	def __init__(self):
+		super().__init__()
 		self.servers: List[RpcServer] = []
 
 	async def start(self, env: Env):
-		self.servers.append(await RpcServer(env).start())
+		self.servers.append(await RpcServer(self.name, env).start())
 
 	async def stop(self):
 		for s in self.servers:
