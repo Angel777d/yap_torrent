@@ -15,12 +15,10 @@ from yap_torrent.components.torrent_ec import (
 	TorrentQueuePositionEC,
 	TorrentStatsEC,
 )
-from yap_torrent.config import as_bool
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode
 from yap_torrent.protocol.magnet import MagnetInfo
 from yap_torrent.protocol.structures import Metainfo
-from yap_torrent.settings import Setting
 from yap_torrent.systems import (
 	get_torrent_entity,
 	get_torrent_name,
@@ -32,19 +30,10 @@ from yap_torrent.systems.stats_system import session_rates
 from .components import get_speed_settings, set_labels
 from .mapping import DEFAULT_FIELDS, STALLED_AFTER_SECONDS, build_torrent
 from .server_info import ServerInfo, TorrentIDs
+from .settings import SESSION_SETTINGS
 
 logger = logging.getLogger(__name__)
 
-
-# --- protocol version ------------------------------------------------------
-# The legacy (kebab-case `method`/`arguments`/`tag`) protocol, which is what every
-# existing remote and the transmission-rpc Python client still speak. Transmission 4.1
-# deprecates it in favour of JSON-RPC 2.0 with snake_case names (rpc_version 19); that is
-# a separate surface, not a newer version of this one.
-#
-# MAX is the newest legacy rpc-version whose method set we implement, MIN the oldest a
-# client may assume. The semver MUST match MAX in the spec's version table — 17 is 5.3.0
-# — because clients gate features on the semver rather than the integer.
 RPC_VERSION_MIN_SUPPORTED = 14
 RPC_VERSION_MAX_SUPPORTED = 17
 RPC_VERSION_SEMVER = "5.3.0"
@@ -512,61 +501,6 @@ async def session_get(info, arguments):
 		return "success", {key: session[key] for key in fields.intersection(session.keys())}
 	return "success", session
 
-
-# The config properties this plugin offers its clients, with the cast each needs to read a
-# JSON value, and — where nothing acts on the value yet — why. Core holds the properties
-# and knows none of this: what is worth exposing, and what a client is allowed to send for
-# it, is ours. Registered at start-up by `RpcServer`.
-_NOT_ENFORCED_BANDWIDTH = "bandwidth limiting is not implemented; the value is stored and reported only"
-_NOT_ENFORCED_QUEUE = "there is no active-torrent queue; the value is stored and reported only"
-_NOT_ENFORCED_PEERS = "connection admission is driven by the queue limits; the value is stored and reported only"
-_NOT_ENFORCED_RATIO = "seeding is never stopped on ratio; the value is stored and reported only"
-_NOT_ENFORCED_INCOMPLETE = "downloads are written straight to download_folder"
-_NOT_ENFORCED_BLOCKLIST = "no blocklist subsystem; no peer is ever filtered"
-
-CORE_SETTINGS: Tuple[Setting, ...] = (
-	Setting("download_folder", Path),
-	Setting("port", int),
-	Setting("dht_enabled", as_bool),
-	Setting("start_added_torrents", as_bool),
-
-	Setting("incomplete_folder", Path, note=_NOT_ENFORCED_INCOMPLETE),
-	Setting("incomplete_folder_enabled", as_bool, note=_NOT_ENFORCED_INCOMPLETE),
-	Setting("speed_limit_down", int, note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("speed_limit_up", int, note=_NOT_ENFORCED_BANDWIDTH),
-	Setting("seed_ratio_limit", float, note=_NOT_ENFORCED_RATIO),
-	Setting("seed_ratio_limited", as_bool, note=_NOT_ENFORCED_RATIO),
-	Setting("download_queue_enabled", as_bool, note=_NOT_ENFORCED_QUEUE),
-	Setting("download_queue_size", int, note=_NOT_ENFORCED_QUEUE),
-	Setting("seed_queue_enabled", as_bool, note=_NOT_ENFORCED_QUEUE),
-	Setting("seed_queue_size", int, note=_NOT_ENFORCED_QUEUE),
-	Setting("max_connections", int, note=_NOT_ENFORCED_PEERS),
-	Setting("peer_limit_per_torrent", int, note=_NOT_ENFORCED_PEERS),
-	Setting("blocklist_enabled", as_bool, note=_NOT_ENFORCED_BLOCKLIST),
-	Setting("blocklist_url", str, note=_NOT_ENFORCED_BLOCKLIST),
-)
-
-# Transmission session key -> core config key. Anything absent here is either
-# plugin-owned or something core has no notion of; session-set ignores those rather than
-# failing the call, which is what Transmission does with unknown args.
-SESSION_SETTINGS: Dict[str, str] = {
-	"download-dir": "download_folder",
-	"incomplete-dir": "incomplete_folder",
-	"incomplete-dir-enabled": "incomplete_folder_enabled",
-	"seedRatioLimit": "seed_ratio_limit",
-	"seedRatioLimited": "seed_ratio_limited",
-	"download-queue-enabled": "download_queue_enabled",
-	"download-queue-size": "download_queue_size",
-	"seed-queue-enabled": "seed_queue_enabled",
-	"seed-queue-size": "seed_queue_size",
-	"peer-limit-global": "max_connections",
-	"peer-limit-per-torrent": "peer_limit_per_torrent",
-	"blocklist-enabled": "blocklist_enabled",
-	"blocklist-url": "blocklist_url",
-	"start-added-torrents": "start_added_torrents",
-	"dht-enabled": "dht_enabled",
-	"peer-port": "port",
-}
 
 # alt-speed is ours; it maps to SpeedSettingsEC rather than to a core setting
 ALT_SPEED_SETTINGS: Dict[str, str] = {

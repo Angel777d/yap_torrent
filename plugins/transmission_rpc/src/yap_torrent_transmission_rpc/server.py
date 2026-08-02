@@ -8,15 +8,14 @@ from aiohttp import web
 
 from yap_torrent.env import Env
 from .components import get_speed_settings
-from .methods import CORE_SETTINGS, METHODS, UNIMPLEMENTED
+from .methods import METHODS, UNIMPLEMENTED
+from .settings import CORE_SETTINGS
 from .server_info import ServerInfo
 
 logger = logging.getLogger(__name__)
 
 CSRF_HEADER = "X-Transmission-Session-Id"
 HTML_DIR = Path(__file__).parent / "html"
-# the page asks the server where the RPC lives rather than assuming, because `path` is
-# configurable and the UI may be reached through a reverse proxy
 RPC_PATH_PLACEHOLDER = "{{RPC_PATH}}"
 
 
@@ -28,8 +27,7 @@ class RpcServer:
 			uuid.uuid4().hex + uuid.uuid4().hex[:16],  # 48-char id, like Transmission
 			time.monotonic(),
 		)
-		# seed the app-wide speed singleton from config now, so its initial values come
-		# from the file rather than from whichever request happens to touch it first
+
 		get_speed_settings(env, self.info.config)
 
 		self.app = self.make_app()
@@ -56,8 +54,6 @@ class RpcServer:
 		raise web.HTTPFound(f"{self.info.web_path}/")
 
 	async def handle_index(self, _: web.Request) -> web.Response:
-		# read per request rather than cached: the page is fetched once per browser
-		# session, and editing it during development should not need a restart
 		try:
 			page = (HTML_DIR / "index.html").read_text(encoding="utf-8")
 		except OSError as ex:

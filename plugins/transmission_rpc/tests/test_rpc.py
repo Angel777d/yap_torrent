@@ -24,7 +24,7 @@ from yap_torrent.systems.settings_system import SettingsSystem
 from yap_torrent.systems.stats_system import StatsSystem
 from yap_torrent.systems.torrents_system import TorrentSystem
 from yap_torrent_transmission_rpc.components import get_speed_settings
-from yap_torrent_transmission_rpc.methods import CORE_SETTINGS
+from yap_torrent_transmission_rpc.settings import CORE_SETTINGS
 from yap_torrent_transmission_rpc.server import CSRF_HEADER, RpcServer
 
 RPC_PATH = "/transmission/rpc"
