@@ -26,6 +26,15 @@ class TorrentEC(EntityHashComponent):
 		return hash(self.info_hash)
 
 
+class TorrentIdEC(EntityComponent):
+	_last: int = 0
+
+	def __init__(self) -> None:
+		super().__init__()
+		TorrentIdEC._last += 1
+		self.localId: int = TorrentIdEC._last
+
+
 class TorrentInfoEC(EntityComponent):
 	def __init__(self, torrent_info: TorrentInfo) -> None:
 		super().__init__()
@@ -235,4 +244,3 @@ class TorrentQueuePositionEC(EntityComponent):
 	def __init__(self, position: int = 0) -> None:
 		super().__init__()
 		self.position: int = position
-

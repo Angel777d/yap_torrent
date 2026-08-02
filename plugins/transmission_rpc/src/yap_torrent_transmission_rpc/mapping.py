@@ -36,12 +36,13 @@ from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrack
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.systems import (
+	get_local_id,
 	get_torrent_name,
 	is_torrent_complete,
 	iterate_connected_peers,
 	iterate_files,
 )
-from .components import get_labels, torrent_id
+from .components import get_labels
 from .server_info import ServerInfo
 
 logger = logging.getLogger(__name__)
@@ -352,7 +353,7 @@ def build_torrent(entity: Entity, fields, server_info: ServerInfo) -> Dict[str, 
 
 	# Every getter is lazy so we only compute what the client asked for.
 	getters: Dict[str, Callable[[], Any]] = {
-		"id": lambda: torrent_id(env, torrent_ec.info_hash),
+		"id": lambda: get_local_id(entity),
 		"hashString": lambda: info_hash_hex,
 		"name": lambda: get_torrent_name(entity),
 		"status": lambda: status_code(entity),

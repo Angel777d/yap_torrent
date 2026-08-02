@@ -50,52 +50,6 @@ def set_labels(entity: Entity, name: str, labels: Iterable[str]) -> None:
 	set_custom_data(entity, name, data)
 
 
-# --- session torrent ids ----------------------------------------------------
-class TorrentIdsEC(EntityComponent):
-	"""Transmission's session-scoped integer torrent ids. **Runtime only.**
-
-	The RPC lets a client name a torrent by a small int that need only be unique and
-	stable for the life of the session. Core identifies a torrent by its info_hash and
-	nothing else — an ordinal is not state its logic needs — so the mapping is ours, is
-	never persisted, and starts empty every run, which is exactly what the spec says an
-	id is.
-
-	Exactly one instance exists for the whole app; reach it with `get_torrent_ids`.
-	"""
-
-	def __init__(self) -> None:
-		super().__init__()
-		self._ids: Dict[bytes, int] = {}
-		self._last: int = 0
-
-	def id_for(self, info_hash: bytes) -> int:
-		"""This torrent's session id, minting one on first sight."""
-		if info_hash not in self._ids:
-			self._last += 1
-			self._ids[info_hash] = self._last
-		return self._ids[info_hash]
-
-	def forget(self, info_hash: bytes) -> None:
-		"""Drop a removed torrent's entry, so a long session's map tracks live torrents
-		rather than every torrent it ever saw. `_last` only ever goes up, so the number
-		itself is not handed out again."""
-		self._ids.pop(info_hash, None)
-
-
-def get_torrent_ids(env: Env) -> TorrentIdsEC:
-	"""The app's one TorrentIdsEC, created on first use."""
-	for entity in env.data_storage.get_collection(TorrentIdsEC):
-		return entity.get_component(TorrentIdsEC)
-
-	ids = TorrentIdsEC()
-	env.data_storage.create_entity().add_component(ids)
-	return ids
-
-
-def torrent_id(env: Env, info_hash: bytes) -> int:
-	"""The session id this plugin reports for a torrent."""
-	return get_torrent_ids(env).id_for(info_hash)
-
 
 # --- runtime settings -------------------------------------------------------
 class SpeedSettingsEC(EntityComponent):

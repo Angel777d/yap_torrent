@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 from aiohttp import web
 
 from yap_torrent.env import Env
-from .components import get_speed_settings, get_torrent_ids
+from .components import get_speed_settings
 from .methods import CORE_SETTINGS, METHODS, UNIMPLEMENTED
 from .server_info import ServerInfo
 
@@ -31,8 +31,6 @@ class RpcServer:
 		# seed the app-wide speed singleton from config now, so its initial values come
 		# from the file rather than from whichever request happens to touch it first
 		get_speed_settings(env, self.info.config)
-		# a removed torrent's session id is dead weight; nothing may reuse the number
-		env.event_bus.add_listener("action.torrent.remove", self._on_torrent_remove, scope=self)
 
 		self.app = self.make_app()
 		self.runner = web.AppRunner(self.app, access_log=None)
@@ -77,9 +75,6 @@ class RpcServer:
 		if self.info.web_enabled:
 			logger.info("Web UI served at http://%s:%s%s/", self.info.host, self.info.port, self.info.web_path)
 		return self
-
-	async def _on_torrent_remove(self, info_hash: bytes):
-		get_torrent_ids(self.info.env).forget(info_hash)
 
 	async def stop(self):
 		self.info.env.event_bus.remove_all_listeners(scope=self)

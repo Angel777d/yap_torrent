@@ -151,7 +151,7 @@ class TorrentSystem(System):
 		logger.info(f"Remove torrent {get_torrent_name(torrent_entity)}")
 		await self._on_torrent_stop(info_hash)
 		await self.env.event_bus.dispatch_async("action.torrent.remove", info_hash)
-		self.env.data_storage.remove_entity(get_torrent_entity(self.env, info_hash))
+		self.env.data_storage.remove_entity(torrent_entity)
 
 		# close the gap the removed torrent left
 		_renumber(self._ordered_by_priority())

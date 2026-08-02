@@ -7,8 +7,9 @@ from angelovich.core.DataStorage import Entity
 from yap_torrent.components.common import IdleEC
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState, PeerStatsEC, PeerPendingRemoveEC
-from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentCustomDataEC, TorrentPathEC, \
-	TorrentStatsEC, SaveTorrentEC, ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, TorrentQueuePositionEC
+from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentCustomDataEC, TorrentIdEC, \
+	TorrentPathEC, TorrentStatsEC, SaveTorrentEC, ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, \
+	TorrentQueuePositionEC
 from yap_torrent.env import Env
 from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
@@ -53,6 +54,7 @@ def create_torrent_entity(env: Env, info_hash: InfoHash, path: Path, stats: Dict
 	if torrent_info:
 		torrent_entity.add_component(TorrentInfoEC(torrent_info))
 	torrent_entity.add_component(TorrentEC(info_hash, display_name))
+	torrent_entity.add_component(TorrentIdEC())
 	return torrent_entity
 
 
@@ -62,6 +64,11 @@ def get_torrent_entity(env: Env, info_hash: InfoHash) -> Optional[Entity]:
 
 def get_info_hash(torrent_entity: Entity) -> InfoHash:
 	return torrent_entity.get_component(TorrentEC).info_hash
+
+
+def get_local_id(torrent_entity: Entity) -> int:
+	"""The session-scoped number an interface may name this torrent by."""
+	return torrent_entity.get_component(TorrentIdEC).localId
 
 
 def get_torrent_name(entity: Entity):

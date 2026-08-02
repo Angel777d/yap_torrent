@@ -19,12 +19,12 @@ from yap_torrent.components.peer_ec import (
 	PeerRateEC,
 	RemoteInterestedEC,
 )
-from yap_torrent.components.torrent_ec import TorrentQueuePositionEC
+from yap_torrent.components.torrent_ec import TorrentIdEC, TorrentQueuePositionEC
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
 from yap_torrent.protocol.structures import Metainfo, PeerInfo
-from yap_torrent.systems import add_known_peer, create_torrent_entity, get_info_hash
+from yap_torrent.systems import add_known_peer, create_torrent_entity, get_info_hash, get_local_id
 from yap_torrent.systems.choke_system import ChokeSystem
 from yap_torrent.systems.intrest_system import InterestedSystem
 from yap_torrent.systems.peer_system import calculate_candidates
@@ -206,6 +206,53 @@ def test_remove_compacts_positions():
 		assert _positions(t2, t3) == [0, 1]
 
 	asyncio.run(run())
+
+
+# --- the session id (TorrentIdEC) ------------------------------------------
+def _reset_ids():
+	# class level, so it carries between tests in one process
+	TorrentIdEC._last = 0
+
+
+def test_each_torrent_is_given_its_own_id():
+	_reset_ids()
+	env = _env()
+	torrents = [_make(env, f"t{i}") for i in range(1, 4)]
+
+	assert [get_local_id(t) for t in torrents] == [1, 2, 3]
+
+
+def test_the_counter_is_on_the_class_not_the_instance():
+	_reset_ids()
+	env = _env()
+	[_make(env, f"t{i}") for i in range(3)]
+
+	assert TorrentIdEC._last == 3
+
+
+def test_a_removed_torrents_id_is_not_handed_out_again():
+	async def run():
+		_reset_ids()
+		env = _env()
+		t1, t2 = (_make(env, f"t{i}") for i in range(1, 3))
+		system = TorrentSystem(env)
+		await system.start()
+		spent = get_local_id(t1)
+
+		await system._on_torrent_remove(get_info_hash(t1))
+
+		assert get_local_id(_make(env, "t3")) != spent
+		assert get_local_id(t2) != spent
+
+	asyncio.run(run())
+
+
+def test_a_second_env_keeps_counting_from_where_the_first_left_off():
+	_reset_ids()
+	first = _env()
+	_make(first, "a")
+
+	assert get_local_id(_make(_env(), "b")) == 2
 
 
 # --- global candidate selection (peer_system) ------------------------------

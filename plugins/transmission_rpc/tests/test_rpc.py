@@ -997,36 +997,27 @@ async def test_the_id_reported_on_add_is_the_one_torrent_get_uses(client, server
 	assert await get_field(client, session_id, stub["hashString"], "id") == stub["id"]
 
 
-async def test_ids_are_not_shared_between_sessions(server):
-	# they are runtime only: a fresh app has minted nothing
-	from yap_torrent_transmission_rpc.components import TorrentIdsEC, get_torrent_ids
+async def test_the_reported_id_is_cores_local_id(client, server):
+	# the number is core's now (TorrentIdEC.localId): we report it rather than mint our own,
+	# so every interface names a torrent the same way
+	from yap_torrent.systems import get_local_id, get_torrent_entity
 
-	ids = get_torrent_ids(server.env)
-	assert get_torrent_ids(server.env) is ids  # one instance for the app
-	assert len(server.env.data_storage.get_collection(TorrentIdsEC)) == 1
+	session_id = await handshake(client)
+	info_hash = await add_torrent(client, session_id, make_metainfo())
+	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
 
-	first = ids.id_for(b"\x01" * 20)
-	assert ids.id_for(b"\x01" * 20) == first
-	assert ids.id_for(b"\x02" * 20) != first
+	assert await get_field(client, session_id, info_hash, "id") == get_local_id(entity)
 
 
-async def test_a_removed_torrent_does_not_keep_its_id_for_ever(client, server):
-	# the id used to die with the torrent entity; held in our own map it has to be dropped,
-	# or a long session accumulates an entry per torrent it ever saw
-	from yap_torrent_transmission_rpc.components import get_torrent_ids
+async def test_a_torrent_added_after_a_removal_is_still_listed(client, server):
+	# fails if core ever reissues a spent id: `removed` hides a torrent by that number
+	session_id = await handshake(client)
+	first = await add_torrent(client, session_id, make_metainfo(b"first.txt"))
 
-	await server.start()
-	try:
-		session_id = await handshake(client)
-		info_hash = await add_torrent(client, session_id, make_metainfo())
-		ids = get_torrent_ids(server.env)
-		minted = ids.id_for(bytes.fromhex(info_hash))
+	await rpc(client, session_id, "torrent-remove", {"ids": [first]})
+	await asyncio.sleep(0.01)
 
-		await rpc(client, session_id, "torrent-remove", {"ids": [info_hash]})
-		await asyncio.sleep(0.01)
+	second = await add_torrent(client, session_id, make_metainfo(b"second.txt"))
+	listed = await rpc(client, session_id, "torrent-get", {"ids": "recently-active", "fields": ["hashString"]})
 
-		assert bytes.fromhex(info_hash) not in ids._ids
-		# and the number is not handed out again
-		assert ids.id_for(b"\x07" * 20) != minted
-	finally:
-		await server.stop()
+	assert second in [t["hashString"] for t in listed["arguments"]["torrents"]]

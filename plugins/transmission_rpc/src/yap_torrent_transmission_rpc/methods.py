@@ -24,11 +24,12 @@ from yap_torrent.settings import Setting
 from yap_torrent.systems import (
 	get_torrent_entity,
 	get_torrent_name,
+	get_local_id,
 	is_torrent_active,
 	iterate_torrents_in_queue_order,
 )
 from yap_torrent.systems.stats_system import session_rates
-from .components import get_speed_settings, set_labels, torrent_id
+from .components import get_speed_settings, set_labels
 from .mapping import DEFAULT_FIELDS, STALLED_AFTER_SECONDS, build_torrent
 from .server_info import ServerInfo, TorrentIDs
 
@@ -78,7 +79,7 @@ async def fetch_url(url: str) -> Optional[bytes]:
 def iterate_torrents(info: ServerInfo, ids: TorrentIDs):
 	for e in info.env.data_storage.get_collection(TorrentEC):
 		torrent = e.get_component(TorrentEC)
-		this_id = torrent_id(info.env, torrent.info_hash)
+		this_id = get_local_id(e)
 		if info.removed.contains(torrent, this_id):
 			continue
 		if not ids.empty() and not ids.contains(torrent, this_id):
@@ -94,7 +95,7 @@ async def torrent_start(info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(info, ids):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent_id(info.env, torrent.info_hash))
+		info.recent.add(get_local_id(entity))
 		await info.env.event_bus.dispatch_async("request.torrent.start", torrent.info_hash)
 	return "success", {}
 
@@ -108,7 +109,7 @@ async def torrent_stop(info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(info, ids):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent_id(info.env, torrent.info_hash))
+		info.recent.add(get_local_id(entity))
 		await info.env.event_bus.dispatch_async("request.torrent.stop", torrent.info_hash)
 	return "success", {}
 
@@ -118,7 +119,7 @@ async def torrent_verify(info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(info, ids):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent_id(info.env, torrent.info_hash))
+		info.recent.add(get_local_id(entity))
 		await info.env.event_bus.dispatch_async("request.torrent.invalidate", torrent.info_hash)
 	return "success", {}
 
@@ -128,7 +129,7 @@ async def torrent_reannounce(info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(info, ids):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent_id(info.env, torrent.info_hash))
+		info.recent.add(get_local_id(entity))
 		await info.env.event_bus.dispatch_async("request.torrent.reannounce", torrent.info_hash)
 	return "success", {}
 
@@ -248,7 +249,7 @@ async def torrent_set(info, arguments):
 	ids = TorrentIDs.read_ids(arguments, info.recent)
 	for entity in iterate_torrents(info, ids):
 		torrent = entity.get_component(TorrentEC)
-		info.recent.add(torrent_id(info.env, torrent.info_hash))
+		info.recent.add(get_local_id(entity))
 		await _apply_torrent_settings(info, entity, arguments)
 	return "success", {}
 
@@ -269,7 +270,7 @@ def _queue_mover(direction: str) -> Handler:
 		if direction in ("top", "down"):
 			entities.reverse()
 		for entity in entities:
-			info.recent.add(torrent_id(info.env, entity.get_component(TorrentEC).info_hash))
+			info.recent.add(get_local_id(entity))
 		await _move_in_queue(info.env, entities, direction)
 		return "success", {}
 
@@ -291,7 +292,7 @@ async def torrent_remove(info: ServerInfo, arguments):
 		torrent = entity.get_component(TorrentEC)
 		logger.info("[torrent-remove] remove torrent: %s (delete_data=%s)", get_torrent_name(entity), delete_data)
 
-		info.removed.add(torrent_id(info.env, torrent.info_hash))
+		info.removed.add(get_local_id(entity))
 		info.env.event_bus.dispatch("request.torrent.remove", torrent.info_hash, delete_data)
 
 	return "success", {}
@@ -369,7 +370,7 @@ async def torrent_add(info, arguments):
 
 def _added_stub(env: Env, entity: Entity) -> Dict[str, Any]:
 	return {
-		"id": torrent_id(env, entity.get_component(TorrentEC).info_hash),
+		"id": get_local_id(entity),
 		"hashString": entity.get_component(TorrentEC).info_hash.hex(),
 		"name": get_torrent_name(entity),
 	}
@@ -403,7 +404,7 @@ async def _add_metainfo(info: ServerInfo, data: bytes, download_dir: Optional[Pa
 	await asyncio.sleep(0)
 	await _apply_torrent_settings(info, torrent_entity, arguments)
 
-	info.recent.add(torrent_id(env, torrent_entity.get_component(TorrentEC).info_hash))
+	info.recent.add(get_local_id(torrent_entity))
 
 	logger.info("torrent-add: added %s", info_hash.hex())
 	return "success", {"torrent-added": _added_stub(env, torrent_entity)}
@@ -429,7 +430,7 @@ async def _add_magnet(info: ServerInfo, magnet_link: str, paused):
 	if paused:
 		env.event_bus.dispatch("request.torrent.stop", info_hash)
 
-	info.recent.add(torrent_id(env, torrent_entity.get_component(TorrentEC).info_hash))
+	info.recent.add(get_local_id(torrent_entity))
 
 	# a magnet has no metadata yet, so prefer its display name (dn) over the
 	# entity's placeholder name until real metadata arrives
