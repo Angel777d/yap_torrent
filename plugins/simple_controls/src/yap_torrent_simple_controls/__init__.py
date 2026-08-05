@@ -1,21 +1,17 @@
-import asyncio
 import logging
-from typing import Set
+from typing import List, Set
 
 from angelovich.core.Plugin import Plugin
+from angelovich.core.System import System
 
 from yap_torrent.env import Env
-from .screens import root
+from .system import SimpleControlsSystem
 
 
 # yap_torrent.plugins.simple_controls
 class SimpleControlsPlugin(Plugin):
-	async def start(self, env: Env):
-		loop = asyncio.get_running_loop()
-		root(env, loop)
-
-	def close(self):
-		pass
+	def get_systems(self, env: Env) -> List[System]:
+		return [SimpleControlsSystem(env)]
 
 	@staticmethod
 	def get_purpose() -> Set[str]:

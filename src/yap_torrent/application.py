@@ -4,7 +4,7 @@ import signal
 import time
 from typing import List
 
-from angelovich.core.Plugin import Plugin, discover_plugins
+from angelovich.core.Plugin import discover_plugins
 from angelovich.core.System import System
 
 from yap_torrent import upnp
@@ -84,7 +84,8 @@ class Application:
 			AnnounceSystem(env),
 		]
 
-		self.plugins: List[Plugin] = discover_plugins(PLUGINS_GROUP, config.disabled_plugins)
+		for plugin in discover_plugins(PLUGINS_GROUP, config.disabled_plugins):
+			self.systems.extend(plugin.get_systems(env))
 
 		self.env = env
 
@@ -121,10 +122,6 @@ class Application:
 			logger.debug(f"start system {system}")
 			await system.start()
 
-		for plugin in self.plugins:
-			logger.debug(f"start plugin {plugin}")
-			await plugin.start(env)
-
 		logger.info("Torrent application initialized")
 
 		last_time = time.monotonic()
@@ -139,12 +136,6 @@ class Application:
 			except Exception as ex:
 				logger.error("unexpected exception on systems update: %s", ex, exc_info=True)
 
-			try:
-				for plugin in self.plugins:
-					await plugin.update(dt)
-			except Exception as ex:
-				logger.error("unexpected exception on plugins update: %s", ex, exc_info=True)
-
 			await asyncio.sleep(GLOBAL_TICK_TIME)
 
 		logger.info("Torrent application stop")
@@ -152,9 +143,6 @@ class Application:
 		# async stop
 		for system in self.systems:
 			await system.stop()
-
-		for plugin in self.plugins:
-			await plugin.stop()
 
 		self.close()
 
@@ -170,6 +158,3 @@ class Application:
 		# lock close
 		for system in self.systems:
 			system.close()
-
-		for plugin in self.plugins:
-			plugin.close()

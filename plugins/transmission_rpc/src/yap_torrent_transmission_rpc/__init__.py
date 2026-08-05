@@ -1,26 +1,16 @@
 import logging
-from typing import Set, List
+from typing import List, Set
 
 from angelovich.core.Plugin import Plugin
+from angelovich.core.System import System
 
 from yap_torrent.env import Env
-from .server import RpcServer
+from .system import TransmissionRpcSystem
 
 
 class TransmissionRpcPlugin(Plugin):
-	def __init__(self):
-		super().__init__()
-		self.servers: List[RpcServer] = []
-
-	async def start(self, env: Env):
-		self.servers.append(await RpcServer(self.name, env).start())
-
-	async def stop(self):
-		for s in self.servers:
-			await s.stop()
-
-	def close(self):
-		self.servers.clear()
+	def get_systems(self, env: Env) -> List[System]:
+		return [TransmissionRpcSystem(env, self.name)]
 
 	@staticmethod
 	def get_purpose() -> Set[str]:
