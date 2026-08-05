@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 from yap_torrent.components.extensions import TorrentMetadataEC, PeerExtensionsEC, UT_METADATA, METADATA_PIECE_SIZE
 from yap_torrent.components.peer_ec import PeerConnectionEC
@@ -9,7 +10,6 @@ from yap_torrent.components.torrent_ec import TorrentEC, TorrentInfoEC
 from yap_torrent.protocol import bt_ext_messages as msg
 from yap_torrent.protocol import encode, decode, TorrentInfo
 from yap_torrent.protocol.connection import Message
-from yap_torrent.system import System
 from yap_torrent.utils import check_hash
 
 logger = logging.getLogger(__name__)

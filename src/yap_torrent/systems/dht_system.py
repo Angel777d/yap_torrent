@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple, Iterable, Set, Optional
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 import yap_torrent.dht.connection as dht_connection
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC
@@ -23,7 +24,6 @@ from yap_torrent.protocol import extensions
 from yap_torrent.protocol.connection import Message
 from yap_torrent.protocol.extensions import check_extension
 from yap_torrent.protocol.structures import PeerInfo
-from yap_torrent.system import System
 
 logger = logging.getLogger(__name__)
 

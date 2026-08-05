@@ -2,13 +2,14 @@ import asyncio
 import logging
 from typing import Set
 
+from angelovich.core.Plugin import Plugin
+
 from yap_torrent.env import Env
-from yap_torrent.plugins import TorrentPlugin
 from .screens import root
 
 
 # yap_torrent.plugins.simple_controls
-class SimpleControlsPlugin(TorrentPlugin):
+class SimpleControlsPlugin(Plugin):
 	async def start(self, env: Env):
 		loop = asyncio.get_running_loop()
 		root(env, loop)

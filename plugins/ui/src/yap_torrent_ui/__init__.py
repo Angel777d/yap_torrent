@@ -2,14 +2,15 @@ import asyncio
 import logging
 from typing import Set
 
+from angelovich.core.Plugin import Plugin
+
 from yap_torrent.env import Env
-from yap_torrent.plugins import TorrentPlugin
 
 logger = logging.getLogger(__name__)
 
 
 # yap_torrent.plugins.ui
-class UIPlugin(TorrentPlugin):
+class UIPlugin(Plugin):
 	def __init__(self):
 		super().__init__()
 		self._app = None

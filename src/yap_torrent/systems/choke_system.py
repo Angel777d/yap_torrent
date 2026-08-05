@@ -2,6 +2,7 @@ import logging
 from typing import Iterator, List
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System, TimeSystem
 
 from yap_torrent.components.peer_ec import (
 	LocalUnchokedEC,
@@ -15,7 +16,6 @@ from yap_torrent.components.peer_ec import (
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
-from yap_torrent.system import TimeSystem
 from yap_torrent.systems import (
 	get_info_hash,
 	is_torrent_complete,
@@ -40,11 +40,12 @@ def _candidates(peers: List[Entity]) -> Iterator[ChokeCandidate]:
 		)
 
 
-class ChokeSystem(TimeSystem):
+class ChokeSystem(TimeSystem, System):
 	_CHOKE_MESSAGES = (msg.MessageId.CHOKE.value, msg.MessageId.UNCHOKE.value)
 
 	def __init__(self, env: Env):
-		super().__init__(env, RECOMPUTE_INTERVAL)
+		System.__init__(self, env)
+		TimeSystem.__init__(self, RECOMPUTE_INTERVAL)
 
 	async def start(self):
 		self.add_listener("peer.message", self.__on_message)

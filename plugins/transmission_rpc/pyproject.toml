@@ -38,6 +38,7 @@ classifiers = [
 dependencies = [
     "yap_torrent>=0.2.2",
     "aiohttp",
+    "angelovich.core>=0.2.0",
 ]
 
 license = "MIT"

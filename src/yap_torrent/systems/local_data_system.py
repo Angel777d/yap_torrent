@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC, RestoreFileSelectionEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, SaveTorrentEC, ValidateTorrentEC, TorrentPathEC, \
 	TorrentCustomDataEC, TorrentLimitsEC, TorrentQueuePositionEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
-from yap_torrent.system import System
 from yap_torrent.systems import iterate_files
 from yap_torrent.systems import create_torrent_entity
 from yap_torrent.utils import execute_in_pool, write_atomic

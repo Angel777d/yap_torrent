@@ -1,10 +1,11 @@
 import logging
 from typing import Any, Iterable
 
+from angelovich.core.System import System
+
 from yap_torrent.components.setting_ec import SettingEC
 from yap_torrent.config import STARTUP_ONLY
 from yap_torrent.settings import Setting, SettingResult
-from yap_torrent.system import System
 
 logger = logging.getLogger(__name__)
 

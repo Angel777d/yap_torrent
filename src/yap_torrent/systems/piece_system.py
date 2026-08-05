@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Set, Tuple
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System, TimeSystem
 
 from yap_torrent.components.common import IdleEC
 from yap_torrent.components.piece_ec import (
@@ -15,7 +16,6 @@ from yap_torrent.components.torrent_ec import TorrentInfoEC, SaveTorrentEC, Torr
 from yap_torrent.env import Env
 from yap_torrent.protocol import InfoHash
 from yap_torrent.protocol import TorrentInfo
-from yap_torrent.system import TimeSystem
 from yap_torrent.systems import calculate_downloaded, get_torrent_entity
 from yap_torrent.utils import save_piece, execute_in_pool
 
@@ -24,10 +24,11 @@ logger = logging.getLogger(__name__)
 PieceToSave = Tuple[InfoHash, TorrentInfo, int, bytes]
 
 
-class PieceSystem(TimeSystem):
-
+class PieceSystem(TimeSystem, System):
 	def __init__(self, env: Env):
-		super().__init__(env, 10)
+		System.__init__(self, env)
+		TimeSystem.__init__(self, 10)
+
 		self.download_path = Path(env.config.download_folder)
 		self.download_path.mkdir(parents=True, exist_ok=True)
 

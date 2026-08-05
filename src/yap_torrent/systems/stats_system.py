@@ -3,11 +3,11 @@ import time
 from typing import Tuple
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System, TimeSystem
 
 from yap_torrent.components.peer_ec import PeerEC, PeerRateEC
 from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentEC, TorrentRateEC, TorrentStatsEC
 from yap_torrent.env import Env
-from yap_torrent.system import TimeSystem
 from yap_torrent.systems import get_torrent_entity
 
 logger = logging.getLogger(__name__)
@@ -30,11 +30,11 @@ def session_rates(env: Env) -> Tuple[float, float]:
 	return down, up
 
 
-class StatsSystem(TimeSystem):
+class StatsSystem(TimeSystem, System):
 	"""Samples PeerRateEC into TorrentRateEC. The only caller of sample_rate()."""
-
 	def __init__(self, env: Env):
-		super().__init__(env, SAMPLE_INTERVAL)
+		System.__init__(self, env)
+		TimeSystem.__init__(self, SAMPLE_INTERVAL)
 
 	async def start(self):
 		self.add_listener("action.torrent.start", self._on_torrent_start)

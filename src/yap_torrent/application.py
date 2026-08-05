@@ -4,12 +4,12 @@ import signal
 import time
 from typing import List
 
-import yap_torrent.plugins as plugins
+from angelovich.core.Plugin import Plugin, discover_plugins
+from angelovich.core.System import System
+
 from yap_torrent import upnp
 from yap_torrent.config import Config
 from yap_torrent.env import Env
-from yap_torrent.plugins import TorrentPlugin
-from yap_torrent.system import System
 from yap_torrent.systems.announce_system import AnnounceSystem
 from yap_torrent.systems.choke_system import ChokeSystem
 from yap_torrent.systems.dht_system import DHTSystem
@@ -34,6 +34,7 @@ from yap_torrent.systems.watch_system import WatcherSystem
 logger = logging.getLogger(__name__)
 
 GLOBAL_TICK_TIME = 1
+PLUGINS_GROUP = "yap_torrent.plugins"
 
 
 def network_setup() -> tuple[str, str]:
@@ -83,7 +84,7 @@ class Application:
 			AnnounceSystem(env),
 		]
 
-		self.plugins: List[TorrentPlugin] = plugins.discover_plugins(env.config)
+		self.plugins: List[Plugin] = discover_plugins(PLUGINS_GROUP, config.disabled_plugins)
 
 		self.env = env
 

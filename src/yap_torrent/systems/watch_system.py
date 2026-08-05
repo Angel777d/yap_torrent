@@ -3,9 +3,10 @@ import os
 from pathlib import Path
 from typing import List, Tuple
 
+from angelovich.core.System import System
+
 from yap_torrent.env import Env
 from yap_torrent.protocol import load_torrent_file
-from yap_torrent.system import System
 
 logger = logging.getLogger(__name__)
 

@@ -2,12 +2,12 @@ import logging
 import time
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentStatsEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.env import Env
 from yap_torrent.protocol.tracker import make_announce
-from yap_torrent.system import System
 from yap_torrent.systems import get_torrent_entity, get_torrent_name, is_torrent_active
 
 logger = logging.getLogger(__name__)

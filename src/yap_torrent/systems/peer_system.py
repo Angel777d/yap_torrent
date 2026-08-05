@@ -6,6 +6,7 @@ from asyncio import StreamReader, StreamWriter, Server
 from typing import Iterable, Optional, Tuple
 
 from angelovich.core.DataStorage import Entity, DataStorage
+from angelovich.core.System import System
 
 import yap_torrent.protocol.connection as net
 from yap_torrent.components.common import IdleEC
@@ -28,7 +29,6 @@ from yap_torrent.protocol import extensions
 from yap_torrent.protocol.bt_main_messages import bitfield
 from yap_torrent.protocol.extensions import create_reserved, merge_reserved
 from yap_torrent.protocol.structures import PeerInfo
-from yap_torrent.system import System
 from yap_torrent.systems import (
 	add_known_peer,
 	get_info_hash,

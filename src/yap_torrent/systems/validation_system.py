@@ -5,11 +5,12 @@ from asyncio import Task
 from pathlib import Path
 from typing import Set, Optional
 
+from angelovich.core.System import System
+
 from yap_torrent.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, TorrentInfoEC, SaveTorrentEC, TorrentEC, \
 	TorrentStatsEC, TorrentState
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
-from yap_torrent.system import System
 from yap_torrent.systems import calculate_downloaded, get_torrent_entity
 from yap_torrent.utils import check_hash, execute_in_pool
 

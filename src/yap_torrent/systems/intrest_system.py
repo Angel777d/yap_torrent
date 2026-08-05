@@ -2,6 +2,7 @@ import logging
 from typing import Set
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 from yap_torrent.components.peer_ec import (
 	LocalInterestedEC,
@@ -15,7 +16,6 @@ from yap_torrent.components.torrent_ec import TorrentDownloadProgressEC, Torrent
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.protocol.structures import Bitfield
-from yap_torrent.system import System
 from yap_torrent.systems import get_info_hash, iterate_connected_peers, iterate_torrents_in_queue_order, \
 	interested_pieces
 

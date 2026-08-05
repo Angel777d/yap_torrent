@@ -1,10 +1,11 @@
 import logging
 from pathlib import Path
 
+from angelovich.core.System import System
+
 from yap_torrent.components.torrent_ec import SaveTorrentEC
 from yap_torrent.components.tracker_ec import TorrentTrackerDataEC, TorrentTrackerEC
 from yap_torrent.protocol.magnet import MagnetInfo
-from yap_torrent.system import System
 from yap_torrent.systems import create_torrent_entity
 
 logger = logging.getLogger(__name__)

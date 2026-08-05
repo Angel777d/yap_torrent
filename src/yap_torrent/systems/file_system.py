@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 from yap_torrent.components.file_ec import (
 	FilePriority,
@@ -12,7 +13,6 @@ from yap_torrent.components.file_ec import (
 )
 from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentInfoEC, TorrentDownloadProgressEC
 from yap_torrent.protocol import InfoHash
-from yap_torrent.system import System
 from yap_torrent.systems import get_info_hash, iterate_files, get_torrent_entity, compute_wanted_bitfield
 
 logger = logging.getLogger(__name__)

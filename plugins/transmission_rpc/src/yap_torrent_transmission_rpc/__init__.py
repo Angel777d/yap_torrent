@@ -1,12 +1,13 @@
 import logging
 from typing import Set, List
 
+from angelovich.core.Plugin import Plugin
+
 from yap_torrent.env import Env
-from yap_torrent.plugins import TorrentPlugin
 from .server import RpcServer
 
 
-class TransmissionRpcPlugin(TorrentPlugin):
+class TransmissionRpcPlugin(Plugin):
 	def __init__(self):
 		super().__init__()
 		self.servers: List[RpcServer] = []

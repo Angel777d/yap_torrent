@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import LocalUnchokedEC, PeerConnectionEC, PeerEC, PeerRateEC, PeerStatsEC
@@ -14,7 +15,6 @@ from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
-from yap_torrent.system import System
 from yap_torrent.systems import get_info_hash, is_torrent_active
 from yap_torrent.utils import execute_in_pool, load_and_verify_piece
 

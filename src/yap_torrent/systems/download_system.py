@@ -5,6 +5,7 @@ import time
 from typing import Dict, Iterable, Optional, Set
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System, TimeSystem
 
 from yap_torrent.components.common import IdleEC
 from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerRateEC, PeerRequestsEC, \
@@ -16,7 +17,6 @@ from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg
 from yap_torrent.protocol.message import Message
 from yap_torrent.protocol.structures import PieceBlockInfo
-from yap_torrent.system import TimeSystem
 from yap_torrent.systems import get_info_hash, get_torrent_entity, is_torrent_complete, iterate_connected_peers, \
 	interested_pieces
 from yap_torrent.utils import check_hash
@@ -27,11 +27,12 @@ PIPELINE = 10  # outstanding block requests kept in flight per peer
 EXPIRE_TICK = 10  # seconds between sweeps for requests a peer never answered
 
 
-class DownloadSystem(TimeSystem):
+class DownloadSystem(TimeSystem, System):
 	"""Requests blocks and assembles pieces. The tick only reclaims dead requests."""
 
 	def __init__(self, env: Env):
-		super().__init__(env, EXPIRE_TICK)
+		System.__init__(self, env)
+		TimeSystem.__init__(self, EXPIRE_TICK)
 
 	async def start(self):
 		self.add_listener("peer.message", self.__on_message)

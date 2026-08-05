@@ -3,10 +3,11 @@ import pickle
 from pathlib import Path
 from typing import List, Tuple
 
+from angelovich.core.System import System
+
 from yap_torrent.components.peer_ec import PeerEC, PeerState
 from yap_torrent.env import Env
 from yap_torrent.protocol.structures import PeerInfo
-from yap_torrent.system import System
 from yap_torrent.systems import add_known_peer, get_torrent_entity
 from yap_torrent.utils import write_atomic
 

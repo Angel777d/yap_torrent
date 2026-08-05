@@ -2,6 +2,7 @@ import logging
 from typing import Iterable, List
 
 from angelovich.core.DataStorage import Entity
+from angelovich.core.System import System
 
 from yap_torrent.components.torrent_ec import (
 	TorrentInfoEC,
@@ -11,7 +12,6 @@ from yap_torrent.components.torrent_ec import (
 	TorrentStatsEC,
 )
 from yap_torrent.protocol import InfoHash
-from yap_torrent.system import System
 from yap_torrent.systems import get_info_hash, get_torrent_entity, get_torrent_name, mark_for_save
 
 logger = logging.getLogger(__name__)

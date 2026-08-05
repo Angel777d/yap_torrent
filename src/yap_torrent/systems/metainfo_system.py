@@ -2,10 +2,11 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from angelovich.core.System import System
+
 from yap_torrent.components.torrent_ec import TorrentEC, SaveTorrentEC, ValidateTorrentEC
 from yap_torrent.components.tracker_ec import TorrentTrackerEC, TorrentTrackerDataEC
 from yap_torrent.protocol import Metainfo
-from yap_torrent.system import System
 from yap_torrent.systems import create_torrent_entity
 
 logger = logging.getLogger(__name__)
