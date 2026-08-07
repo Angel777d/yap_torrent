@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from angelovich.core.DataStorage import Entity
 
-from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
+from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileProgressEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import (
 	LocalUnchokedEC,
 	RemoteInterestedEC,
@@ -102,28 +102,8 @@ def status_code(entity: Entity) -> int:
 	return TR_STATUS_DOWNLOAD
 
 
-def file_bytes_completed(torrent_entity: Entity, file_entity: Entity) -> int:
-	"""How many bytes of one file we hold (counting only the in-file part of each piece).
-
-	Core downloads and reports whole pieces and has no use for a per-file byte count, so
-	the boundary arithmetic lives here, beside the only fields that ask for it.
-	"""
-	info = torrent_entity.get_component(TorrentInfoEC).info
-	bitfield = torrent_entity.get_component(TorrentEC).bitfield
-	file_ec = file_entity.get_component(TorrentFileEC)
-
-	piece_length = info.piece_length
-	file_start = file_ec.start
-	file_end = file_start + file_ec.length
-
-	total = 0
-	for index in range(file_ec.first_piece, file_ec.first_piece + file_ec.pieces_length):
-		if not bitfield.have_index(index):
-			continue
-		piece_start = index * piece_length
-		piece_end = piece_start + info.calculate_piece_size(index)
-		total += max(0, min(file_end, piece_end) - max(file_start, piece_start))
-	return total
+def file_bytes_completed(file_entity: Entity) -> int:
+	return file_entity.get_component(TorrentFileProgressEC).bytes_completed
 
 
 def _file_entities(entity: Entity, env: Env) -> List[Entity]:
@@ -144,7 +124,7 @@ def _files(entity: Entity, info: Optional[TorrentInfo], env: Env) -> List[Dict[s
 			"length": file_ec.length,
 			# exact rather than scaled from the overall percentage: the first and last
 			# piece of a file are shared with its neighbours
-			"bytesCompleted": file_bytes_completed(entity, file_entity),
+			"bytesCompleted": file_bytes_completed(file_entity),
 		})
 	return result
 
@@ -156,7 +136,7 @@ def _file_stats(entity: Entity, info: Optional[TorrentInfo], env: Env) -> List[D
 	for file_entity in _file_entities(entity, env):
 		state = file_entity.get_component(TorrentFileStateEC)
 		result.append({
-			"bytesCompleted": file_bytes_completed(entity, file_entity),
+			"bytesCompleted": file_bytes_completed(file_entity),
 			"wanted": state.wanted,
 			"priority": int(state.priority),
 		})
@@ -221,7 +201,7 @@ def _progress(entity: Entity, info: Optional[TorrentInfo], env: Env) -> _Progres
 	total_size = wanted_size = have_total = have_wanted = 0
 	for file_entity in files:
 		length = file_entity.get_component(TorrentFileEC).length
-		done = file_bytes_completed(entity, file_entity)
+		done = file_bytes_completed(file_entity)
 		total_size += length
 		have_total += done
 		if file_entity.get_component(TorrentFileStateEC).wanted:

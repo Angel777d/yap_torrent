@@ -4,27 +4,32 @@ The wanted mask is what the whole download path reads, so a selection change has
 it — and has to be announced, since interest is otherwise only re-derived when a peer
 happens to say something.
 
-How far each file got is reported by the transmission_rpc plugin, and tested there.
+How far each file got is kept on the file entity: totalled once when the entity is built
+and advanced by each completed piece, so nothing has to walk a piece range to answer.
 """
 import asyncio
 import time
 from pathlib import Path
 
-from yap_torrent.components.file_ec import FilePriority, TorrentFileEC, TorrentFileStateEC
+from yap_torrent.components.file_ec import FilePriority, TorrentFileEC, TorrentFileProgressEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import LocalInterestedEC, PeerConnectionEC, PeerEC, PeerRateEC
+from yap_torrent.components.piece_ec import PieceEC
 from yap_torrent.components.torrent_ec import (
 	SaveTorrentEC,
 	TorrentDownloadProgressEC,
+	TorrentEC,
+	TorrentInfoEC,
 )
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import decode, encode
-from yap_torrent.protocol.structures import Metainfo, PeerInfo
+from yap_torrent.protocol.structures import Metainfo, PeerInfo, PieceInfo
 from yap_torrent.systems import (
 	add_known_peer,
 	create_torrent_entity,
 	get_info_hash,
 	iterate_files,
+	recalculate_file_progress,
 )
 from yap_torrent.systems.file_system import FileSystem
 from yap_torrent.systems.intrest_system import InterestedSystem
@@ -156,6 +161,86 @@ def test_deselecting_the_last_wanted_file_releases_the_peer():
 
 		await files._on_file_select(info_hash, None, wanted=False)  # nothing wanted at all
 		assert peer.has_component(LocalInterestedEC) is False
+
+	asyncio.run(run())
+
+
+# --- how far each file got --------------------------------------------------
+# every boundary piece is shared, so a file's count is the in-file part of each piece held,
+# never a share of the torrent's percentage
+def _bytes(env, torrent):
+	files = _by_index(env, torrent)
+	return [files[index].get_component(TorrentFileProgressEC).bytes_completed for index in sorted(files)]
+
+
+async def _complete_piece(env, system, torrent, index: int):
+	"""What DownloadSystem does when a piece passes its hash check."""
+	info = torrent.get_component(TorrentInfoEC).info
+	torrent.get_component(TorrentEC).bitfield.set_index(index)
+
+	piece = env.data_storage.create_entity()
+	piece.add_component(PieceEC(get_info_hash(torrent), PieceInfo(
+		size=info.calculate_piece_size(index), index=index, piece_hash=b"\x00" * 20)))
+
+	await system._on_piece_complete(torrent, piece)
+
+
+def test_a_new_file_counts_what_the_bitfield_already_holds():
+	# a restored torrent has its bitfield before its file entities exist
+	async def run():
+		env = _env()
+		system = FileSystem(env)
+		await system.start()
+		meta = _meta()
+		torrent = create_torrent_entity(env, meta.make_info_hash(), Path("D:/dl"), {}, meta.info)
+		torrent.get_component(TorrentEC).bitfield.set_index(0)
+		await asyncio.sleep(0)
+
+		assert _bytes(env, torrent) == [10000, PIECE_LEN - 10000, 0]
+
+	asyncio.run(run())
+
+
+def test_a_completed_piece_only_advances_the_files_it_covers():
+	async def run():
+		env = _env()
+		system, torrent = await _torrent_with_files(env)
+		assert _bytes(env, torrent) == [0, 0, 0]
+
+		await _complete_piece(env, system, torrent, 0)  # a whole, b started, c untouched
+		assert _bytes(env, torrent) == [10000, PIECE_LEN - 10000, 0]
+
+		await _complete_piece(env, system, torrent, 1)  # b finished, c started
+		assert _bytes(env, torrent) == [10000, 20000, 2768]
+
+	asyncio.run(run())
+
+
+def test_holding_every_piece_reports_every_file_whole():
+	async def run():
+		env = _env()
+		system, torrent = await _torrent_with_files(env)
+		for index in range(5):
+			await _complete_piece(env, system, torrent, index)
+
+		assert _bytes(env, torrent) == [length for _, length in FILES]
+		assert sum(_bytes(env, torrent)) == 70000
+
+	asyncio.run(run())
+
+
+def test_a_wholesale_bitfield_change_is_recounted():
+	# validation replaces the bitfield rather than completing pieces one at a time
+	async def run():
+		env = _env()
+		system, torrent = await _torrent_with_files(env)
+		for index in range(5):
+			await _complete_piece(env, system, torrent, index)
+
+		torrent.get_component(TorrentEC).bitfield.reset({0})
+		recalculate_file_progress(env, torrent)
+
+		assert _bytes(env, torrent) == [10000, PIECE_LEN - 10000, 0]
 
 	asyncio.run(run())
 

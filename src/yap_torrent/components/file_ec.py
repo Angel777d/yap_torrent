@@ -1,10 +1,11 @@
 import logging
 from enum import IntEnum
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Set
 
 from angelovich.core.DataStorage import EntityComponent
 
 from yap_torrent.protocol import InfoHash
+from yap_torrent.protocol.structures import Bitfield
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +25,33 @@ class TorrentFileEC(EntityComponent):
 		self.info_hash: InfoHash = info_hash
 		self.index: int = index
 		self.path: str = path
-		self.first_piece: int = first_piece
-		self.pieces_length: int = pieces_length
 		self.start: int = start
 		self.length: int = length
+		self.wanted: set = set(range(first_piece, first_piece + pieces_length))
 
+
+class TorrentFileProgressEC(EntityComponent):
+	"""Bytes of this file we hold. Derived from the torrent bitfield, never persisted."""
+
+	def __init__(self, piece_size: int, total_bytes: int, bytes_completed: int = 0) -> None:
+		super().__init__()
+		self._bytes_completed: int = bytes_completed
+		self._total_bytes: int = total_bytes
+		self._piece_size: int = piece_size
+
+	@property
+	def bytes_completed(self):
+		return min(self._bytes_completed, self._total_bytes)
+
+	def increment_piece(self):
+		self._bytes_completed += self._piece_size
+
+	def update_progress(self, bitfield: Bitfield, wanted: Set[int]) -> "TorrentFileProgressEC":
+		self._bytes_completed = len(bitfield.have.intersection(wanted)) * self._piece_size
+		return self
+
+	def reset(self):
+		self._bytes_completed = 0
 
 class TorrentFileStateEC(EntityComponent):
 	def __init__(self, wanted: bool = True, priority: int = 0) -> None:

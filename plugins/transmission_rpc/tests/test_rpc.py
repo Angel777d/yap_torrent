@@ -350,7 +350,7 @@ async def test_wanted_relative_progress_reaches_one_hundred_percent(client, serv
 	# torrent. Reporting the total for both leaves a torrent with a deselected file
 	# stuck below 100% for ever while it reports itself as finished.
 	from yap_torrent.components.torrent_ec import TorrentEC
-	from yap_torrent.systems import get_torrent_entity
+	from yap_torrent.systems import get_torrent_entity, recalculate_file_progress
 
 	session_id = await handshake(client)
 	info_hash = await add_torrent(client, session_id, make_multifile_metainfo())
@@ -362,6 +362,7 @@ async def test_wanted_relative_progress_reaches_one_hundred_percent(client, serv
 	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
 	for index in (0, 1):
 		entity.get_component(TorrentEC).bitfield.set_index(index)
+	recalculate_file_progress(server.env, entity)
 
 	data = await rpc(client, session_id, "torrent-get", {
 		"ids": [info_hash],
@@ -787,12 +788,12 @@ async def test_a_magnet_is_named_by_its_display_name(client):
 
 
 # --- per-file byte counts ---------------------------------------------------
-# file_bytes_completed lives here now: core downloads and reports whole pieces, and the
-# first and last piece of a file are shared with its neighbours, so scaling the overall
-# percentage would report a file complete that is not.
+# core keeps the count on the file entity; these tests are about what the RPC reports from
+# it, not how it is arrived at. Setting the bitfield by hand skips the piece.complete that
+# would normally advance it, so they recount the way validation does.
 async def test_completed_bytes_are_counted_per_file_not_per_piece(client, server):
 	from yap_torrent.components.torrent_ec import TorrentEC
-	from yap_torrent.systems import get_torrent_entity
+	from yap_torrent.systems import get_torrent_entity, recalculate_file_progress
 
 	session_id = await handshake(client)
 	# a=10000 (piece 0), b=20000 (pieces 0..1), c=40000 (pieces 1..4) — boundaries shared
@@ -806,6 +807,7 @@ async def test_completed_bytes_are_counted_per_file_not_per_piece(client, server
 
 	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
 	entity.get_component(TorrentEC).bitfield.set_index(0)  # piece 0 only
+	recalculate_file_progress(server.env, entity)
 
 	files = await get_field(client, session_id, info_hash, "files")
 	assert [f["bytesCompleted"] for f in files] == [10000, 16384 - 10000, 0]
@@ -813,7 +815,7 @@ async def test_completed_bytes_are_counted_per_file_not_per_piece(client, server
 
 async def test_a_complete_torrent_reports_every_file_whole(client, server):
 	from yap_torrent.components.torrent_ec import TorrentEC
-	from yap_torrent.systems import get_torrent_entity
+	from yap_torrent.systems import get_torrent_entity, recalculate_file_progress
 
 	session_id = await handshake(client)
 	info = {
@@ -827,6 +829,7 @@ async def test_a_complete_torrent_reports_every_file_whole(client, server):
 	entity = get_torrent_entity(server.env, bytes.fromhex(info_hash))
 	for index in range(5):
 		entity.get_component(TorrentEC).bitfield.set_index(index)
+	recalculate_file_progress(server.env, entity)
 
 	files = await get_field(client, session_id, info_hash, "files")
 	assert [f["bytesCompleted"] for f in files] == [10000, 20000, 40000]

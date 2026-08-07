@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 from pathlib import Path
+from typing import Optional
 
 from yap_torrent.config import Config
 from yap_torrent.logs import setup_logger
@@ -9,7 +10,7 @@ from yap_torrent.logs import setup_logger
 logger = logging.getLogger()
 
 
-def run(config_path: str = None):
+def run(config_path: Optional[str] = None):
 	# allow several instances on one host, each with its own config (peer id + ports)
 	if config_path is None:
 		parser = argparse.ArgumentParser(prog="yap_torrent")

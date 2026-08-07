@@ -9,11 +9,14 @@ from yap_torrent.components.file_ec import (
 	FilePriority,
 	RestoreFileSelectionEC,
 	TorrentFileEC,
+	TorrentFileProgressEC,
 	TorrentFileStateEC,
 )
-from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentInfoEC, TorrentDownloadProgressEC
+from yap_torrent.components.piece_ec import PieceEC
+from yap_torrent.components.torrent_ec import SaveTorrentEC, TorrentInfoEC, TorrentDownloadProgressEC, TorrentEC
 from yap_torrent.protocol import InfoHash
-from yap_torrent.systems import get_info_hash, iterate_files, get_torrent_entity, compute_wanted_bitfield
+from yap_torrent.systems import get_info_hash, iterate_files, get_torrent_entity, \
+	compute_wanted_bitfield
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,7 @@ class FileSystem(System):
 		await super().start()
 		self.add_listener("request.file.select", self._on_file_select)
 		self.add_listener("action.torrent.remove", self._on_torrent_remove)
+		self.add_listener("piece.complete", self._on_piece_complete)
 
 		collection = self.env.data_storage.get_collection(TorrentInfoEC)
 		collection.add_listener(collection.EVENT_ADDED, self._on_info_added, self)
@@ -98,12 +102,23 @@ class FileSystem(System):
 			file_entity.add_component(
 				TorrentFileEC(info_hash, index, path, first_piece, pieces_length, file.start, file.length))
 			file_entity.add_component(TorrentFileStateEC(bool(wanted), priority))
+			file_entity.add_component(TorrentFileProgressEC(info.piece_length, file.length).update_progress(
+				torrent_entity.get_component(TorrentEC).bitfield,
+				file_entity.get_component(TorrentFileEC).wanted
+			))
 			count += 1
 
 		logger.info("Created %s file entities for %s", count, info_hash.hex())
 
 		torrent_entity.add_component(TorrentDownloadProgressEC(
 			compute_wanted_bitfield(self.env, info_hash, info)))
+
+	async def _on_piece_complete(self, torrent_entity: Entity, piece_entity: Entity) -> None:
+		index = piece_entity.get_component(PieceEC).info.index
+		for file_entity in iterate_files(self.env, get_info_hash(torrent_entity)):
+			file_ec = file_entity.get_component(TorrentFileEC)
+			if index in file_ec.wanted:
+				file_entity.get_component(TorrentFileProgressEC).increment_piece()
 
 	async def _on_torrent_remove(self, info_hash: bytes) -> None:
 		ds = self.env.data_storage

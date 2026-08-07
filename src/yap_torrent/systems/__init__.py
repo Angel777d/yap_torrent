@@ -5,7 +5,7 @@ from typing import Any, Optional, Dict, Generator, List, Set
 from angelovich.core.DataStorage import Entity
 
 from yap_torrent.components.common import IdleEC
-from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileStateEC
+from yap_torrent.components.file_ec import TorrentFileEC, TorrentFileProgressEC, TorrentFileStateEC
 from yap_torrent.components.peer_ec import PeerConnectionEC, PeerEC, PeerState, PeerStatsEC, PeerPendingRemoveEC
 from yap_torrent.components.torrent_ec import TorrentInfoEC, TorrentEC, TorrentCustomDataEC, TorrentIdEC, \
 	TorrentPathEC, TorrentStatsEC, SaveTorrentEC, ValidateTorrentEC, TorrentState, TorrentDownloadProgressEC, \
@@ -127,19 +127,19 @@ def add_known_peer(env: Env, info_hash: bytes, peer_info: PeerInfo) -> Entity:
 
 
 def compute_wanted_bitfield(env: Env, info_hash: InfoHash, info: TorrentInfo) -> Bitfield:
-	wanted = Bitfield()
+	result = set()
 	files = list(iterate_files(env, info_hash))
-	if not files:
-		for index in range(info.pieces_num):
-			wanted.set_index(index)
-		return wanted
+	if files:
+		for file_entity in files:
+			if not file_entity.get_component(TorrentFileStateEC).wanted:
+				continue
+			file_ec = file_entity.get_component(TorrentFileEC)
+			result.update(file_ec.wanted)
+	else:
+		result.update(range(info.pieces_num))
 
-	for file_entity in files:
-		if not file_entity.get_component(TorrentFileStateEC).wanted:
-			continue
-		file_ec = file_entity.get_component(TorrentFileEC)
-		for index in range(file_ec.first_piece, file_ec.first_piece + file_ec.pieces_length):
-			wanted.set_index(index)
+	wanted = Bitfield()
+	wanted.reset(result)
 	return wanted
 
 
@@ -149,7 +149,8 @@ def mark_for_save(torrent_entity: Entity) -> None:
 		torrent_entity.add_component(SaveTorrentEC())
 
 
-def get_custom_data(torrent_entity: Entity, plugin_name: str, default: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+def get_custom_data(torrent_entity: Entity, plugin_name: str, default: Optional[Dict[str, Any]] = None) -> Optional[
+	Dict[str, Any]]:
 	if not torrent_entity.has_component(TorrentCustomDataEC):
 		return default
 	return torrent_entity.get_component(TorrentCustomDataEC).data.get(plugin_name, default)
@@ -166,3 +167,18 @@ def iterate_files(env: Env, info_hash: bytes) -> Generator[Entity]:
 	for e in env.data_storage.get_collection(TorrentFileEC):
 		if e.get_component(TorrentFileEC).info_hash == info_hash:
 			yield e
+
+
+def recalculate_file_progress(env: Env, torrent_entity: Entity) -> None:
+	for file_entity in iterate_files(env, get_info_hash(torrent_entity)):
+		if file_entity.has_component(TorrentFileProgressEC):
+			file_entity.get_component(TorrentFileProgressEC).update_progress(
+				torrent_entity.get_component(TorrentEC).bitfield,
+				file_entity.get_component(TorrentFileEC).wanted
+			)
+
+
+def reset_file_progress(env: Env, torrent_entity: Entity) -> None:
+	for file_entity in iterate_files(env, get_info_hash(torrent_entity)):
+		if file_entity.has_component(TorrentFileProgressEC):
+			file_entity.get_component(TorrentFileProgressEC).reset()

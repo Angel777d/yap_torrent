@@ -11,7 +11,7 @@ from yap_torrent.components.torrent_ec import TorrentPathEC, ValidateTorrentEC, 
 	TorrentStatsEC, TorrentState
 from yap_torrent.env import Env
 from yap_torrent.protocol import TorrentInfo
-from yap_torrent.systems import calculate_downloaded, get_torrent_entity
+from yap_torrent.systems import calculate_downloaded, get_torrent_entity, recalculate_file_progress, reset_file_progress
 from yap_torrent.utils import check_hash, execute_in_pool
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ class ValidationSystem(System):
 					return
 
 				torrent_entity.get_component(TorrentEC).bitfield.reset(_task.result())
+				recalculate_file_progress(self.env, torrent_entity)
 
 				# save torrent to local data
 				torrent_entity.add_component(SaveTorrentEC())
@@ -73,6 +74,7 @@ class ValidationSystem(System):
 			logger.info(f"Validation start: {torrent_info.name}")
 
 			torrent_entity.get_component(TorrentEC).bitfield.reset(set())
+			reset_file_progress(self.env, torrent_entity)
 
 			task = asyncio.create_task(execute_in_pool(_check_torrent, torrent_info, download_path))
 			task.add_done_callback(reset_task)
