@@ -2,15 +2,44 @@ name: Publish YAP-Torrent app to PyPI
 
 on:
   push:
-    tags:
-      - app-v.*
+    branches:
+      - "release/**"
 
 permissions:
   contents: read
 
 jobs:
+  check:
+    name: Check whether the version is unpublished
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Compare pyproject version against PyPI
+        id: version
+        env:
+          PACKAGE: yap_torrent
+          PROJECT_DIR: .
+        run: |
+          version="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' "$PROJECT_DIR/pyproject.toml")"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/$PACKAGE/$version/json")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$status" in
+            404) echo "publish=true" >> "$GITHUB_OUTPUT"; echo "$PACKAGE $version is not on PyPI - publishing" ;;
+            200) echo "publish=false" >> "$GITHUB_OUTPUT"; echo "$PACKAGE $version is already on PyPI - nothing to do" ;;
+            *) echo "PyPI answered $status for $PACKAGE $version"; exit 1 ;;
+          esac
+
   release-build:
     name: Build distributions
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -55,3 +84,5 @@ jobs:
 
       - name: Publish release distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
