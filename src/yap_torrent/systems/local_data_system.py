@@ -132,7 +132,7 @@ def _export_file_selection(env: Env, torrent_entity: Entity) -> Dict[int, Tuple[
 	for file_entity in iterate_files(env, info_hash):
 		file_ec = file_entity.get_component(TorrentFileEC)
 		state = file_entity.get_component(TorrentFileStateEC)
-		selection[file_ec.index] = (state.wanted, state.priority.value)
+		selection[file_ec.index] = (state.is_wanted, state.priority.value)
 
 	return selection
 

@@ -54,8 +54,8 @@ class FileSystem(System):
 			if selected is not None and file_entity.get_component(TorrentFileEC).index not in selected:
 				continue
 			state = file_entity.get_component(TorrentFileStateEC)
-			if wanted is not None and state.wanted != bool(wanted):
-				state.wanted = bool(wanted)
+			if wanted is not None and state.is_wanted != bool(wanted):
+				state.is_wanted = bool(wanted)
 				changed = True
 			if priority is not None and state.priority != FilePriority(priority):
 				state.priority = FilePriority(priority)
@@ -104,7 +104,7 @@ class FileSystem(System):
 			file_entity.add_component(TorrentFileStateEC(bool(wanted), priority))
 			file_entity.add_component(TorrentFileProgressEC(info.piece_length, file.length).update_progress(
 				torrent_entity.get_component(TorrentEC).bitfield,
-				file_entity.get_component(TorrentFileEC).wanted
+				file_entity.get_component(TorrentFileEC).wanted_pieces
 			))
 			count += 1
 
@@ -117,7 +117,7 @@ class FileSystem(System):
 		index = piece_entity.get_component(PieceEC).info.index
 		for file_entity in iterate_files(self.env, get_info_hash(torrent_entity)):
 			file_ec = file_entity.get_component(TorrentFileEC)
-			if index in file_ec.wanted:
+			if index in file_ec.wanted_pieces:
 				file_entity.get_component(TorrentFileProgressEC).increment_piece()
 
 	async def _on_torrent_remove(self, info_hash: bytes) -> None:

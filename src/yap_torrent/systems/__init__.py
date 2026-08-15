@@ -131,10 +131,10 @@ def compute_wanted_bitfield(env: Env, info_hash: InfoHash, info: TorrentInfo) ->
 	files = list(iterate_files(env, info_hash))
 	if files:
 		for file_entity in files:
-			if not file_entity.get_component(TorrentFileStateEC).wanted:
+			if not file_entity.get_component(TorrentFileStateEC).is_wanted:
 				continue
 			file_ec = file_entity.get_component(TorrentFileEC)
-			result.update(file_ec.wanted)
+			result.update(file_ec.wanted_pieces)
 	else:
 		result.update(range(info.pieces_num))
 
@@ -174,7 +174,7 @@ def recalculate_file_progress(env: Env, torrent_entity: Entity) -> None:
 		if file_entity.has_component(TorrentFileProgressEC):
 			file_entity.get_component(TorrentFileProgressEC).update_progress(
 				torrent_entity.get_component(TorrentEC).bitfield,
-				file_entity.get_component(TorrentFileEC).wanted
+				file_entity.get_component(TorrentFileEC).wanted_pieces
 			)
 
 

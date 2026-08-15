@@ -248,7 +248,7 @@ async def scenario_partial_selection(work: Path) -> bool:
 	await settle([seeder, leecher], 3)
 	for file_entity in iterate_files(leecher.env, ih):
 		if file_entity.get_component(TorrentFileEC).index == 0:  # file a
-			file_entity.get_component(TorrentFileStateEC).wanted = False
+			file_entity.get_component(TorrentFileStateEC).is_wanted = False
 	# recompute the wanted mask from the new file selection (event-driven TorrentSystem
 	# only computes it on metadata-add, so a selection change must refresh it explicitly)
 	if leech.has_component(TorrentDownloadProgressEC):

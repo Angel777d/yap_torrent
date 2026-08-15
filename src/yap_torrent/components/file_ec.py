@@ -27,7 +27,7 @@ class TorrentFileEC(EntityComponent):
 		self.path: str = path
 		self.start: int = start
 		self.length: int = length
-		self.wanted: set = set(range(first_piece, first_piece + pieces_length))
+		self.wanted_pieces: set = set(range(first_piece, first_piece + pieces_length))
 
 
 class TorrentFileProgressEC(EntityComponent):
@@ -54,13 +54,13 @@ class TorrentFileProgressEC(EntityComponent):
 		self._bytes_completed = 0
 
 class TorrentFileStateEC(EntityComponent):
-	def __init__(self, wanted: bool = True, priority: int = 0) -> None:
+	def __init__(self, is_wanted: bool = True, priority: int = 0) -> None:
 		super().__init__()
-		self.wanted: bool = wanted
+		self.is_wanted: bool = is_wanted
 		self.priority: FilePriority = FilePriority(priority)
 
 	def serialize(self) -> Tuple[bool, int]:
-		return self.wanted, self.priority.value
+		return self.is_wanted, self.priority.value
 
 
 class RestoreFileSelectionEC(EntityComponent):

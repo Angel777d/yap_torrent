@@ -791,12 +791,13 @@ async def test_a_magnet_is_named_by_its_display_name(client):
 # core keeps the count on the file entity; these tests are about what the RPC reports from
 # it, not how it is arrived at. Setting the bitfield by hand skips the piece.complete that
 # would normally advance it, so they recount the way validation does.
-async def test_completed_bytes_are_counted_per_file_not_per_piece(client, server):
+async def test_completed_bytes_are_reported_per_file(client, server):
 	from yap_torrent.components.torrent_ec import TorrentEC
 	from yap_torrent.systems import get_torrent_entity, recalculate_file_progress
 
 	session_id = await handshake(client)
-	# a=10000 (piece 0), b=20000 (pieces 0..1), c=40000 (pieces 1..4) — boundaries shared
+	# a=10000 (piece 0), b=20000 (pieces 0..1), c=40000 (pieces 1..4) — b is credited the
+	# whole of the piece it shares with a
 	info = {
 		"name": b"t", "piece length": 16384, "pieces": b"\x00" * 20 * 5,
 		"files": [{"path": [b"a"], "length": 10000},
@@ -810,7 +811,7 @@ async def test_completed_bytes_are_counted_per_file_not_per_piece(client, server
 	recalculate_file_progress(server.env, entity)
 
 	files = await get_field(client, session_id, info_hash, "files")
-	assert [f["bytesCompleted"] for f in files] == [10000, 16384 - 10000, 0]
+	assert [f["bytesCompleted"] for f in files] == [10000, 16384, 0]
 
 
 async def test_a_complete_torrent_reports_every_file_whole(client, server):

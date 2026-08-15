@@ -122,8 +122,6 @@ def _files(entity: Entity, info: Optional[TorrentInfo], env: Env) -> List[Dict[s
 		result.append({
 			"name": file_ec.path,
 			"length": file_ec.length,
-			# exact rather than scaled from the overall percentage: the first and last
-			# piece of a file are shared with its neighbours
 			"bytesCompleted": file_bytes_completed(file_entity),
 		})
 	return result
@@ -137,7 +135,7 @@ def _file_stats(entity: Entity, info: Optional[TorrentInfo], env: Env) -> List[D
 		state = file_entity.get_component(TorrentFileStateEC)
 		result.append({
 			"bytesCompleted": file_bytes_completed(file_entity),
-			"wanted": state.wanted,
+			"wanted": state.is_wanted,
 			"priority": int(state.priority),
 		})
 	return result
@@ -204,7 +202,7 @@ def _progress(entity: Entity, info: Optional[TorrentInfo], env: Env) -> _Progres
 		done = file_bytes_completed(file_entity)
 		total_size += length
 		have_total += done
-		if file_entity.get_component(TorrentFileStateEC).wanted:
+		if file_entity.get_component(TorrentFileStateEC).is_wanted:
 			wanted_size += length
 			have_wanted += done
 	return _Progress(total_size, wanted_size, have_total, have_wanted)

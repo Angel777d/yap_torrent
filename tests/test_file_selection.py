@@ -5,7 +5,8 @@ it — and has to be announced, since interest is otherwise only re-derived when
 happens to say something.
 
 How far each file got is kept on the file entity: totalled once when the entity is built
-and advanced by each completed piece, so nothing has to walk a piece range to answer.
+and advanced by each completed piece, so nothing has to walk a piece range to answer. The
+count is approximate at file boundaries — only the UI reads it.
 """
 import asyncio
 import time
@@ -84,7 +85,7 @@ def test_deselecting_a_file_narrows_the_wanted_mask():
 		# drop file c (pieces 1..4); pieces 0..1 stay because a and b still want them
 		await system._on_file_select(get_info_hash(torrent), [2], wanted=False)
 
-		assert _by_index(env, torrent)[2].get_component(TorrentFileStateEC).wanted is False
+		assert _by_index(env, torrent)[2].get_component(TorrentFileStateEC).is_wanted is False
 		assert _wanted(torrent) == {0, 1}
 		assert torrent.has_component(SaveTorrentEC)  # a selection lost on restart is not a selection
 
@@ -117,7 +118,7 @@ def test_priority_can_be_set_without_touching_wanted():
 		assert files[0].get_component(TorrentFileStateEC).priority == FilePriority.High
 		assert files[1].get_component(TorrentFileStateEC).priority == FilePriority.High
 		assert files[2].get_component(TorrentFileStateEC).priority == FilePriority.Normal
-		assert all(f.get_component(TorrentFileStateEC).wanted for f in files.values())
+		assert all(f.get_component(TorrentFileStateEC).is_wanted for f in files.values())
 
 	asyncio.run(run())
 
@@ -166,8 +167,7 @@ def test_deselecting_the_last_wanted_file_releases_the_peer():
 
 
 # --- how far each file got --------------------------------------------------
-# every boundary piece is shared, so a file's count is the in-file part of each piece held,
-# never a share of the torrent's percentage
+# a boundary piece is credited whole to every file it touches, clamped to the file's length
 def _bytes(env, torrent):
 	files = _by_index(env, torrent)
 	return [files[index].get_component(TorrentFileProgressEC).bytes_completed for index in sorted(files)]
@@ -196,7 +196,7 @@ def test_a_new_file_counts_what_the_bitfield_already_holds():
 		torrent.get_component(TorrentEC).bitfield.set_index(0)
 		await asyncio.sleep(0)
 
-		assert _bytes(env, torrent) == [10000, PIECE_LEN - 10000, 0]
+		assert _bytes(env, torrent) == [10000, PIECE_LEN, 0]
 
 	asyncio.run(run())
 
@@ -208,10 +208,10 @@ def test_a_completed_piece_only_advances_the_files_it_covers():
 		assert _bytes(env, torrent) == [0, 0, 0]
 
 		await _complete_piece(env, system, torrent, 0)  # a whole, b started, c untouched
-		assert _bytes(env, torrent) == [10000, PIECE_LEN - 10000, 0]
+		assert _bytes(env, torrent) == [10000, PIECE_LEN, 0]
 
 		await _complete_piece(env, system, torrent, 1)  # b finished, c started
-		assert _bytes(env, torrent) == [10000, 20000, 2768]
+		assert _bytes(env, torrent) == [10000, 20000, PIECE_LEN]
 
 	asyncio.run(run())
 
@@ -240,7 +240,7 @@ def test_a_wholesale_bitfield_change_is_recounted():
 		torrent.get_component(TorrentEC).bitfield.reset({0})
 		recalculate_file_progress(env, torrent)
 
-		assert _bytes(env, torrent) == [10000, PIECE_LEN - 10000, 0]
+		assert _bytes(env, torrent) == [10000, PIECE_LEN, 0]
 
 	asyncio.run(run())
 
