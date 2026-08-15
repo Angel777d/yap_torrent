@@ -16,7 +16,7 @@ yap_torrent_transmission_rpc = 'yap_torrent_transmission_rpc'
 
 [project]
 name = "yap_torrent_transmission_rpc"
-version = "0.2.0"
+version = "0.3.0"
 description = "Transmission RPC server API and web interface for yap torrent"
 readme = { file = "README.md", content-type = "text/markdown" }
 
