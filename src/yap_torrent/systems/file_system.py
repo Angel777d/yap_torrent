@@ -122,5 +122,5 @@ class FileSystem(System):
 
 	async def _on_torrent_remove(self, info_hash: bytes) -> None:
 		ds = self.env.data_storage
-		for file_entity in list(iterate_files(self.env, info_hash)):
+		for file_entity in iterate_files(self.env, info_hash):
 			ds.remove_entity(file_entity)

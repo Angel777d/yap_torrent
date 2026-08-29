@@ -17,11 +17,12 @@ from yap_torrent.components.peer_ec import (
 	PeerRequestsEC,
 	RemoteUnchokedEC,
 )
+from yap_torrent.components.piece_ec import PieceEC
 from yap_torrent.config import Config
 from yap_torrent.env import Env
 from yap_torrent.protocol import bt_main_messages as msg, decode, encode
 from yap_torrent.protocol.message import Message
-from yap_torrent.protocol.structures import Metainfo, PeerInfo
+from yap_torrent.protocol.structures import Metainfo, PeerInfo, PieceInfo
 from yap_torrent.systems import add_known_peer, create_torrent_entity, get_info_hash
 from yap_torrent.systems.download_system import (
 	PIPELINE,
@@ -30,6 +31,7 @@ from yap_torrent.systems.download_system import (
 	_process_piece_message,
 	_request_from_peer,
 )
+from yap_torrent.systems.intrest_system import InterestedSystem
 
 PIECE_LENGTH = 16384 * 2  # two blocks per piece
 PIECES = 20  # 40 blocks — comfortably more than one pipeline, so endgame stays out of it
@@ -52,9 +54,12 @@ class _FakeConnection:
 	def __init__(self):
 		self.connection_time = time.monotonic()
 		self.sent = []
+		self.on_send = None
 
 	async def send(self, message):
 		self.sent.append(message)
+		if self.on_send:
+			self.on_send()
 
 	def close(self):
 		pass
@@ -77,6 +82,13 @@ def _peer(env: Env, torrent, port: int, in_queue: bool = True):
 	if in_queue:
 		entity.add_component(PeerRequestsEC())
 		entity.add_component(RemoteUnchokedEC())
+	return entity
+
+
+def _piece(env: Env, torrent, index: int):
+	entity = env.data_storage.create_entity()
+	entity.add_component(PieceEC(get_info_hash(torrent),
+	                             PieceInfo(size=PIECE_LENGTH, index=index, piece_hash=b"\x00" * 20)))
 	return entity
 
 
@@ -235,6 +247,52 @@ def test_a_repeated_unchoke_does_not_replace_the_pipeline():
 
 		await asyncio.gather(*env.event_bus.dispatch("peer.local.choked_changed", torrent, peer))
 		assert _pipeline(peer) == in_flight
+
+	asyncio.run(run())
+
+
+# --- the swarm may move while a completed piece is being announced ----------
+def test_a_peer_connecting_mid_announce_still_leaves_every_peer_told():
+	# the HAVE for a completed piece is sent to each connected peer in turn, with an await
+	# between them; a peer connecting in that window changes the connected-peer collection,
+	# and walking it live raised out of the piece.complete dispatch mid-broadcast
+	async def run():
+		env = _env()
+		torrent = _torrent(env)
+		first = _peer(env, torrent, 6801)
+		second = _peer(env, torrent, 6802)
+
+		system = InterestedSystem(env)
+		await system.start()
+
+		first.get_component(PeerConnectionEC).connection.on_send = lambda: _peer(env, torrent, 6803)
+
+		await asyncio.gather(*env.event_bus.dispatch("piece.complete", torrent, _piece(env, torrent, 0)))
+
+		have = msg.have(0)
+		assert have in first.get_component(PeerConnectionEC).connection.sent
+		assert have in second.get_component(PeerConnectionEC).connection.sent
+
+	asyncio.run(run())
+
+
+def test_a_peer_dropping_mid_announce_does_not_break_the_broadcast():
+	async def run():
+		env = _env()
+		torrent = _torrent(env)
+		first = _peer(env, torrent, 6801)
+		second = _peer(env, torrent, 6802)
+		third = _peer(env, torrent, 6803)
+
+		system = InterestedSystem(env)
+		await system.start()
+
+		# what PeerSystem._process_disconnected leaves behind for a peer torn down mid-tick
+		first.get_component(PeerConnectionEC).connection.on_send = lambda: second.remove_component(PeerConnectionEC)
+
+		await asyncio.gather(*env.event_bus.dispatch("piece.complete", torrent, _piece(env, torrent, 0)))
+
+		assert msg.have(0) in third.get_component(PeerConnectionEC).connection.sent
 
 	asyncio.run(run())
 

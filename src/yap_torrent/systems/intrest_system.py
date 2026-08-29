@@ -35,7 +35,7 @@ class InterestedSystem(System):
 
 	async def __on_files_changed(self, torrent_entity: Entity):
 		"""The wanted mask moved; re-derive interest across the torrent's peers."""
-		for peer_entity in list(iterate_connected_peers(self.env, get_info_hash(torrent_entity))):
+		for peer_entity in iterate_connected_peers(self.env, get_info_hash(torrent_entity)):
 			await self.__update_local_interested(torrent_entity, peer_entity)
 		await self.__refill_download_slots()
 
@@ -54,6 +54,8 @@ class InterestedSystem(System):
 		index = piece_entity.get_component(PieceEC).info.index
 
 		for peer_entity in iterate_connected_peers(self.env, info_hash):
+			if not peer_entity.has_component(PeerConnectionEC):
+				continue  # dropped while an earlier peer's HAVE was in flight
 			await peer_entity.get_component(PeerConnectionEC).send(msg.have(index))
 			await self.__update_local_interested(torrent_entity, peer_entity)
 
@@ -67,7 +69,7 @@ class InterestedSystem(System):
 		for torrent_entity in iterate_torrents_in_queue_order(self.env):
 			if not torrent_entity.has_component(TorrentInfoEC):
 				continue
-			for peer_entity in list(iterate_connected_peers(self.env, get_info_hash(torrent_entity))):
+			for peer_entity in iterate_connected_peers(self.env, get_info_hash(torrent_entity)):
 				if peer_entity.has_component(LocalInterestedEC) or peer_entity.has_component(PeerDisconnectedEC):
 					continue
 				await self.__update_local_interested(torrent_entity, peer_entity)
@@ -104,6 +106,8 @@ class InterestedSystem(System):
 
 	async def __update_local_interested(self, torrent_entity: Entity, peer_entity: Entity):
 		if not torrent_entity.has_component(TorrentInfoEC):
+			return
+		if not peer_entity.has_component(PeerConnectionEC):
 			return
 		remote_bitfield = peer_entity.get_component(PeerEC).remote_bitfield
 		want = len(interested_pieces(torrent_entity, remote_bitfield)) > 0

@@ -86,15 +86,13 @@ def get_torrent_name(entity: Entity):
 
 
 def iterate_connected_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
-	"""Iterate the *connected* peer entities of a torrent (have PeerConnectionEC)."""
-	for e in env.data_storage.get_collection(PeerConnectionEC):
+	for e in env.data_storage.get_collection(PeerConnectionEC).entities:
 		if e.get_component(PeerEC).info_hash == info_hash:
 			yield e
 
 
 def iterate_peers(env: Env, info_hash: bytes) -> Generator[Entity]:
-	"""Iterate all known peer entities of a torrent (have PeerEC), connected or not."""
-	for e in env.data_storage.get_collection(PeerEC):
+	for e in env.data_storage.get_collection(PeerEC).entities:
 		if e.has_component(PeerPendingRemoveEC):
 			continue
 		if e.get_component(PeerEC).info_hash == info_hash:
@@ -164,7 +162,7 @@ def set_custom_data(torrent_entity: Entity, plugin_name: str, value: Dict[str, A
 
 
 def iterate_files(env: Env, info_hash: bytes) -> Generator[Entity]:
-	for e in env.data_storage.get_collection(TorrentFileEC):
+	for e in env.data_storage.get_collection(TorrentFileEC).entities:
 		if e.get_component(TorrentFileEC).info_hash == info_hash:
 			yield e
 

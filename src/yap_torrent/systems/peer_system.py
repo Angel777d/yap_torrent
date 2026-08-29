@@ -300,7 +300,7 @@ class PeerSystem(System):
 		_disconnect_peers(iterate_connected_peers(self.env, info_hash))
 
 	async def _on_torrent_remove(self, info_hash: bytes):
-		for peer_entity in list(iterate_peers(self.env, info_hash)):
+		for peer_entity in iterate_peers(self.env, info_hash):
 			_mark_to_remove(peer_entity)
 
 	async def _on_peers_update(self, info_hash: bytes, peers: Iterable[PeerInfo]):

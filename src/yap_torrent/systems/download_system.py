@@ -257,6 +257,8 @@ def _fill_peers(env: Env, torrent_entity: Entity, skip: Optional[Entity] = None)
 async def _cancel_on_others(peers: Iterable[Entity], index: int, begin: Optional[int] = None) -> None:
 	"""CANCEL the redundant endgame copies of a block — or of a whole piece, if no begin."""
 	for other in peers:
+		if not other.has_component(PeerRequestsEC) or not other.has_component(PeerConnectionEC):
+			continue  # left the queue while an earlier CANCEL was in flight
 		other_requests = other.get_component(PeerRequestsEC)
 		other_conn = other.get_component(PeerConnectionEC)
 		for pending in other_requests.for_piece(index):
