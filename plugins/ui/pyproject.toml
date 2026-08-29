@@ -33,7 +33,7 @@ classifiers = [
 ]
 dependencies = [
     "textual",
-    "yap_torrent",
+    "yap_torrent>=0.3.0",
     "angelovich.core>=0.2.0",
 ]
 
